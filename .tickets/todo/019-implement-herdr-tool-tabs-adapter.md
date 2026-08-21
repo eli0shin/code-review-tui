@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 015-implement-strict-review-configuration
+Blocked-By: []
 ---
 
 ## Goal
