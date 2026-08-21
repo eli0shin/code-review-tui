@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 024-replace-review-session-machinery-with-page-owned-loading
+Blocked-By: []
 ---
 
 ## Goal
