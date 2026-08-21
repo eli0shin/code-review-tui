@@ -480,6 +480,9 @@ function normalizeKeyDescriptor(descriptor: string): string {
   } else if (/^ctrl\+alt\+shift\+[a-z]$/.test(event)) {
     event = event.replace('ctrl+alt+shift+', 'ctrl+alt+');
   }
+  if (event.endsWith('shift+space')) {
+    event = event.replace('shift+space', 'space');
+  }
 
   if (event === 'ctrl+h') return 'backspace';
   if (event === 'ctrl+i') return 'tab';

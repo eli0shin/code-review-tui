@@ -370,6 +370,26 @@ describe('Review configuration contract', () => {
     expect(failure.problem).toContain('openDiff');
     expect(failure.problem).toContain('quit');
   });
+
+  test('reports shifted space aliases on conventional terminals', async () => {
+    const { file, environment } = await makeEnvironment();
+    await writeConfiguration(file, {
+      ...completeConfiguration,
+      keyBindings: {
+        selectPrevious: ['space'],
+        quit: ['shift+space'],
+      },
+    });
+
+    const failure = expectFailure(
+      await loadReviewConfiguration(environment),
+      file,
+      'keyBindings.quit',
+      /collision/i
+    );
+    expect(failure.problem).toContain('selectPrevious');
+    expect(failure.problem).toContain('quit');
+  });
 });
 
 describe('updater-only configuration', () => {
