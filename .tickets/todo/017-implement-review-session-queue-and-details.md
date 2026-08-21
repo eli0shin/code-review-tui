@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 016-implement-github-cli-data-adapter
+Blocked-By: []
 ---
 
 ## Goal
