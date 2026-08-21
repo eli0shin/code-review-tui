@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 008-choose-the-tool-switching-model
+Blocked-By: []
 ---
 
 ## Question

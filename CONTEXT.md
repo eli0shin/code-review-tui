@@ -13,3 +13,11 @@ _Avoid_: Review Prompt, Pi command
 **Review Submission**:
 A GitHub pull request review with a message and one decision: comment, approve, or request changes.
 _Avoid_: Inline comment
+
+**Review Queue Tab**:
+The Herdr tab that contains the Review Queue and receives focus when a launched review tool exits.
+_Avoid_: Parent tab, caller tab
+
+**Tool Tab**:
+A Herdr tab that runs one Lumen or Review Command process for a selected pull request.
+_Avoid_: Cab, embedded terminal
