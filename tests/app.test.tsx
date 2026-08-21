@@ -379,7 +379,7 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('keeps a small-terminal refresh failure separate from scrolled rows', async () => {
+  test('keeps a long refresh failure focused while its binding can retry', async () => {
     const queue = Array.from({ length: 6 }, (_, index) => ({
       ...pullRequest,
       url: `https://github.com/acme/widgets/pull/${index + 7}`,
@@ -387,20 +387,21 @@ describe('Review Queue page loading', () => {
       title: `Queue item ${index + 7}`,
     }));
     let loadCount = 0;
+    const loadReviewQueue = jest.fn(async () => {
+      loadCount += 1;
+      if (loadCount === 1 || loadCount === 3) return success(queue);
+      return {
+        ok: false,
+        failure: {
+          kind: 'exit',
+          operation: 'reviewQueue',
+          exitCode: 1,
+          stderr: `stderr-one\nstderr-two\nstderr-three\nstderr-four\nstderr-five\nstderr-six\nstderr-seven\nstderr-eight-${'x'.repeat(100)}-queue-tail`,
+        },
+      } as const;
+    });
     const github = {
-      async loadReviewQueue() {
-        loadCount += 1;
-        if (loadCount === 1) return success(queue);
-        return {
-          ok: false,
-          failure: {
-            kind: 'exit',
-            operation: 'reviewQueue',
-            exitCode: 1,
-            stderr: `stderr-one\nstderr-two\nstderr-three\nstderr-four\nstderr-five\nstderr-six\nstderr-seven\nstderr-eight-${'x'.repeat(100)}-queue-tail`,
-          },
-        } as const;
-      },
+      loadReviewQueue,
       loadPullRequestDetails: jest.fn(async (url: string) => {
         const request = queue.find((item) => item.url === url);
         if (request === undefined) throw new Error('Unknown pull request');
@@ -412,18 +413,24 @@ describe('Review Queue page loading', () => {
         throw new Error('Review Submission is not part of this page test');
       },
     } satisfies GitHub;
-    const view = await testRender(reviewQueuePage(github), {
-      width: 100,
-      height: 16,
-      kittyKeyboard: true,
-    });
+    const view = await testRender(
+      reviewQueuePage(github, unusedHerdr, {
+        ...defaultKeyBindings,
+        refresh: ['f5'],
+      }),
+      {
+        width: 100,
+        height: 16,
+        kittyKeyboard: true,
+      }
+    );
     await view.waitForFrame((frame) => frame.includes('Details #7'));
     for (let index = 0; index < 5; index += 1) {
       await act(async () => view.mockInput.pressKey('j'));
     }
     await view.waitForFrame((frame) => frame.includes('Details #12'));
 
-    await act(async () => view.mockInput.pressKey('r'));
+    await act(async () => view.mockInput.pressKey('F5'));
     const failedFrame = await view.waitForFrame((frame) =>
       frame.includes('Review Queue not refreshed')
     );
@@ -436,13 +443,11 @@ describe('Review Queue page loading', () => {
 
     await act(async () => view.mockInput.pressKey('END'));
     await view.waitForFrame((frame) => frame.includes('queue-tail'));
-    await act(async () => {
-      view.mockInput.pressEscape();
-      await Promise.resolve();
-    });
+    await act(async () => view.mockInput.pressKey('F5'));
     await view.waitForFrame(
       (frame) => !frame.includes('PgUp/PgDn page Home/End Esc return')
     );
+    expect(loadReviewQueue).toHaveBeenCalledTimes(3);
     await act(async () => view.mockInput.pressKey('k'));
     await view.waitForFrame((frame) => frame.includes('Details #11'));
     view.renderer.destroy();
@@ -592,14 +597,19 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('shows stderr with malformed-data diagnostics', async () => {
+  test('keeps short failures inline and lets the queue retry', async () => {
     const queueLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    let loadCount = 0;
+    const loadReviewQueue = jest.fn(() => {
+      loadCount += 1;
+      return loadCount === 1
+        ? queueLoad.promise
+        : Promise.resolve(success([pullRequest]));
+    });
     const github = {
-      loadReviewQueue() {
-        return queueLoad.promise;
-      },
+      loadReviewQueue,
       async loadPullRequestDetails() {
-        throw new Error('No pull request is highlighted');
+        return success(pullRequestDetails('Details #7'));
       },
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
@@ -626,6 +636,12 @@ describe('Review Queue page loading', () => {
     );
     expect(frame).toContain('GitHub CLI returned malformed JSON');
     expect(frame).toContain('gh warning: repair authentication');
+    expect(frame).not.toContain('PgUp/PgDn page Home/End Esc return');
+    await act(async () => view.mockInput.pressKey('r'));
+    await view.waitForFrame((renderedFrame) =>
+      renderedFrame.includes('Details #7')
+    );
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
       value: false,

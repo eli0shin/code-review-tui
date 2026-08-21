@@ -152,6 +152,7 @@ function ReviewQueue({
 
   const activeFailure =
     queueQuery.error !== null &&
+    requiresFailureOverlay(failureMessage(queueQuery.error)) &&
     githubFailureKey(queueQuery.error) !== dismissedFailureKey
       ? {
           key: githubFailureKey(queueQuery.error),
@@ -162,6 +163,7 @@ function ReviewQueue({
           message: failureMessage(queueQuery.error),
         }
       : detailsQuery.error !== null &&
+          requiresFailureOverlay(failureMessage(detailsQuery.error)) &&
           githubFailureKey(detailsQuery.error) !== dismissedFailureKey
         ? {
             key: githubFailureKey(detailsQuery.error),
@@ -238,7 +240,9 @@ function ReviewQueue({
       key.preventDefault();
       key.stopPropagation();
       const viewer = failureViewerRef.current;
-      if (key.name === 'escape') {
+      if (queueActionForKey(key, keyBindings) === 'refresh') {
+        void queueQuery.refetch();
+      } else if (key.name === 'escape') {
         setDismissedFailureKey(activeFailure.key);
       } else if (key.name === 'up') viewer?.scrollBy(-1, 'step');
       else if (key.name === 'down') viewer?.scrollBy(1, 'step');
@@ -974,6 +978,11 @@ function herdrFailureMessage(failure: HerdrFailure): string {
       ? failure.message
       : `${failure.message} (exit code ${failure.exitCode})`;
   return message;
+}
+
+function requiresFailureOverlay(message: string): boolean {
+  const lines = message.split('\n');
+  return lines.length > 3 || lines.some((line) => line.length > 70);
 }
 
 function githubFailureKey(failure: GitHubFailure): string {
