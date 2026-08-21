@@ -566,6 +566,23 @@ describe('Review Submission', () => {
     );
     await act(async () => view.mockInput.pressArrow('right'));
     await view.waitForFrame((frame) => frame.includes('[x] Discard'));
+    await act(view.mockInput.pressEscape);
+    await view.waitForFrame((frame) => frame.includes('Draft'));
+
+    await act(view.mockInput.pressEscape);
+    const reopenedConfirmation = await view.waitForFrame((frame) =>
+      frame.includes('Discard this Review Submission?')
+    );
+    expect(reopenedConfirmation).toContain('[x] Keep editing');
+    await act(view.mockInput.pressEnter);
+    await view.waitForFrame((frame) => frame.includes('Draft'));
+
+    await act(view.mockInput.pressEscape);
+    await view.waitForFrame((frame) =>
+      frame.includes('Discard this Review Submission?')
+    );
+    await act(async () => view.mockInput.pressArrow('right'));
+    await view.waitForFrame((frame) => frame.includes('[x] Discard'));
     await act(view.mockInput.pressEnter);
     const discarded = await view.waitForFrame(
       (frame) => !frame.includes('Review acme/widgets #7')

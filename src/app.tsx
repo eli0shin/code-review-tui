@@ -169,8 +169,13 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
         key.preventDefault();
         key.stopPropagation();
         const changed = draft.message !== '' || draft.decision !== 'comment';
-        if (changed) setDraft({ ...draft, confirmation: true });
-        else setDraft(undefined);
+        if (changed) {
+          setDraft({
+            ...draft,
+            confirmation: true,
+            confirmationChoice: 'keepEditing',
+          });
+        } else setDraft(undefined);
         return;
       }
       if (key.name === 'tab') {
@@ -294,8 +299,13 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
                   key.stopPropagation();
                   const changed =
                     draft.message !== '' || draft.decision !== 'comment';
-                  if (changed) setDraft({ ...draft, confirmation: true });
-                  else setDraft(undefined);
+                  if (changed) {
+                    setDraft({
+                      ...draft,
+                      confirmation: true,
+                      confirmationChoice: 'keepEditing',
+                    });
+                  } else setDraft(undefined);
                 }}
               />
               <text>
