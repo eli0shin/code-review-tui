@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 019-implement-herdr-tool-tabs-adapter
+Blocked-By: []
 ---
 
 ## Goal
