@@ -88,7 +88,7 @@ A Tool Tab can continue to run and produce output while unfocused. Returning to 
 
 Subscribe to `pane.created`, `pane.exited`, `pane.closed`, `pane.moved`, `tab.closed`, `tab.moved`, and `workspace.closed`. Track known tool panes and the Review Queue pane by current resource IDs and use stable terminal IDs to reconcile their pane, tab, and workspace IDs through snapshots. Duplicate or replayed events must not produce duplicate completion.
 
-Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Update the saved return target when a move event or snapshot finds the Review Queue pane in a new container. Exit only when snapshot reconciliation confirms that the Review Queue pane is absent.
+Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Update the saved return target when a move event or snapshot finds the Review Queue pane in a new container. When snapshot reconciliation confirms that the Review Queue pane is absent, disable launches and emit one Review Queue closed notice so the runtime can exit.
 
 An ordinary exit observation is a `pane.exited` event that arrives while the subscription has remained connected and matches the current pane ID of an owned tool. On this event, mark the tool ended and make one best-effort `pane.focus` request for the saved Review Queue pane. Do not inspect or wait for focus events first, and do not retry focus only because another focus event races with the request. This attempt can override a nearly simultaneous user focus choice or lose to it. The application does not promise race-free focus restoration and does not chase event-ordering edge cases.
 

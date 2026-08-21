@@ -10,7 +10,10 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHerdrToolTabs } from '../src/tools/herdr-adapter.ts';
+import {
+  createHerdrToolTabs,
+  HerdrStartupError,
+} from '../src/tools/herdr-adapter.ts';
 import type { PullRequestSummary } from '../src/domain/pull-request.ts';
 
 const pullRequest: PullRequestSummary = {
@@ -45,6 +48,15 @@ describe('Herdr Tool Tabs adapter contract', () => {
         herdrEnvironment: {},
       })
     ).rejects.toThrow('Start Herdr');
+  });
+
+  test('reports an actionable Herdr startup error when event subscription fails', async () => {
+    ({ directory, server } = await startFake());
+    server.rejectSubscriptions = true;
+
+    const startup = createTools(directory, server);
+    await expect(startup).rejects.toBeInstanceOf(HerdrStartupError);
+    await expect(startup).rejects.toThrow('Start Herdr');
   });
 
   test('launches an opaque Review Command as one direct-process Tool Tab', async () => {
@@ -207,6 +219,35 @@ describe('Herdr Tool Tabs adapter contract', () => {
     await tools.shutdown('quit');
   });
 
+  test('disables launches and reports confirmed Review Queue pane closure', async () => {
+    ({ directory, server } = await startFake());
+    const tools = await createTools(directory, server);
+    const snapshotCount = server.requests.filter(
+      (request) => request.method === 'session.snapshot'
+    ).length;
+
+    server.closeReviewQueuePane();
+    await waitFor(
+      () =>
+        server!.requests.filter(
+          (request) => request.method === 'session.snapshot'
+        ).length > snapshotCount
+    );
+    const notices: unknown[] = [];
+    tools.subscribe((notice) => notices.push(notice));
+
+    expect(
+      await tools.launch({ kind: 'reviewCommand', pullRequest })
+    ).toMatchObject({
+      phase: 'rejected',
+      failure: { kind: 'precondition' },
+    });
+    expect(notices).toContainEqual({
+      type: 'reviewQueueClosed',
+      message: 'The Review Queue pane no longer exists in Herdr.',
+    });
+  });
+
   test('reports an uncertain launch, requires acknowledgement, and keeps watching for ownership', async () => {
     ({ directory, server } = await startFake());
     server.disconnectNextLayout = true;
@@ -256,6 +297,7 @@ class FakeHerdr {
   readonly requests: Request[] = [];
   readonly socketPath: string;
   disconnectNextLayout = false;
+  rejectSubscriptions = false;
   readonly #server: Server;
   readonly #sockets = new Set<Socket>();
   readonly #subscriptions = new Set<Socket>();
@@ -298,6 +340,12 @@ class FakeHerdr {
       return;
     }
     if (request.method === 'events.subscribe') {
+      if (this.rejectSubscriptions) {
+        socket.write(
+          `${JSON.stringify({ id: request.id, error: { code: 'subscription_failed', message: 'subscription unavailable' } })}\n`
+        );
+        return;
+      }
       this.#subscriptions.add(socket);
       this.reply(socket, request.id, { type: 'subscription_started' });
       return;
@@ -387,6 +435,15 @@ class FakeHerdr {
     const created = { ...pane(paneId, terminalId, tabId), label };
     this.#panes.set(paneId, created);
     this.emit('pane_created', { type: 'pane_created', pane: created });
+  }
+
+  closeReviewQueuePane(): void {
+    this.#panes.delete('w1:p1');
+    this.emit('pane_closed', {
+      type: 'pane_closed',
+      pane_id: 'w1:p1',
+      workspace_id: 'w1',
+    });
   }
 
   disconnectSubscriptions(): void {

@@ -112,6 +112,8 @@ class HerdrToolTabs implements ToolTabs {
   #subscription?: Socket;
   #subscriptionConnected = false;
   #ordinaryEventsEnabled = false;
+  #reviewQueueClosed = false;
+  #reviewQueueClosedNoticeDelivered = false;
   #stopping = false;
   #launchesAllowed = true;
   #requestNumber = 0;
@@ -176,11 +178,21 @@ class HerdrToolTabs implements ToolTabs {
       );
     }
     this.#queue = resourceOf(queuePane);
-    await this.#connectSubscription(true);
+    try {
+      await this.#connectSubscription(true);
+    } catch (error) {
+      throw new HerdrStartupError(
+        `Herdr v${HERDR_VERSION} is required. Start Herdr, then run review inside a Herdr pane. ${diagnostic(error)}`
+      );
+    }
   }
 
   subscribe(listener: (notice: ToolNotice) => void): () => void {
     this.#listeners.add(listener);
+    if (this.#reviewQueueClosed && !this.#reviewQueueClosedNoticeDelivered) {
+      listener(reviewQueueClosedNotice());
+      this.#reviewQueueClosedNoticeDelivered = true;
+    }
     return () => this.#listeners.delete(listener);
   }
 
@@ -577,6 +589,7 @@ class HerdrToolTabs implements ToolTabs {
   #refreshLaunchInterlock(): void {
     this.#launchesAllowed =
       !this.#stopping &&
+      !this.#reviewQueueClosed &&
       this.#subscriptionConnected &&
       ![...this.#tools.values()].some(
         (tool) => tool.phase === 'indeterminate' && !tool.acknowledged
@@ -607,7 +620,16 @@ class HerdrToolTabs implements ToolTabs {
     const queue = snapshot.panes.find(
       (pane) => pane.terminal_id === this.#queue.terminalId
     );
-    if (queue) this.#queue = resourceOf(queue);
+    if (queue) {
+      this.#queue = resourceOf(queue);
+    } else if (!this.#reviewQueueClosed) {
+      this.#reviewQueueClosed = true;
+      this.#launchesAllowed = false;
+      if (this.#listeners.size > 0) {
+        this.#emit(reviewQueueClosedNotice());
+        this.#reviewQueueClosedNoticeDelivered = true;
+      }
+    }
     for (const tool of this.#tools.values()) {
       if (!tool.resource) {
         const matching = snapshot.panes.find(
@@ -832,6 +854,13 @@ function toolLabel(
 ): string {
   const name = kind === 'lumen' ? 'Lumen' : 'Review Command';
   return `${name} ${pullRequest.repository}#${pullRequest.number} ${toolId}`;
+}
+
+function reviewQueueClosedNotice(): ToolNotice {
+  return {
+    type: 'reviewQueueClosed',
+    message: 'The Review Queue pane no longer exists in Herdr.',
+  };
 }
 
 function rejected(

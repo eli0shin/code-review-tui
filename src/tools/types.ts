@@ -34,7 +34,8 @@ export type ToolNotice =
       readonly message: string;
     }
   | {
-      readonly type: 'lifecycleDegraded' | 'lifecycleRestored';
+      readonly type:
+        'lifecycleDegraded' | 'lifecycleRestored' | 'reviewQueueClosed';
       readonly message: string;
     }
   | {
