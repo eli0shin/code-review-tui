@@ -43,6 +43,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 
 ## Implementation path
 
+- [Remove Herdr lifecycle machinery](025-remove-herdr-lifecycle-machinery.md) before any remaining feature work.
 - [Implement strict Review configuration](../done/015-implement-strict-review-configuration.md).
 - [Implement the GitHub CLI data adapter](../done/016-implement-github-cli-data-adapter.md).
 - Implement Review Queue and detail queries with TanStack React Query and one numeric Cursor in the OpenTUI page; ticket 024 replaces the rejected merged implementation.

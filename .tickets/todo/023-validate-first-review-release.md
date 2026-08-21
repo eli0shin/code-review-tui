@@ -6,6 +6,7 @@ Tags:
 Parent: 001-build-the-review-cli
 Blocked-By:
   - 022-compose-review-startup-shutdown-and-smoke-tests
+  - 025-remove-herdr-lifecycle-machinery
 ---
 
 ## Goal

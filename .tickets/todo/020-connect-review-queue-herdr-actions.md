@@ -4,7 +4,8 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By: []
+Blocked-By:
+  - 025-remove-herdr-lifecycle-machinery
 ---
 
 ## Goal
