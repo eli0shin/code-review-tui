@@ -4,7 +4,7 @@
 
 Build `review` around one deep application module, `ReviewSession`. Its interface is the test surface for Review Queue behavior. Put true external dependencies behind two ports: `GitHub` and `ToolTabs`. Use production adapters for GitHub CLI and Herdr, and in-memory adapters in application tests.
 
-Keep configuration, OpenTUI presentation, and release operations outside `ReviewSession`. The executable entry point is the composition root. It reads configuration, verifies Herdr, creates adapters, creates the session, and mounts the presentation.
+Keep configuration, OpenTUI presentation, and release operations outside `ReviewSession`. The executable entry point is the composition root. It routes search tokens to the GitHub adapter, the Review Command to the Tool Tabs adapter, effective key bindings to presentation, and updater settings to release behavior. It then creates `ReviewSession` with only the two configured ports.
 
 This shape keeps these concerns separate:
 
@@ -121,7 +121,7 @@ The GitHub CLI adapter hides:
 
 The adapter starts `gh` directly from `PATH`, without a shell. It inherits the environment and does not read or set GitHub authentication values. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
 
-`ReviewSession` depends on this port. Its tests use an in-memory adapter with controllable promises. GitHub CLI adapter tests put a recording `gh` executable first in `PATH`; this verifies the process seam without a shallow spawn-wrapper interface.
+Construct the production adapter with the tokenized GitHub search from configuration. `ReviewSession` depends on the resulting port and does not receive the search or other configuration. Its tests use an in-memory adapter with controllable promises. GitHub CLI adapter tests put a recording `gh` executable first in `PATH`; this verifies the process seam without a shallow spawn-wrapper interface.
 
 ### 3. Tool Tabs
 
@@ -197,7 +197,7 @@ interface ReviewSession {
 }
 ```
 
-Create it with the `GitHub` port, `ToolTabs` port, and validated configuration. `dispatch` accepts semantic actions such as select next, refresh, open Lumen, open the Review Command, acknowledge an indeterminate tool launch, open or edit a Review Submission, submit, cancel, confirm discard, and quit. It does not accept raw terminal key events.
+Create it only with the configured `GitHub` and `ToolTabs` ports. It does not receive configuration. `dispatch` accepts semantic actions such as select next, refresh, open Lumen, open the Review Command, acknowledge an indeterminate tool launch, open or edit a Review Submission, submit, cancel, confirm discard, and quit. It does not accept raw terminal key events.
 
 `ReviewSnapshot` is immutable presentation data. It includes:
 
@@ -207,8 +207,7 @@ Create it with the `GitHub` port, `ToolTabs` port, and validated configuration. 
 - Review Submission modal state;
 - operation notices and failures;
 - tool launch notices;
-- shutdown state;
-- effective controls needed by help and modal footers.
+- shutdown state.
 
 The module hides all state transitions and operation coordination:
 
@@ -259,11 +258,12 @@ Use OpenTUI's test renderer to test key-to-action mapping, modal input ownership
 The composition root performs this order for the TUI command:
 
 1. load and validate complete TUI configuration;
-2. validate and connect the Herdr adapter;
-3. create the GitHub CLI adapter;
-4. create `ReviewSession` and subscribe to tool notices;
-5. create the OpenTUI renderer and mount presentation;
-6. start the session, which starts the initial Review Queue load.
+2. route updater settings to release behavior;
+3. validate Herdr and create the Tool Tabs adapter with the exact Review Command;
+4. create the GitHub CLI adapter with the tokenized search;
+5. create `ReviewSession` with only the `GitHub` and `ToolTabs` ports;
+6. create the OpenTUI renderer and mount presentation with the effective key bindings;
+7. start the session, which starts the initial Review Queue load.
 
 A failure before mounting prints one actionable startup error and exits nonzero. It does not start later dependencies.
 
