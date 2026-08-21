@@ -124,7 +124,7 @@ describe('Review configuration contract', () => {
         reviewCommand,
         keyBindings: {
           selectPrevious: ['k', 'up'],
-          selectNext: ['alt+enter'],
+          selectNext: ['ctrl+alt+j'],
           openDiff: ['shift+a'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
@@ -312,6 +312,27 @@ describe('Review configuration contract', () => {
       'keyBindings.openDiff',
       /same terminal key/i
     );
+  });
+
+  test('keeps line feed distinct from Enter with and without Alt', async () => {
+    const { file, environment } = await makeEnvironment();
+    await writeConfiguration(file, {
+      ...completeConfiguration,
+      keyBindings: {
+        selectPrevious: ['enter'],
+        selectNext: ['ctrl+j'],
+        openDiff: ['alt+enter'],
+        runReviewCommand: ['ctrl+alt+j'],
+      },
+    });
+
+    const result = await loadReviewConfiguration(environment);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Expected valid configuration');
+    expect(result.value.keyBindings.selectPrevious).toEqual(['enter']);
+    expect(result.value.keyBindings.selectNext).toEqual(['ctrl+j']);
+    expect(result.value.keyBindings.openDiff).toEqual(['alt+enter']);
+    expect(result.value.keyBindings.runReviewCommand).toEqual(['ctrl+alt+j']);
   });
 
   test('reports control-character aliases assigned to different actions', async () => {
