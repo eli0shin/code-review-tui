@@ -52,7 +52,7 @@ The tokenizer has three states: unquoted, single-quoted, and double-quoted.
 3. A double quote starts or ends double-quoted text. Every character inside it is literal except the closing double quote and backslash.
 4. Outside single quotes, backslash removes the special meaning of the next character and adds that character literally.
 5. Quoted and unquoted segments with no separator between them form one argument. An empty quoted segment creates an empty argument.
-6. An unclosed quote or final backslash is an error. A query that produces no arguments is an error.
+6. An unclosed quote or final backslash is an error. A query that produces no arguments or no nonempty argument is an error. Thus, `""`, `''`, and combinations of only empty quoted arguments are invalid.
 7. The tokenizer does not expand environment variables, commands, tildes, globs, redirections, or operators. Characters such as `$`, `*`, `>`, `|`, `(`, and `)` are ordinary query characters.
 
 Examples:
