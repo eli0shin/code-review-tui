@@ -13,6 +13,7 @@ At TUI startup, require all of these conditions:
 - `HERDR_ENV=1`;
 - nonblank `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` values injected by Herdr;
 - a reachable Herdr socket whose protocol supports `session.snapshot`, `layout.apply`, `pane.get`, `pane.focus`, `pane.close`, and event subscriptions;
+- an immutable client launch token accepted by `layout.apply`, attached to the created pane across rename and movement, and exposed by `pane.get` and snapshots;
 - one global monotonic event sequence, a snapshot cursor that identifies the last event reflected in that snapshot, and subscription resume after a supplied cursor;
 - `pane.exited` data that identifies whether its pane owned focus immediately before exit, focus-event data that distinguishes a user focus choice from Herdr's lifecycle fallback, and an atomic conditional `pane.focus` that rejects the request if a user focus choice occurred after a supplied cursor; and
 - a snapshot in which the supplied workspace, Review Queue Tab, and Review Queue pane exist and have the stated relationship.
@@ -31,7 +32,7 @@ Herdr v0.8.2 does not expose these event cursors or focus facts and is not compa
 
 ## Tool launch model
 
-A queue action starts one launch operation for the selected pull request. Generate a unique, in-memory tool ID before sending the request. The launch has these states:
+A queue action starts one launch operation for the selected pull request. Generate a unique, in-memory tool ID before sending the request and use it as the immutable Herdr launch token. The launch has these states:
 
 1. **launching**: subscribed, but no confirmed Tool Tab exists;
 2. **running**: Herdr returned the Tool Tab and pane IDs and a snapshot confirmed the pane;
@@ -39,7 +40,7 @@ A queue action starts one launch operation for the selected pull request. Genera
 4. **closing**: `review` requested closure and is waiting for Herdr confirmation; and
 5. **ended**: no owned pane or Tool Tab remains.
 
-Use `layout.apply` to create one focused tab with one direct argv-backed pane. Set a concise tab and pane label that distinguishes Lumen from a Review Command and includes the pull request repository, number, and unique tool ID. Also put that ID in the pane environment as `REVIEW_TOOL_ID`; it is lifecycle correlation data, not durable Review Queue state.
+Use `layout.apply` to create one focused tab with one direct argv-backed pane and attach the tool ID as immutable protocol metadata. Set a concise tab and pane label that distinguishes Lumen from a Review Command and includes the pull request repository and number. Also put the ID in the pane environment as `REVIEW_TOOL_ID`. Labels are mutable presentation data and are never lifecycle identity. The token and environment value are lifecycle correlation data, not durable Review Queue state.
 
 Coalesce event notices received while the matching `layout.apply` control connection is unresolved. After a successful response supplies the pane and tab IDs, open a fresh control connection for `pane.get` with the returned pane ID. Herdr retains that old ID as an alias if another client moves the pane across workspaces, so this request captures the stable terminal ID even after a move or rename. Then take an authoritative snapshot, find the pane by stable terminal ID, and save its current pane, tab, and workspace IDs before reporting the tool as running. If notices arrived during this baseline, request one follow-up snapshot. Do not apply buffered event payloads directly.
 
@@ -118,7 +119,7 @@ Distinguish these cases:
 
 Once Herdr starts the direct process, `review` cannot distinguish a successful exit, nonzero exit, or terminating signal. In particular, `/bin/sh` can start and then return status 126 or 127 for a Review Command, but Herdr does not expose that status. Do not misreport this completion as a launch failure or success.
 
-A failed `layout.apply` response means no Tool Tab exists only when Herdr says the request made no change. Loss or timeout of that request's control connection has an unknown result. Open a fresh control connection for `session.snapshot` and look for the unique tool label. If a matching resource exists, adopt it as owned and continue reconciliation.
+A failed `layout.apply` response means no Tool Tab exists only when Herdr says the request made no change. Loss or timeout of that request's control connection has an unknown result. Open a fresh control connection for `session.snapshot` and look for the immutable launch token. If a matching resource exists, adopt it as owned, capture its stable terminal ID, and continue reconciliation. Rename and movement cannot break this lookup.
 
 If no matching resource exists, the process can still have started, performed work, and ended before the snapshot. Set the launch to **indeterminate**. Do not claim that it failed or completed, and do not permit an automatic or ordinary retry. Show that the command may already have run and require explicit user acknowledgement before enabling a new launch action. Acknowledgement clears the safety interlock only; it does not assert an outcome.
 
@@ -151,4 +152,4 @@ The ownership guarantee covers direct children and descendants that remain attac
 
 ## Temporary state boundary
 
-Keep tool IDs, Herdr resource IDs, launch state, focus state, exit notices, and cleanup state only in memory. Do not write running, completed, failed, viewed, or reviewed tool state to the Review Queue or disk. A process restart discovers no prior application ownership; Herdr session persistence is not application review-progress persistence.
+Keep tool IDs, Herdr resource IDs, launch state, focus state, exit notices, and cleanup state only in `review` memory. Herdr retains a tool ID only as immutable metadata on the live pane that it correlates; this is process ownership metadata, not Review Queue progress. Do not write running, completed, failed, viewed, or reviewed tool state to the Review Queue or disk. A process restart discovers no prior application ownership; Herdr session persistence is not application review-progress persistence.
