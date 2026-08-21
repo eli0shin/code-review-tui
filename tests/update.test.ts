@@ -148,6 +148,35 @@ describe('release and download diagnostics', () => {
     });
   });
 
+  test('returns structured diagnostics for response and filesystem failures', async () => {
+    const directory = await temporaryDirectory();
+    const interruptedBody = new ReadableStream({
+      start(controller) {
+        controller.error(new Error('transfer interrupted'));
+      },
+    });
+    globalThis.fetch = mockFetch(new Response(interruptedBody));
+
+    expect(
+      await downloadBinary('https://example.invalid/review', directory)
+    ).toEqual({
+      success: false,
+      error: 'Download failed: transfer interrupted',
+    });
+
+    const filePath = join(directory, 'not-a-directory');
+    await writeFile(filePath, 'existing file');
+    globalThis.fetch = mockFetch(new Response('native binary'));
+    const writeResult = await downloadBinary(
+      'https://example.invalid/review',
+      filePath
+    );
+
+    expect(writeResult.success).toBe(false);
+    if (writeResult.success) return;
+    expect(writeResult.error).toMatch(/^Download failed: /);
+  });
+
   test('preserves missing-artifact and download diagnostics', async () => {
     const directory = await temporaryDirectory();
     for (const [status, expected] of [

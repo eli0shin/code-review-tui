@@ -117,11 +117,17 @@ export async function downloadBinary(
   }
 
   const tempPath = join(targetDir, `.review-update-${Date.now()}`);
-  const arrayBuffer = await response.arrayBuffer();
-  await Bun.write(tempPath, arrayBuffer);
-  await chmod(tempPath, 0o755);
-
-  return { success: true, data: tempPath };
+  try {
+    const arrayBuffer = await response.arrayBuffer();
+    await Bun.write(tempPath, arrayBuffer);
+    await chmod(tempPath, 0o755);
+    return { success: true, data: tempPath };
+  } catch (error) {
+    try {
+      await unlink(tempPath);
+    } catch {}
+    return { success: false, error: `Download failed: ${errorMessage(error)}` };
+  }
 }
 
 async function fetchResponse(
