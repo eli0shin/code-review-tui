@@ -37,18 +37,19 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Specify Review Submission interaction](../done/011-specify-review-submission-interaction.md) — Compose Review Submissions in a compact multiline modal with explicit decisions, safe discard, in-flight locking, failure-visible draft preservation, and post-success queue refresh.
 - [Choose the tool switching model](../done/008-choose-the-tool-switching-model.md) — Require Herdr, keep the queue in its saved tab, and run Lumen and Review Commands in dedicated Herdr tabs that return focus on exit.
 - [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
-- [Define external process execution](../done/012-define-external-process-execution.md) — Use Herdr v0.8.2 direct-process Herdr tabs, one best-effort queue-pane focus attempt after ordinary tool exit, and disconnect without closing launched tabs.
+- [Define external process execution](../done/012-define-external-process-execution.md) — Open Lumen and Review Commands in Herdr tabs and make one best-effort queue-pane focus attempt after ordinary tool exit.
+- Use the installed `herdr` CLI as the only Herdr boundary. The socket client merged in PR #17 is rejected wholesale.
 - The Review CLI architecture keeps external behavior behind `GitHub` and `Herdr`; TanStack React Query owns remote Review Queue and detail state in the OpenTUI React page. Do not add an application-state coordination layer.
 - [Replace rejected session machinery with page-owned loading](../done/024-replace-review-session-machinery-with-page-owned-loading.md) — The queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`; the page keeps one numeric Cursor.
 
 ## Implementation path
 
-- [Remove Herdr lifecycle machinery](025-remove-herdr-lifecycle-machinery.md) before any remaining feature work.
+- [Replace the Herdr socket adapter with CLI execution](025-replace-herdr-socket-adapter-with-cli.md) before any remaining feature work.
 - [Implement strict Review configuration](../done/015-implement-strict-review-configuration.md).
 - [Implement the GitHub CLI data adapter](../done/016-implement-github-cli-data-adapter.md).
 - Implement Review Queue and detail queries with TanStack React Query and one numeric Cursor in the OpenTUI page; ticket 024 replaces the rejected merged implementation.
 - [Implement Review Submission behavior](../done/018-implement-review-submission-behavior.md).
-- [Implement the Herdr adapter](../done/019-implement-herdr-adapter.md).
+- ~~[Implement the Herdr socket adapter](../done/019-implement-herdr-adapter.md)~~ — Rejected; ticket 025 replaces it with CLI execution.
 - [Connect Review Queue Herdr actions](020-connect-review-queue-herdr-actions.md).
 - [Build the OpenTUI Review Queue and submission](021-build-opentui-review-queue-and-submission.md).
 - [Compose startup, shutdown, and smoke tests](022-compose-review-startup-shutdown-and-smoke-tests.md).
