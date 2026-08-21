@@ -46,7 +46,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Implement strict Review configuration](015-implement-strict-review-configuration.md).
 - [Implement the GitHub CLI data adapter](016-implement-github-cli-data-adapter.md).
 - Implement Review Queue and detail queries with TanStack React Query and one numeric Cursor in the OpenTUI page; ticket 024 replaces the rejected merged implementation.
-- [Implement Review Submission behavior](018-implement-review-submission-behavior.md).
+- [Implement Review Submission behavior](../done/018-implement-review-submission-behavior.md).
 - [Implement the Herdr Tool Tabs adapter](019-implement-herdr-tool-tabs-adapter.md).
 - [Connect Review Queue tool actions](020-connect-review-queue-tool-actions.md).
 - [Build the OpenTUI Review Queue and submission](021-build-opentui-review-queue-and-submission.md).
