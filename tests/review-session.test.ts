@@ -188,6 +188,28 @@ describe('ReviewSession queue and details contract', () => {
     });
   });
 
+  test('does not lose a refresh scheduled during load completion', async () => {
+    const github = createControllableGitHub();
+    const session = createReviewSession(github);
+    let scheduled = false;
+    session.subscribe(() => {
+      const snapshot = session.getSnapshot();
+      if (
+        !scheduled &&
+        snapshot.queueLoad.phase === 'idle' &&
+        snapshot.queue.length > 0
+      ) {
+        scheduled = true;
+        queueMicrotask(() => session.dispatch({ type: 'refresh' }));
+      }
+    });
+
+    await loadInitial(session, github, [summary(1)]);
+
+    expect(github.queueCalls).toHaveLength(2);
+    expect(session.getSnapshot().queueLoad).toEqual({ phase: 'refreshing' });
+  });
+
   test('coalesces many refresh requests into one pending load', async () => {
     const github = createControllableGitHub();
     const session = createReviewSession(github);

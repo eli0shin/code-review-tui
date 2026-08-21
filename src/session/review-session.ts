@@ -75,37 +75,41 @@ export function createReviewSession(github: GitHub): ReviewSession {
     }
 
     queueActive = true;
-    queueRun = runQueueLoads().finally(() => {
-      queueActive = false;
-      queueRun = undefined;
-    });
+    queueRun = runQueueLoads();
     return queueRun;
   }
 
   async function runQueueLoads(): Promise<void> {
-    for (;;) {
-      queuePending = false;
-      publish({
-        queueLoad: hasLoadedQueue
-          ? { phase: 'refreshing' }
-          : { phase: 'initialLoading' },
-      });
-
-      const result = await github.loadReviewQueue(new AbortController().signal);
-      if (!result.ok) {
+    try {
+      for (;;) {
+        queuePending = false;
         publish({
-          queueLoad: {
-            phase: 'failed',
-            load: hasLoadedQueue ? 'refresh' : 'initial',
-            failure: result.failure,
-          },
+          queueLoad: hasLoadedQueue
+            ? { phase: 'refreshing' }
+            : { phase: 'initialLoading' },
         });
-      } else {
-        hasLoadedQueue = true;
-        replaceQueue(result.value);
-      }
 
-      if (!takePendingQueueLoad()) return;
+        const result = await github.loadReviewQueue(
+          new AbortController().signal
+        );
+        if (!result.ok) {
+          publish({
+            queueLoad: {
+              phase: 'failed',
+              load: hasLoadedQueue ? 'refresh' : 'initial',
+              failure: result.failure,
+            },
+          });
+        } else {
+          hasLoadedQueue = true;
+          replaceQueue(result.value);
+        }
+
+        if (!takePendingQueueLoad()) return;
+      }
+    } finally {
+      queueActive = false;
+      queueRun = undefined;
     }
   }
 
