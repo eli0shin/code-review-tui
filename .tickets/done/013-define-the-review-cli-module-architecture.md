@@ -14,3 +14,5 @@ What deep module boundaries and end-to-end contracts isolate GitHub CLI data, XD
 ## Resolution
 
 Use one deep `ReviewSession` application module with `GitHub` and `ToolTabs` ports. Keep strict XDG configuration, OpenTUI presentation, composition, and release operations outside that module. Verify each true external seam with contract adapters, verify complete Review Queue behavior through `ReviewSession`, and keep focus restoration at one best-effort Herdr request without race modeling. See the [Review CLI module architecture](../../docs/module-architecture.md).
+
+Merged by [Define review CLI module architecture](https://github.com/eli0shin/code-review-tui/pull/11) as commit `89176e3`.

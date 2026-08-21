@@ -38,11 +38,11 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Choose the tool switching model](../done/008-choose-the-tool-switching-model.md) — Require Herdr, keep the queue in its saved tab, and run Lumen and Review Commands in dedicated Tool Tabs that return focus on exit.
 - [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
 - [Define external process execution](../done/012-define-external-process-execution.md) — Use Herdr v0.8.2 direct-process Tool Tabs, pane-only ownership and cleanup, explicit launch uncertainty, and one best-effort queue-pane focus attempt after ordinary tool exit.
+- [Define the Review CLI module architecture](../done/013-define-the-review-cli-module-architecture.md) — Build around one deep `ReviewSession` with `GitHub` and `ToolTabs` ports, keep configuration, presentation, composition, and release outside it, and test each true external seam through contract adapters.
 
 ## Not yet specified
 
-- Implementation slices, end-to-end acceptance scenarios, and test boundaries will become precise after the interaction and integration contracts are settled.
-- Installation documentation and release validation will become precise after the executable architecture is settled.
+- Installation documentation and release validation will become precise after the executable implementation is complete.
 
 ## Out of scope
 
