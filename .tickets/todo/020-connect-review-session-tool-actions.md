@@ -7,6 +7,7 @@ Parent: 001-build-the-review-cli
 Blocked-By:
   - 017-implement-review-session-queue-and-details
   - 019-implement-herdr-tool-tabs-adapter
+  - 024-replace-review-session-machinery-with-page-owned-loading
 ---
 
 ## Goal

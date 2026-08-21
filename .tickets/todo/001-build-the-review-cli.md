@@ -38,13 +38,14 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Choose the tool switching model](../done/008-choose-the-tool-switching-model.md) — Require Herdr, keep the queue in its saved tab, and run Lumen and Review Commands in dedicated Tool Tabs that return focus on exit.
 - [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
 - [Define external process execution](../done/012-define-external-process-execution.md) — Use Herdr v0.8.2 direct-process Tool Tabs, pane-only ownership and cleanup, explicit launch uncertainty, and one best-effort queue-pane focus attempt after ordinary tool exit.
-- [Define the Review CLI module architecture](../done/013-define-the-review-cli-module-architecture.md) — Build around one deep `ReviewSession` with `GitHub` and `ToolTabs` ports, keep configuration, presentation, composition, and release outside it, and test each true external seam through contract adapters.
+- ~~Define the Review CLI module architecture around `ReviewSession`~~ — Rejected wholesale. Do not extend the snapshot, subscription, refresh-queue, request-generation, or reentrancy machinery.
+- [Replace ReviewSession machinery with page-owned loading](024-replace-review-session-machinery-with-page-owned-loading.md) — The page loads pull requests when it opens, when `r` is pressed, and from one page-owned timer. All three triggers use one load function.
 
 ## Implementation path
 
 - [Implement strict Review configuration](015-implement-strict-review-configuration.md).
 - [Implement the GitHub CLI data adapter](016-implement-github-cli-data-adapter.md).
-- [Implement ReviewSession queue and details](017-implement-review-session-queue-and-details.md).
+- ~~Implement ReviewSession queue and details~~ — Merged in PR #15 but rejected; ticket 024 must remove it before downstream work.
 - [Implement Review Submission behavior](018-implement-review-submission-behavior.md).
 - [Implement the Herdr Tool Tabs adapter](019-implement-herdr-tool-tabs-adapter.md).
 - [Connect ReviewSession tool actions](020-connect-review-session-tool-actions.md).

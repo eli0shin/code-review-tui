@@ -7,6 +7,7 @@ Parent: 001-build-the-review-cli
 Blocked-By:
   - 018-implement-review-submission-behavior
   - 020-connect-review-session-tool-actions
+  - 024-replace-review-session-machinery-with-page-owned-loading
 ---
 
 ## Goal
