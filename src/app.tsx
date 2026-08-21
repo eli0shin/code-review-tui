@@ -1,7 +1,11 @@
 import { createCliRenderer } from '@opentui/core';
 import { createRoot, useKeyboard } from '@opentui/react';
 import { useCallback, useEffect, useState } from 'react';
-import type { PullRequestDetails, ReviewQueue } from './domain/pull-request.ts';
+import type {
+  PullRequestDetails,
+  PullRequestSummary,
+  ReviewQueue,
+} from './domain/pull-request.ts';
 import type { GitHub, GitHubFailure } from './github/types.ts';
 
 const refreshIntervalMs = 60_000;
@@ -12,7 +16,7 @@ type ReviewQueuePageProps = {
 
 export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
   const [queue, setQueue] = useState<ReviewQueue>([]);
-  const [selectedUrl, setSelectedUrl] = useState<string>();
+  const [selection, setSelection] = useState<PullRequestSummary>();
   const [details, setDetails] = useState<PullRequestDetails>();
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
@@ -31,12 +35,13 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
     }
 
     setQueue(result.value);
-    setSelectedUrl((currentUrl) =>
-      currentUrl !== undefined &&
-      result.value.some((pullRequest) => pullRequest.url === currentUrl)
-        ? currentUrl
-        : result.value.at(0)?.url
-    );
+    setSelection((currentSelection) => {
+      const nextSelection =
+        result.value.find(
+          (pullRequest) => pullRequest.url === currentSelection?.url
+        ) ?? result.value.at(0);
+      return nextSelection === undefined ? undefined : { ...nextSelection };
+    });
   }, [github]);
 
   useEffect(() => {
@@ -53,16 +58,18 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
     let active = true;
 
     async function loadSelectedDetails() {
-      setDetails(undefined);
+      setDetails((currentDetails) =>
+        currentDetails?.url === selection?.url ? currentDetails : undefined
+      );
       setDetailsFailure(undefined);
-      if (selectedUrl === undefined) {
+      if (selection === undefined) {
         setLoadingDetails(false);
         return;
       }
 
       setLoadingDetails(true);
       const result = await github.loadPullRequestDetails(
-        selectedUrl,
+        selection.url,
         controller.signal
       );
       if (!active) return;
@@ -76,7 +83,7 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
       active = false;
       controller.abort();
     };
-  }, [github, selectedUrl]);
+  }, [github, selection]);
 
   useKeyboard((key) => {
     if (key.name === 'r') {
@@ -86,11 +93,11 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
 
     const offset = key.name === 'down' ? 1 : key.name === 'up' ? -1 : 0;
     if (offset === 0) return;
-    setSelectedUrl((currentUrl) => {
+    setSelection((currentSelection) => {
       const currentIndex = queue.findIndex(
-        (pullRequest) => pullRequest.url === currentUrl
+        (pullRequest) => pullRequest.url === currentSelection?.url
       );
-      return queue[currentIndex + offset]?.url ?? currentUrl;
+      return queue[currentIndex + offset] ?? currentSelection;
     });
   });
 
@@ -108,7 +115,7 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
       ) : null}
       {queue.map((pullRequest) => (
         <text key={pullRequest.url}>
-          {pullRequest.url === selectedUrl ? '› ' : '  '}
+          {pullRequest.url === selection?.url ? '› ' : '  '}
           {pullRequest.repository}#{pullRequest.number} {pullRequest.title}
         </text>
       ))}
@@ -140,9 +147,12 @@ export async function launchApplication(): Promise<void> {
 function failureMessage(failure: GitHubFailure): string {
   switch (failure.kind) {
     case 'startup':
+      return failure.diagnostic;
     case 'malformedData':
     case 'incompatibleData':
-      return failure.diagnostic;
+      return failure.stderr
+        ? `${failure.diagnostic}\n${failure.stderr}`
+        : failure.diagnostic;
     case 'exit':
       return failure.stderr || `gh exited with code ${failure.exitCode}`;
     case 'interrupted':
