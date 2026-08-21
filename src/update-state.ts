@@ -16,7 +16,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isUpdateState(value: unknown): value is UpdateState {
   if (!isRecord(value)) return false;
-  return typeof value.lastCheckedAt === 'number';
+  return (
+    typeof value.lastCheckedAt === 'number' &&
+    (value.pendingNotification === undefined ||
+      typeof value.pendingNotification === 'string')
+  );
 }
 
 export async function readUpdateState(

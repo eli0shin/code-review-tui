@@ -39,6 +39,15 @@ describe('readUpdateState', () => {
 
     await Bun.write(path, JSON.stringify({ other: 1 }));
     expect(await readUpdateState(path)).toEqual({ success: true, data: null });
+
+    await Bun.write(
+      path,
+      JSON.stringify({
+        lastCheckedAt: 1_704_326_400_000,
+        pendingNotification: 2,
+      })
+    );
+    expect(await readUpdateState(path)).toEqual({ success: true, data: null });
   });
 
   test('returns persisted state including a pending notification', async () => {

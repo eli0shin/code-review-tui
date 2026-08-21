@@ -61,6 +61,24 @@ export function createProgram({
   return program;
 }
 
+type UpdateConfig = {
+  readonly behavior: ReturnType<typeof getUpdateBehavior>;
+  readonly checkIntervalHours: number;
+};
+
+export async function getUpdateConfigFromFile(
+  configPath: string = getConfigPath()
+): Promise<UpdateConfig> {
+  const result = await readConfig(configPath);
+  if (!result.success) {
+    return { behavior: 'off', checkIntervalHours: 24 };
+  }
+  return {
+    behavior: getUpdateBehavior(result.data),
+    checkIntervalHours: getUpdateCheckInterval(result.data),
+  };
+}
+
 export async function run(
   argv: string[] = process.argv,
   dependencies: CliDependencies = {}
@@ -71,15 +89,14 @@ export async function run(
     return;
   }
 
-  const configResult = await readConfig(getConfigPath());
-  const config = configResult.success ? configResult.data : {};
+  const updateConfig = await getUpdateConfigFromFile();
   const autoUpdateResult =
     executablePath === undefined
       ? {}
       : await handleAutoUpdate(
           version,
-          getUpdateBehavior(config),
-          getUpdateCheckInterval(config)
+          updateConfig.behavior,
+          updateConfig.checkIntervalHours
         ).catch(() => ({}));
 
   await createProgram({
