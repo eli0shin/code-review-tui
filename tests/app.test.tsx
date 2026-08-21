@@ -93,6 +93,10 @@ describe('application shell', () => {
   });
 });
 
+function pendingDetails(): Promise<GitHubResult<PullRequestDetails>> {
+  return new Promise(() => undefined);
+}
+
 describe('Review Queue page loading', () => {
   test('loads on mount, r, and 60 seconds and cancels on unmount', async () => {
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
@@ -342,6 +346,232 @@ describe('Review Queue page loading', () => {
       configurable: true,
       value: false,
     });
+    view.renderer.destroy();
+  });
+});
+
+describe('Review Submission', () => {
+  test('submits an exact multiline comment to the captured target and refreshes', async () => {
+    const submission = Promise.withResolvers<GitHubResult<void>>();
+    const loadReviewQueue = jest.fn(async () =>
+      success([pullRequest, secondPullRequest])
+    );
+    const submitReview = jest.fn(() => submission.promise);
+    const github = {
+      loadReviewQueue,
+      loadPullRequestDetails: pendingDetails,
+      submitReview,
+    } satisfies GitHub;
+    const view = await testRender(<ReviewQueuePage github={github} />, {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    const modal = await view.waitForFrame((frame) =>
+      frame.includes('Review acme/widgets #7')
+    );
+    expect(modal).toContain('[x] Comment');
+    await act(async () => view.mockInput.pressArrow('down'));
+    await act(async () => view.mockInput.typeText('First line'));
+    await act(view.mockInput.pressEnter);
+    await act(async () => view.mockInput.typeText('Second line'));
+    await act(async () => {
+      view.mockInput.pressKey('s', { ctrl: true });
+      view.mockInput.pressKey('s', { ctrl: true });
+    });
+
+    expect(submitReview).toHaveBeenCalledTimes(1);
+    expect(submitReview).toHaveBeenCalledWith(
+      {
+        url: pullRequest.url,
+        message: 'First line\nSecond line',
+        decision: 'comment',
+      },
+      expect.any(AbortSignal)
+    );
+    const active = await view.waitForFrame((frame) =>
+      frame.includes('Submitting comment')
+    );
+    expect(active).toContain('› acme/widgets#7');
+    await act(async () => submission.resolve(success(undefined)));
+    const complete = await view.waitForFrame((frame) =>
+      frame.includes('Commented on acme/widgets #7.')
+    );
+    expect(complete).not.toContain('Review acme/widgets #7');
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('allows an empty approval and validates request changes only on submit', async () => {
+    const submitReview = jest.fn(async () => success(undefined));
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      submitReview,
+    } satisfies GitHub;
+    const view = await testRender(<ReviewQueuePage github={github} />, {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await act(view.mockInput.pressTab);
+    await act(async () => view.mockInput.pressArrow('right'));
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await view.waitForFrame((frame) => frame.includes('Approved acme/widgets'));
+    expect(submitReview).toHaveBeenNthCalledWith(
+      1,
+      { url: pullRequest.url, message: '', decision: 'approve' },
+      expect.any(AbortSignal)
+    );
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await act(view.mockInput.pressTab);
+    await act(async () => view.mockInput.pressKey('END'));
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    const invalid = await view.waitForFrame((frame) =>
+      frame.includes('A message is required for this decision.')
+    );
+    expect(invalid).toContain('[x] Request changes');
+    expect(submitReview).toHaveBeenCalledTimes(1);
+
+    await act(async () => view.mockInput.typeText('  Please fix this  '));
+    await view.waitForFrame(
+      (frame) => !frame.includes('A message is required for this decision.')
+    );
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await view.waitForFrame((frame) =>
+      frame.includes('Requested changes on acme/widgets')
+    );
+    expect(submitReview).toHaveBeenNthCalledWith(
+      2,
+      {
+        url: pullRequest.url,
+        message: '  Please fix this  ',
+        decision: 'requestChanges',
+      },
+      expect.any(AbortSignal)
+    );
+    view.renderer.destroy();
+  });
+
+  test('keeps the same submission controls after a failure', async () => {
+    const firstAttempt = Promise.withResolvers<GitHubResult<void>>();
+    const secondAttempt = Promise.withResolvers<GitHubResult<void>>();
+    const attempts = [firstAttempt.promise, secondAttempt.promise];
+    let attemptIndex = 0;
+    const submitReview = jest.fn(
+      (..._arguments: Parameters<GitHub['submitReview']>) => {
+        const attempt = attempts[attemptIndex];
+        attemptIndex += 1;
+        return attempt;
+      }
+    );
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      submitReview,
+    } satisfies GitHub;
+    const view = await testRender(<ReviewQueuePage github={github} />, {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+    await act(async () => view.mockInput.pressKey('s'));
+    await act(async () => view.mockInput.typeText('Ship it'));
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () =>
+      firstAttempt.resolve({
+        ok: false,
+        failure: {
+          kind: 'exit',
+          operation: 'reviewSubmission',
+          url: pullRequest.url,
+          exitCode: 1,
+          stderr: 'permission denied',
+        },
+      })
+    );
+    const failed = await view.waitForFrame((frame) =>
+      frame.includes('permission denied')
+    );
+    expect(failed).toContain('Ship it');
+    expect(failed).toContain('Ctrl+S submit');
+    expect(failed).not.toContain('retry');
+    expect(submitReview).toHaveBeenCalledTimes(1);
+
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    const submitting = await view.waitForFrame((frame) =>
+      frame.includes('Submitting comment')
+    );
+    expect(submitting).not.toContain('permission denied');
+    expect(submitReview).toHaveBeenCalledTimes(2);
+    expect(submitReview.mock.calls[1][0]).toEqual(
+      submitReview.mock.calls[0][0]
+    );
+    await act(async () => secondAttempt.resolve(success(undefined)));
+    await view.waitForFrame((frame) => frame.includes('Commented on'));
+    view.renderer.destroy();
+  });
+
+  test('keeps or discards a changed draft and closes an untouched draft', async () => {
+    const submitReview = jest.fn(async () => success(undefined));
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest, secondPullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      submitReview,
+    } satisfies GitHub;
+    const view = await testRender(<ReviewQueuePage github={github} />, {
+      width: 100,
+      height: 30,
+      kittyKeyboard: true,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await view.waitForFrame((frame) =>
+      frame.includes('Review acme/widgets #7')
+    );
+    await act(view.mockInput.pressEscape);
+    await view.waitForFrame(
+      (frame) => !frame.includes('Review acme/widgets #7')
+    );
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await view.waitForFrame((frame) =>
+      frame.includes('Review acme/widgets #7')
+    );
+    await act(async () => view.mockInput.typeText('Draft'));
+    await act(view.mockInput.pressEscape);
+    const confirmation = await view.waitForFrame((frame) =>
+      frame.includes('Discard this Review Submission?')
+    );
+    expect(confirmation).toContain('[x] Keep editing');
+    await act(view.mockInput.pressEnter);
+    const kept = await view.waitForFrame((frame) => frame.includes('Draft'));
+    expect(kept).toContain('Ctrl+S submit');
+
+    await act(view.mockInput.pressEscape);
+    await view.waitForFrame((frame) =>
+      frame.includes('Discard this Review Submission?')
+    );
+    await act(async () => view.mockInput.pressArrow('right'));
+    await view.waitForFrame((frame) => frame.includes('[x] Discard'));
+    await act(view.mockInput.pressEnter);
+    const discarded = await view.waitForFrame(
+      (frame) => !frame.includes('Review acme/widgets #7')
+    );
+    expect(discarded).toContain('› acme/widgets#7');
+    expect(submitReview).not.toHaveBeenCalled();
     view.renderer.destroy();
   });
 });
