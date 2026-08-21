@@ -139,6 +139,7 @@ type ToolRequest = {
 
 interface ToolTabs {
   launch(request: ToolRequest): Promise<ToolLaunchOutcome>;
+  acknowledgeIndeterminateLaunch(toolId: ToolId): void;
   subscribe(listener: (notice: ToolNotice) => void): () => void;
   shutdown(reason: ShutdownReason): Promise<ToolShutdownOutcome>;
 }
@@ -146,7 +147,9 @@ interface ToolTabs {
 
 Construct the production adapter with the exact configured Review Command, startup working directory, inherited environment, verified Herdr context, and control transport. Do not pass these values on each launch.
 
-The port exposes application-level tool kind, target, phase, and notices. It does not expose pane, tab, workspace, terminal, socket, request, event sequence, or process identifiers. Those values are private Herdr adapter state.
+The port exposes an application-level tool ID, kind, target, phase, and notices. An indeterminate notice includes the tool ID. `ReviewSession` uses that ID to acknowledge the retry risk through `acknowledgeIndeterminateLaunch`. Acknowledgement clears only the adapter's retry safety interlock. It does not stop the creation watch, discard ownership, or prove that the request ended.
+
+The port does not expose pane, tab, workspace, terminal, socket, request, event sequence, or process identifiers. Those values are private Herdr adapter state.
 
 The adapter hides:
 
@@ -194,7 +197,7 @@ interface ReviewSession {
 }
 ```
 
-Create it with the `GitHub` port, `ToolTabs` port, and validated configuration. `dispatch` accepts semantic actions such as select next, refresh, open Lumen, open the Review Command, open or edit a Review Submission, submit, cancel, confirm discard, and quit. It does not accept raw terminal key events.
+Create it with the `GitHub` port, `ToolTabs` port, and validated configuration. `dispatch` accepts semantic actions such as select next, refresh, open Lumen, open the Review Command, acknowledge an indeterminate tool launch, open or edit a Review Submission, submit, cancel, confirm discard, and quit. It does not accept raw terminal key events.
 
 `ReviewSnapshot` is immutable presentation data. It includes:
 
@@ -214,7 +217,7 @@ The module hides all state transitions and operation coordination:
 - detail cancellation or obsolescence and stale-detail rules;
 - modal target capture, validation, discard confirmation, in-flight lock, and retry;
 - post-submission refresh without optimistic queue changes;
-- launch safety notices and shutdown coordination.
+- launch safety notices, user acknowledgement of an indeterminate launch, and shutdown coordination.
 
 Internal reducers, request tokens, and state machines are implementation details. They are not separate public modules. Test them through `ReviewSession`; do not test past this interface.
 
@@ -317,7 +320,7 @@ Run `ToolTabs` against a fake Herdr v0.8.2 socket and temporary working director
 - exact Lumen and Review Command process descriptions;
 - exact child environment replacement without parent mutation;
 - repository-marker checks for Lumen;
-- adoption, lifecycle notice, disconnect reconciliation, indeterminate launch, and acknowledgement behavior;
+- adoption, lifecycle notice, disconnect reconciliation, an indeterminate notice with its tool ID, and acknowledgement that clears only the retry interlock;
 - ownership of only created panes;
 - concurrent pane closure and shutdown confirmation;
 - one best-effort focus request after an ordinary observed exit.
