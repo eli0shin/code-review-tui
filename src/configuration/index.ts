@@ -499,7 +499,7 @@ function isKeyDescriptor(descriptor: string): boolean {
   return modifiedDescriptorPattern.test(descriptor);
 }
 
-function normalizeKeyDescriptor(descriptor: string): string {
+export function normalizeKeyDescriptor(descriptor: string): string {
   if (/^[A-Z]$/.test(descriptor)) return `shift+${descriptor.toLowerCase()}`;
   const shiftedDigit = shiftedDigitAliases.get(descriptor);
   if (shiftedDigit !== undefined) return shiftedDigit;
