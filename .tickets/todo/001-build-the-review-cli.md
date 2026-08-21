@@ -26,6 +26,8 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 
 ## Decisions so far
 
+- [Research the Lumen diff launch contract](../done/002-research-the-lumen-diff-launch-contract.md) — Launch `lumen diff` with a full PR URL from any Git or Jujutsu repository and treat it as a foreground interactive child.
+
 ## Not yet specified
 
 - Implementation slices, end-to-end acceptance scenarios, and test boundaries will become precise after the interaction and integration contracts are settled.
