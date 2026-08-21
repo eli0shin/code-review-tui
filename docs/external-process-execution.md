@@ -86,7 +86,7 @@ A Tool Tab can continue to run and produce output while unfocused. Returning to 
 
 ## Completion and return focus
 
-Subscribe to `pane.exited`, `pane.closed`, `pane.moved`, `pane.focused`, `tab.closed`, `tab.focused`, `workspace.closed`, and `workspace.focused`, but use them only to request snapshot reconciliation. Find owned tool panes and the Review Queue pane by stable terminal ID in each snapshot, then update their current pane, tab, and workspace IDs. Track pane focus separately from tab focus so that an unrelated pane added to a Tool Tab does not count as the tool owning focus. A transition from present to absent in authoritative snapshots confirms completion. Duplicate or replayed notices can request extra snapshots but cannot produce duplicate completion.
+Subscribe to `pane.exited`, `pane.closed`, `pane.moved`, `pane.focused`, `tab.closed`, `tab.moved`, `tab.focused`, `workspace.closed`, and `workspace.focused`, but use them only to request snapshot reconciliation. Find owned tool panes and the Review Queue pane by stable terminal ID in each snapshot, then update their current pane, tab, and workspace IDs. Track pane focus separately from tab focus so that an unrelated pane added to a Tool Tab does not count as the tool owning focus. A transition from present to absent in authoritative snapshots confirms completion. Duplicate or replayed notices can request extra snapshots but cannot produce duplicate completion.
 
 Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Do not start shutdown from a tab or workspace event alone. Update the saved return target when the next snapshot finds the stable Review Queue terminal in a new container. Start shutdown only when snapshot reconciliation confirms that the Review Queue pane is absent.
 
@@ -128,14 +128,14 @@ One asynchronous shutdown coordinator owns quit, end-of-input, confirmed Review 
 
 1. stop accepting queue actions and new launches;
 2. settle every unresolved launch through its control response or snapshot reconciliation;
-3. request closure of every pane or Tool Tab still owned by `review`, using one fresh control connection per close request;
+3. request `pane.close` for every tool pane still owned by `review`, using one fresh control connection per close request;
 4. wait for matching close or exit confirmation;
 5. settle each active request connection or close it after its timeout;
 6. close the event-subscription connection;
 7. unmount the React root and destroy the OpenTUI renderer; and
 8. exit with the reason's appropriate status.
 
-Close tools concurrently, but correlate every result separately. Closing an unmodified dedicated Tool Tab terminates its direct process and normal descendants through Herdr's pane lifecycle. If a user changed a Tool Tab to contain unrelated panes, close only the owned process pane. Never close the Review Queue Tab through the cleanup path.
+Close owned tool panes concurrently, but correlate every result separately. Always use `pane.close`, including when the last snapshot showed an unchanged dedicated Tool Tab. This avoids a race in which another client adds or moves an unrelated pane into that tab before a separate `tab.close` request arrives. Herdr removes the Tool Tab when closing its owned process pane leaves the tab empty. Never close the Review Queue pane or tab through the cleanup path.
 
 Normal `q` does not exit while an owned Tool Tab has an unresolved launch or close result. Show shutdown progress in the Review Queue. If Herdr reports a cleanup failure, keep the application alive in a cleanup-failed state with retry information instead of claiming a clean exit.
 
