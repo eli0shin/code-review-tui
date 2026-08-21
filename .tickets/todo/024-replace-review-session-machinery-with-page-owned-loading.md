@@ -25,10 +25,13 @@ All three triggers call the same page-owned load function.
 - Delete the session contract tests and the changeset introduced by PR #15.
 - Remove `ReviewSession` from `docs/module-architecture.md` and all downstream implementation plans.
 - Keep the existing `GitHub` adapter as the external process boundary.
-- Keep only ordinary page state needed to render pull requests, selection, details, loading, and errors.
-- Do not add a store, event bus, controller, state machine, scheduler service, or replacement subscription interface.
-- Stop the timer when the page unmounts.
-- Test the three load triggers and timer cleanup through the page. Do not recreate session-level orchestration tests.
+- Use TanStack React Query for remote queue and detail state unless a concrete OpenTUI incompatibility is demonstrated. If it is incompatible, stop and report the incompatibility before adding custom machinery.
+- Let query `status` represent pending, error, and success. Do not create separate loading and failure `useState` values.
+- Keep only one local selection value: the selected pull request URL. Derive the effective selection from that URL and current query data.
+- The queue query loads on mount, uses `refetchInterval: 60_000`, and exposes `refetch()` for `r`. Its query function must use React Query's abort signal.
+- Key the details query by the effective selected URL. Do not clone pull request objects or use object identity to trigger reloads.
+- Do not add fetch effects, timer effects, a store, event bus, controller, reducer, state machine, scheduler service, or replacement subscription interface.
+- Test the three queue-load triggers, query cancellation on unmount, URL-only selection, details loading, and status rendering through the page. Do not recreate session-level orchestration tests.
 
 ## Authorization
 
