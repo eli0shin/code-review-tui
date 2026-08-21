@@ -30,7 +30,7 @@ This shape is not self-returning. The tool exits back to the tab's shell. `revie
 
 ### 2. Direct argv tab through the socket API
 
-`review` can call `layout.apply` with one pane, an argv command, `focus: true`, the repository cwd, and a label. For the configured Review Command, the argv can be the configured shell plus its command flag. For Lumen, it can be `lumen diff` as argv.
+`review` can call `layout.apply` with one pane, an argv command, `focus: true`, a known local Git or Jujutsu repository cwd, and a label. For the configured Review Command, the argv can be the configured shell plus its command flag. For Lumen, use `lumen diff` followed by the full pull request URL from the selected Review Queue item, as required by the [Lumen launch contract](./lumen-diff-launch-contract.md).
 
 When the direct process exits, Herdr emits `pane.exited` and removes the one-pane tab. A subscriber can then explicitly focus the saved Review Queue tab. These subscriptions are session-wide, so the adapter must act only on events whose pane or tab ID matches the launched tool. This is the cleanest Herdr route: it has deterministic process lifecycle and no idle shell, but it requires a small socket client and event handling. Herdr recommends the raw socket API for protocol clients and event subscribers. [Socket API: integration layers and events](https://herdr.dev/docs/socket-api/) [event schema](https://github.com/herdrdev/herdr/blob/v0.8.2/src/api/schema/events.rs)
 
@@ -46,7 +46,7 @@ Prototype the direct argv tab route, not regular shell tabs or direct terminal s
 
 1. Require `HERDR_ENV=1`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, and a reachable Herdr socket.
 2. Save `HERDR_TAB_ID` as the Review Queue return target.
-3. Use `layout.apply` to create one focused, labeled tool tab with a direct argv process.
+3. Use `layout.apply` to create one focused, labeled tool tab with a direct argv process. Launch Lumen as `["lumen", "diff", pullRequestUrl]` from a known local Git or Jujutsu repository.
 4. Subscribe to `pane.exited` and `tab.closed` before launch to avoid a completion race.
 5. Record the tool pane and tab IDs from the `layout.apply` response. Buffer events received before that response, and ignore all events that do not match those IDs.
 6. On the matching exit, focus the saved Review Queue tab if it still exists. Show a recoverable error if it does not.
