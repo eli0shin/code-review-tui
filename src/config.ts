@@ -2,8 +2,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { OperationResult, ReviewConfig, UpdateBehavior } from './types.ts';
 
-export function getConfigPath(): string {
-  const configHome = process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config');
+export function getConfigPath(
+  environment: { readonly XDG_CONFIG_HOME?: string } = {
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  },
+  homeDirectory: string = homedir()
+): string {
+  const configHome =
+    environment.XDG_CONFIG_HOME || join(homeDirectory, '.config');
   return join(configHome, 'review', 'config.json');
 }
 
