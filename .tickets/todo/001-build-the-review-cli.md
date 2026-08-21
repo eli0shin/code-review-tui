@@ -31,6 +31,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Research Herdr tabs and cabs for tool switching](../done/004-research-herdr-tabs-and-cabs-for-tool-switching.md) — Herdr provides persistent tabs, direct process launch, focus, layouts, and lifecycle events, but no cab or general return-to-caller abstraction.
 - [Research the GitHub CLI integration contract](../done/005-research-the-github-cli-integration-contract.md) — Build the queue, details, and submission boundary with `gh search prs`, `gh pr view`, and `gh pr review`, while delegating host and authentication to `gh`.
 - [Bootstrap the application from the tickets project shell](../done/006-bootstrap-the-application-from-the-tickets-project-shell.md) — The `review` executable now has the Tickets-derived Bun, OpenTUI React, installer, updater, test, CI, Changesets, and cross-platform release shell.
+- [Define configuration and Review Command expansion](../done/009-define-configuration-and-review-command-expansion.md) — Use one strict XDG JSON config, tokenize search without shell evaluation, and expose pull request values to the opaque Review Command through child environment variables.
 
 ## Not yet specified
 
