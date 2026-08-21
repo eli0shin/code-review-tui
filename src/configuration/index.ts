@@ -487,6 +487,9 @@ function normalizeKeyDescriptor(descriptor: string): string {
   if (event === 'ctrl+h') return 'backspace';
   if (event === 'ctrl+i') return 'tab';
   if (event === 'ctrl+j' || event === 'ctrl+m') return 'enter';
+  if (event === 'ctrl+alt+h') return 'alt+backspace';
+  if (event === 'ctrl+alt+i') return 'alt+tab';
+  if (event === 'ctrl+alt+j' || event === 'ctrl+alt+m') return 'alt+enter';
   return event;
 }
 

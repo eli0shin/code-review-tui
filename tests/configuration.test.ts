@@ -124,7 +124,7 @@ describe('Review configuration contract', () => {
         reviewCommand,
         keyBindings: {
           selectPrevious: ['k', 'up'],
-          selectNext: ['ctrl+alt+j'],
+          selectNext: ['alt+enter'],
           openDiff: ['shift+a'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
@@ -389,6 +389,39 @@ describe('Review configuration contract', () => {
     );
     expect(failure.problem).toContain('selectPrevious');
     expect(failure.problem).toContain('quit');
+  });
+
+  test('reports Alt control-character aliases on conventional terminals', async () => {
+    const aliases = [
+      ['alt+backspace', 'ctrl+alt+h'],
+      ['alt+tab', 'ctrl+alt+i'],
+      ['alt+enter', 'ctrl+alt+m'],
+    ];
+
+    for (const [named, control] of aliases) {
+      const { file, environment } = await makeEnvironment();
+      await writeConfiguration(file, {
+        ...completeConfiguration,
+        keyBindings: {
+          selectPrevious: [named],
+          quit: [control],
+        },
+      });
+
+      const failure = expectFailure(
+        await loadReviewConfiguration(environment),
+        file,
+        'keyBindings.quit',
+        /collision/i
+      );
+      expect(failure.problem).toContain('selectPrevious');
+      expect(failure.problem).toContain('quit');
+
+      const directory = testDirectory;
+      if (directory === undefined) throw new Error('Expected test directory');
+      await rm(directory, { recursive: true, force: true });
+      testDirectory = undefined;
+    }
   });
 });
 
