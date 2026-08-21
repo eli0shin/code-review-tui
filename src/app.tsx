@@ -49,8 +49,9 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
     refetchInterval: refreshIntervalMs,
   });
   const queue = queueQuery.data ?? emptyReviewQueue;
-  const cursorPosition =
-    queue.length === 0 ? 0 : Math.min(cursor, queue.length - 1);
+  const lastCursorPosition = Math.max(queue.length - 1, 0);
+  const cursorPosition = Math.min(cursor, lastCursorPosition);
+  if (cursor !== cursorPosition) setCursor(cursorPosition);
   const highlightedPullRequest = queue.at(cursorPosition);
   const detailsUrl = highlightedPullRequest?.url;
 

@@ -42,7 +42,7 @@ Put stable application values in `src/domain/`:
 
 These are data values, not active objects. Do not put GitHub CLI JSON, Herdr resource IDs, OpenTUI key events, or update state in these types.
 
-The configured search order is the Review Queue order. A pull request URL is the only identity used across queue replacement, detail loading, Review Submission, Lumen, and the Review Command.
+The configured search order is the Review Queue order. A pull request URL identifies the target for detail loading, Review Submission, Lumen, and the Review Command.
 
 ## Module interfaces
 

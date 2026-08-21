@@ -34,6 +34,13 @@ const secondPullRequest = {
   title: 'Add more widgets',
 } satisfies PullRequestSummary;
 
+const thirdPullRequest = {
+  ...pullRequest,
+  url: 'https://github.com/acme/widgets/pull/9',
+  number: 9,
+  title: 'Repair old widgets',
+} satisfies PullRequestSummary;
+
 function pullRequestDetails(
   title: string,
   request: PullRequestSummary = pullRequest
@@ -228,10 +235,15 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('keeps the Cursor row when queue data is replaced', async () => {
+  test('clamps the Cursor state when the queue shrinks', async () => {
     const initialQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const reorderedQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const queueLoads = [initialQueue.promise, reorderedQueue.promise];
+    const shorterQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const longerQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const queueLoads = [
+      initialQueue.promise,
+      shorterQueue.promise,
+      longerQueue.promise,
+    ];
     let queueLoadIndex = 0;
     const pendingDetails = Promise.withResolvers<never>().promise;
     const github = {
@@ -253,25 +265,38 @@ describe('Review Queue page loading', () => {
       height: 24,
     });
     await act(async () =>
-      initialQueue.resolve(success([pullRequest, secondPullRequest]))
+      initialQueue.resolve(
+        success([pullRequest, secondPullRequest, thirdPullRequest])
+      )
     );
-    await view.waitForFrame((frame) => frame.includes(secondPullRequest.title));
+    await view.waitForFrame((frame) => frame.includes(thirdPullRequest.title));
 
     await act(async () => view.mockInput.pressArrow('down'));
+    await act(async () => view.mockInput.pressArrow('down'));
+    await view.waitForFrame((frame) =>
+      frame.includes(`› ${thirdPullRequest.repository}#9`)
+    );
+
+    await act(async () => view.mockInput.pressKey('r'));
+    await act(async () =>
+      shorterQueue.resolve(success([pullRequest, secondPullRequest]))
+    );
     await view.waitForFrame((frame) =>
       frame.includes(`› ${secondPullRequest.repository}#8`)
     );
 
     await act(async () => view.mockInput.pressKey('r'));
     await act(async () =>
-      reorderedQueue.resolve(success([secondPullRequest, pullRequest]))
+      longerQueue.resolve(
+        success([pullRequest, secondPullRequest, thirdPullRequest])
+      )
     );
-    const sameRowFrame = await view.waitForFrame(
+    const restoredQueueFrame = await view.waitForFrame(
       (frame) =>
-        frame.includes(`  ${secondPullRequest.repository}#8`) &&
-        frame.includes(`› ${pullRequest.repository}#7`)
+        frame.includes(`› ${secondPullRequest.repository}#8`) &&
+        frame.includes(`  ${thirdPullRequest.repository}#9`)
     );
-    expect(sameRowFrame).toContain(`› ${pullRequest.repository}#7`);
+    expect(restoredQueueFrame).toContain(`› ${secondPullRequest.repository}#8`);
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
       value: false,

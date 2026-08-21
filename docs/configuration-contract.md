@@ -82,8 +82,8 @@ The actions have these meanings:
 
 | Action                    | Default      | Effect                                                                    |
 | ------------------------- | ------------ | ------------------------------------------------------------------------- |
-| `selectPrevious`          | `k`, `up`    | Select the previous Review Queue item.                                    |
-| `selectNext`              | `j`, `down`  | Select the next Review Queue item.                                        |
+| `selectPrevious`          | `k`, `up`    | Move the Cursor to the previous Review Queue row.                         |
+| `selectNext`              | `j`, `down`  | Move the Cursor to the next Review Queue row.                             |
 | `openDiff`                | `d`, `enter` | Open the pull request under the Cursor in fixed `lumen diff`.             |
 | `runReviewCommand`        | `c`          | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`          | Open Review Submission composition for the pull request under the Cursor. |
