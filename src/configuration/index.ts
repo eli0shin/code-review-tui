@@ -62,6 +62,11 @@ const defaultUpdateConfiguration = {
   updateCheckIntervalHours: 24,
 } satisfies UpdateConfiguration;
 
+const disabledUpdateConfiguration = {
+  updateBehavior: 'off',
+  updateCheckIntervalHours: 24,
+} satisfies UpdateConfiguration;
+
 const namedKeys = [
   'up',
   'down',
@@ -120,25 +125,31 @@ export async function readUpdateConfiguration(
 export async function readUpdateConfigurationFile(
   file: string
 ): Promise<UpdateConfiguration> {
+  const input = Bun.file(file);
+  if (!(await input.exists())) return defaultUpdateConfiguration;
+
   try {
-    const value: unknown = JSON.parse(await Bun.file(file).text());
-    if (!isRecord(value) || !isRecord(value.config)) {
-      return defaultUpdateConfiguration;
-    }
+    const value: unknown = JSON.parse(await input.text());
+    if (!isRecord(value)) return disabledUpdateConfiguration;
+    if (value.config === undefined) return defaultUpdateConfiguration;
+    if (!isRecord(value.config)) return disabledUpdateConfiguration;
 
     const behavior = value.config.updateBehavior;
     const interval = value.config.updateCheckIntervalHours;
+    if (
+      (behavior !== undefined && !isUpdateBehavior(behavior)) ||
+      (interval !== undefined && typeof interval !== 'number')
+    ) {
+      return disabledUpdateConfiguration;
+    }
+
     return {
-      updateBehavior: isUpdateBehavior(behavior)
-        ? behavior
-        : defaultUpdateConfiguration.updateBehavior,
+      updateBehavior: behavior ?? defaultUpdateConfiguration.updateBehavior,
       updateCheckIntervalHours:
-        typeof interval === 'number'
-          ? interval
-          : defaultUpdateConfiguration.updateCheckIntervalHours,
+        interval ?? defaultUpdateConfiguration.updateCheckIntervalHours,
     };
   } catch {
-    return defaultUpdateConfiguration;
+    return disabledUpdateConfiguration;
   }
 }
 

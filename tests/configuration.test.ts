@@ -373,26 +373,26 @@ describe('Review configuration contract', () => {
 });
 
 describe('updater-only configuration', () => {
-  test('does not require TUI fields and tolerates unrelated and invalid settings', async () => {
+  test('does not require TUI fields and tolerates unrelated valid fields', async () => {
     const { file, environment } = await makeEnvironment();
     await writeConfiguration(file, {
       unrelated: true,
       config: {
-        updateBehavior: 'off',
-        updateCheckIntervalHours: 'twelve',
+        updateBehavior: 'notify',
+        updateCheckIntervalHours: 12,
         futureSetting: true,
       },
     });
 
     expect(await readUpdateConfiguration(environment)).toEqual({
-      updateBehavior: 'off',
-      updateCheckIntervalHours: 24,
+      updateBehavior: 'notify',
+      updateCheckIntervalHours: 12,
     });
   });
 
-  test('uses defaults when the file is missing or malformed', async () => {
+  test('uses defaults when the file is missing or updater settings are omitted', async () => {
     const { file, environment } = await makeEnvironment();
-    await Bun.write(file, 'not JSON');
+    await writeConfiguration(file, { unrelated: true });
     expect(await readUpdateConfiguration(environment)).toEqual({
       updateBehavior: 'auto',
       updateCheckIntervalHours: 24,
@@ -403,5 +403,29 @@ describe('updater-only configuration', () => {
       updateBehavior: 'auto',
       updateCheckIntervalHours: 24,
     });
+  });
+
+  test('disables updates for malformed or invalid updater configuration', async () => {
+    const { file, environment } = await makeEnvironment();
+    const invalidValues = [
+      'not JSON',
+      JSON.stringify([]),
+      JSON.stringify({ config: 'invalid' }),
+      JSON.stringify({ config: { updateBehavior: 'sometimes' } }),
+      JSON.stringify({
+        config: {
+          updateBehavior: 'notify',
+          updateCheckIntervalHours: 'twelve',
+        },
+      }),
+    ];
+
+    for (const value of invalidValues) {
+      await Bun.write(file, value);
+      expect(await readUpdateConfiguration(environment)).toEqual({
+        updateBehavior: 'off',
+        updateCheckIntervalHours: 24,
+      });
+    }
   });
 });
