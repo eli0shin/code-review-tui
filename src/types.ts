@@ -15,13 +15,6 @@ export type Platform = 'darwin' | 'linux';
 export type Architecture = 'x64' | 'arm64';
 export type UpdateBehavior = 'auto' | 'notify' | 'off';
 
-export type ReviewConfig = {
-  readonly config?: {
-    readonly updateBehavior?: UpdateBehavior;
-    readonly updateCheckIntervalHours?: number;
-  };
-};
-
 export type UpdateState = {
   readonly lastCheckedAt: number;
   readonly pendingNotification?: string;

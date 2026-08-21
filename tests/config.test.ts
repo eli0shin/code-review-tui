@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getUpdateConfigFromFile } from '../src/cli.tsx';
-import { getConfigPath } from '../src/config.ts';
+import { getReviewConfigPath } from '../src/configuration/index.ts';
 
 let testDirectory: string | undefined;
 
@@ -17,7 +17,7 @@ afterEach(async () => {
 describe('update configuration', () => {
   test('reads update behavior from the default path when XDG_CONFIG_HOME is empty', async () => {
     testDirectory = await mkdtemp(join(tmpdir(), 'review-config-'));
-    const path = getConfigPath({ XDG_CONFIG_HOME: '' }, testDirectory);
+    const path = getReviewConfigPath({ XDG_CONFIG_HOME: '' }, testDirectory);
     await mkdir(join(testDirectory, '.config', 'review'), { recursive: true });
     await Bun.write(
       path,
