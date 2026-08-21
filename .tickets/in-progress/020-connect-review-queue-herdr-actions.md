@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@020-connect-review-queue-herdr-actions
 Tags:
   - task
   - afk

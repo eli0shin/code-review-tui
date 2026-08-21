@@ -11,6 +11,7 @@ import type {
   ReviewQueue,
 } from '../src/domain/pull-request.ts';
 import type { GitHub, GitHubResult } from '../src/github/types.ts';
+import type { Herdr, HerdrResult } from '../src/tools/types.ts';
 
 notifyManager.setScheduler(queueMicrotask);
 notifyManager.setNotifyFunction(act);
@@ -69,6 +70,19 @@ function pullRequestDetails(
 
 function success<Value>(value: Value): GitHubResult<Value> {
   return { ok: true, value };
+}
+
+const unusedHerdr = {
+  async openLumen() {
+    throw new Error('Lumen is not part of this page test');
+  },
+  async openReviewCommand() {
+    throw new Error('The Review Command is not part of this page test');
+  },
+} satisfies Herdr;
+
+function reviewQueuePage(github: GitHub, herdr: Herdr = unusedHerdr) {
+  return <ReviewQueuePage github={github} herdr={herdr} />;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,7 +147,7 @@ describe('Review Queue page loading', () => {
     const view = await createTestRenderer({ width: 80, height: 24 });
     const root = createRoot(view.renderer);
     act(() => {
-      root.render(<ReviewQueuePage github={github} />);
+      root.render(reviewQueuePage(github));
     });
     await view.renderOnce();
     expect(view.captureCharFrame()).toContain('Loading pull requests');
@@ -196,7 +210,7 @@ describe('Review Queue page loading', () => {
       },
     } satisfies GitHub;
 
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 80,
       height: 24,
     });
@@ -264,7 +278,7 @@ describe('Review Queue page loading', () => {
       },
     } satisfies GitHub;
 
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 80,
       height: 24,
     });
@@ -322,7 +336,7 @@ describe('Review Queue page loading', () => {
       },
     } satisfies GitHub;
 
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 80,
       height: 24,
     });
@@ -350,6 +364,100 @@ describe('Review Queue page loading', () => {
   });
 });
 
+describe('Review Queue Herdr actions', () => {
+  test('opens Lumen and the Review Command for the pull request under the Cursor', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest, secondPullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const openLumen = jest.fn(async () => ({ ok: true }) as const);
+    const openReviewCommand = jest.fn(async () => ({ ok: true }) as const);
+    const herdr = { openLumen, openReviewCommand } satisfies Herdr;
+    const view = await testRender(reviewQueuePage(github, herdr), {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(secondPullRequest.title));
+    await act(async () => view.mockInput.pressArrow('down'));
+    await view.waitForFrame((frame) =>
+      frame.includes(`› ${secondPullRequest.repository}#8`)
+    );
+
+    await act(async () => view.mockInput.pressKey('d'));
+    expect(openLumen).toHaveBeenCalledWith(secondPullRequest);
+    await act(async () => view.mockInput.pressKey('c'));
+    expect(openReviewCommand).toHaveBeenCalledWith(secondPullRequest);
+
+    const unchanged = await view.waitForFrame(
+      (frame) =>
+        frame.includes(`› ${secondPullRequest.repository}#8`) &&
+        frame.includes(`  ${pullRequest.repository}#7`)
+    );
+    expect(unchanged).toContain(secondPullRequest.title);
+    view.renderer.destroy();
+  });
+
+  test('shows an immediate Herdr CLI failure and allows another action', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const failedAttempt = Promise.withResolvers<HerdrResult>();
+    const openReviewCommand = jest
+      .fn<Herdr['openReviewCommand']>()
+      .mockReturnValueOnce(failedAttempt.promise)
+      .mockResolvedValueOnce({ ok: true });
+    const herdr = {
+      async openLumen() {
+        return { ok: true } as const;
+      },
+      openReviewCommand,
+    } satisfies Herdr;
+    const view = await testRender(reviewQueuePage(github, herdr), {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('c'));
+    await act(async () =>
+      failedAttempt.resolve({
+        ok: false,
+        failure: {
+          operation: 'createTab',
+          message: 'Herdr CLI failed while trying to create a Herdr tab.',
+          exitCode: 17,
+          stderr: 'workspace unavailable',
+        },
+      })
+    );
+    const failure = await view.waitForFrame((frame) =>
+      frame.includes('workspace unavailable')
+    );
+    expect(failure).toContain('Could not open Review Command');
+    expect(failure).toContain('exit code 17');
+    expect(failure).toContain(`› ${pullRequest.repository}#7`);
+
+    await act(async () => view.mockInput.pressKey('c'));
+    const retried = await view.waitForFrame(
+      (frame) => !frame.includes('Could not open Review Command')
+    );
+    expect(retried).toContain(`› ${pullRequest.repository}#7`);
+    expect(openReviewCommand).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+});
+
 describe('Review Submission', () => {
   test('submits an exact multiline comment to the captured target and refreshes', async () => {
     const submission = Promise.withResolvers<GitHubResult<void>>();
@@ -362,7 +470,7 @@ describe('Review Submission', () => {
       loadPullRequestDetails: pendingDetails,
       submitReview,
     } satisfies GitHub;
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 100,
       height: 30,
     });
@@ -413,7 +521,7 @@ describe('Review Submission', () => {
       loadPullRequestDetails: pendingDetails,
       submitReview,
     } satisfies GitHub;
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 100,
       height: 30,
     });
@@ -479,7 +587,7 @@ describe('Review Submission', () => {
       loadPullRequestDetails: pendingDetails,
       submitReview,
     } satisfies GitHub;
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 100,
       height: 30,
     });
@@ -530,7 +638,7 @@ describe('Review Submission', () => {
       loadPullRequestDetails: pendingDetails,
       submitReview,
     } satisfies GitHub;
-    const view = await testRender(<ReviewQueuePage github={github} />, {
+    const view = await testRender(reviewQueuePage(github), {
       width: 100,
       height: 30,
       kittyKeyboard: true,
