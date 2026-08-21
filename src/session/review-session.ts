@@ -181,6 +181,7 @@ export function createReviewSession(github: GitHub): ReviewSession {
           ? { phase: 'loading', url }
           : { phase: 'loading', url, staleValue },
     });
+    if (request !== detailRequest || snapshot.selectedUrl !== url) return;
 
     void github
       .loadPullRequestDetails(url, controller.signal)
@@ -208,7 +209,14 @@ export function createReviewSession(github: GitHub): ReviewSession {
     const changed = snapshot.selectedUrl !== url;
     if (changed) {
       obsoleteDetails();
+      const detailRequestBeforePublish = detailRequest;
       publish({ selectedUrl: url, details: { phase: 'idle' } });
+      if (
+        snapshot.selectedUrl !== url ||
+        detailRequest !== detailRequestBeforePublish
+      ) {
+        return;
+      }
     }
     loadDetails(url, changed ? undefined : detailValue(snapshot.details));
   }
