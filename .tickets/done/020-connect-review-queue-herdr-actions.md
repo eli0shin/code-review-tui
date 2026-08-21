@@ -18,3 +18,7 @@ Connect Review Queue keys to the `Herdr` CLI adapter.
 - An immediate CLI failure is shown on the Review Queue page.
 - Opening either command does not change the Review Queue or Cursor.
 - Page tests prove the two key actions and visible failures.
+
+## Resolution
+
+Implemented and merged in PR #20 as commit `cbad76507c3917b44247b6f80dde355062d1ce5b`.

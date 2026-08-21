@@ -4,8 +4,7 @@ Tags:
   - task
   - hitl
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 020-connect-review-queue-herdr-actions
+Blocked-By: []
 ---
 
 ## Goal
