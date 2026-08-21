@@ -55,10 +55,10 @@ Therefore:
 
 Observed with the installed `lumen 2.31.0`:
 
-| Working directory | Input | Result |
-| --- | --- | --- |
-| `/tmp` outside a repository | full URL | exits 1: `not a repository` |
-| `/tmp` outside a repository | number plus `--origin` | exits 1: `not a repository` |
+| Working directory             | Input                                       | Result                                                    |
+| ----------------------------- | ------------------------------------------- | --------------------------------------------------------- |
+| `/tmp` outside a repository   | full URL                                    | exits 1: `not a repository`                               |
+| `/tmp` outside a repository   | number plus `--origin`                      | exits 1: `not a repository`                               |
 | this unrelated Git repository | `https://github.com/jnsahaj/lumen/pull/172` | fetches metadata and all file content, then opens the TUI |
 
 **Integration implication:** the parent application must set the child working directory to a known local Git or Jujutsu checkout. A stable application repository is enough; it does not need one checkout per Review Queue item. This is a Lumen limitation, not a GitHub API requirement.
@@ -89,18 +89,33 @@ Do not depend only on Lumen's cleanup. The setup and event loop use fallible ope
 ## Sources
 
 [^pr-parser]: [Lumen `v2.31.0`, `src/command/diff/mod.rs`, lines 53-79](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/mod.rs#L53-L79)
+
 [^repo-precedence]: [Lumen `v2.31.0`, repository selection, lines 107-130](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/mod.rs#L107-L130)
+
 [^cli-options]: [Lumen `v2.31.0`, diff CLI options, lines 108-149](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/config/cli.rs#L108-L149)
+
 [^detect-pr]: [Lumen `v2.31.0`, branch pull request detection, lines 318-359](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/mod.rs#L318-L359)
+
 [^metadata]: [Lumen `v2.31.0`, pull request GraphQL metadata, lines 132-175](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/mod.rs#L132-L175)
+
 [^pr-diff]: [Lumen `v2.31.0`, changed-file retrieval, lines 170-212](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/git.rs#L170-L212)
+
 [^file-content]: [Lumen `v2.31.0`, base/head selection and content API, lines 219-233 and 399-413](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/git.rs#L219-L233) and [lines 399-413](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/git.rs#L399-L413)
+
 [^gh-pr-diff]: [Official GitHub CLI manual: `gh pr diff`](https://cli.github.com/manual/gh_pr_diff)
+
 [^gh-api]: [Official GitHub CLI manual: `gh api`](https://cli.github.com/manual/gh_api)
+
 [^startup]: [Lumen `v2.31.0`, backend initialization before dispatch, lines 29-45 and diff dispatch at lines 125-150](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/main.rs#L29-L45)
+
 [^vcs-detection]: [Lumen `v2.31.0`, upward VCS detection](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/vcs/detection.rs#L14-L37) and [`not a repository` result](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/vcs/mod.rs#L39-L70)
+
 [^terminal-entry]: [Lumen `v2.31.0`, terminal setup, lines 344-358](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L344-L358)
+
 [^tty-writer]: [Lumen `v2.31.0`, stdout and `/dev/tty` writer selection, lines 17-36](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L17-L36)
+
 [^exit-keys]: [Lumen `v2.31.0`, main-loop exit keys, lines 1241-1266](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L1241-L1266)
+
 [^terminal-exit]: [Lumen `v2.31.0`, normal terminal cleanup, lines 2204-2210](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L2204-L2210)
+
 [^annotation-output]: [Lumen `v2.31.0`, annotation output after cleanup, lines 2212-2218](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L2212-L2218)
