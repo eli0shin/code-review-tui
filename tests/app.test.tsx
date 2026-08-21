@@ -397,17 +397,17 @@ describe('Review Queue page loading', () => {
             kind: 'exit',
             operation: 'reviewQueue',
             exitCode: 1,
-            stderr: 'one line failure',
+            stderr: `stderr-one\nstderr-two\nstderr-three\nstderr-four\nstderr-five\nstderr-six\nstderr-seven\nstderr-eight-${'x'.repeat(100)}-queue-tail`,
           },
         } as const;
       },
-      async loadPullRequestDetails(url: string) {
+      loadPullRequestDetails: jest.fn(async (url: string) => {
         const request = queue.find((item) => item.url === url);
         if (request === undefined) throw new Error('Unknown pull request');
         return success(
           pullRequestDetails(`Details #${request.number}`, request)
         );
-      },
+      }),
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
       },
@@ -415,6 +415,7 @@ describe('Review Queue page loading', () => {
     const view = await testRender(reviewQueuePage(github), {
       width: 100,
       height: 16,
+      kittyKeyboard: true,
     });
     await view.waitForFrame((frame) => frame.includes('Details #7'));
     for (let index = 0; index < 5; index += 1) {
@@ -424,11 +425,26 @@ describe('Review Queue page loading', () => {
 
     await act(async () => view.mockInput.pressKey('r'));
     const failedFrame = await view.waitForFrame((frame) =>
-      frame.includes('Review Queue not refreshed: one line failure')
+      frame.includes('Review Queue not refreshed')
     );
-    expect(failedFrame).toContain('Queue item 12');
-    expect(failedFrame).toContain('Details #12');
-    expect(failedFrame).toContain('j/k move');
+    expect(failedFrame).toContain('stderr-one');
+    await act(async () => view.mockInput.pressKey('k'));
+    expect(github.loadPullRequestDetails).toHaveBeenLastCalledWith(
+      queue[5]?.url,
+      expect.any(AbortSignal)
+    );
+
+    await act(async () => view.mockInput.pressKey('END'));
+    await view.waitForFrame((frame) => frame.includes('queue-tail'));
+    await act(async () => {
+      view.mockInput.pressEscape();
+      await Promise.resolve();
+    });
+    await view.waitForFrame(
+      (frame) => !frame.includes('PgUp/PgDn page Home/End Esc return')
+    );
+    await act(async () => view.mockInput.pressKey('k'));
+    await view.waitForFrame((frame) => frame.includes('Details #11'));
     view.renderer.destroy();
   });
 
@@ -614,6 +630,56 @@ describe('Review Queue page loading', () => {
       configurable: true,
       value: false,
     });
+    view.renderer.destroy();
+  });
+
+  test('makes long detail stderr reachable without running queue actions', async () => {
+    const submitReview = jest.fn(async () => success(undefined));
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ok: false,
+          failure: {
+            kind: 'exit',
+            operation: 'pullRequestDetails',
+            url: pullRequest.url,
+            exitCode: 1,
+            stderr: `detail-one\ndetail-two\ndetail-three\ndetail-four\ndetail-five\ndetail-six\ndetail-seven\ndetail-eight-${'x'.repeat(100)}-detail-tail`,
+          },
+        } as const;
+      },
+      submitReview,
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 80,
+      height: 16,
+      kittyKeyboard: true,
+    });
+    const failure = await view.waitForFrame((frame) =>
+      frame.includes('Pull request details unavailable')
+    );
+    expect(failure).toContain('detail-one');
+
+    await act(async () => view.mockInput.pressKey('s'));
+    expect(view.captureCharFrame()).not.toContain('Ctrl+S submit');
+    expect(submitReview).not.toHaveBeenCalled();
+    await act(async () => view.mockInput.pressKey('END'));
+    await view.waitForFrame((frame) => frame.includes('detail-tail'));
+
+    await act(async () => {
+      view.mockInput.pressEscape();
+      await Promise.resolve();
+    });
+    await view.waitForFrame(
+      (frame) => !frame.includes('PgUp/PgDn page Home/End Esc return')
+    );
+    await act(async () => view.mockInput.pressKey('s'));
+    await view.waitForFrame((frame) =>
+      frame.includes('Review acme/widgets #7')
+    );
     view.renderer.destroy();
   });
 });

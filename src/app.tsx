@@ -114,10 +114,12 @@ function ReviewQueue({
   const [cursor, setCursor] = useState(0);
   const [draft, setDraft] = useState<SubmissionDraft>();
   const [showHelp, setShowHelp] = useState(false);
+  const [dismissedFailureKey, setDismissedFailureKey] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [herdrActionFailure, setHerdrActionFailure] =
     useState<HerdrActionFailure>();
   const editorRef = useRef<TextareaRenderable>(null);
+  const failureViewerRef = useRef<ScrollBoxRenderable>(null);
   const submissionActiveRef = useRef(false);
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
     queryKey: ['reviewQueue'],
@@ -147,6 +149,34 @@ function ReviewQueue({
       return result.value;
     },
   });
+
+  const activeFailure =
+    queueQuery.error !== null &&
+    githubFailureKey(queueQuery.error) !== dismissedFailureKey
+      ? {
+          key: githubFailureKey(queueQuery.error),
+          title:
+            queue.length === 0
+              ? 'Review Queue unavailable'
+              : 'Review Queue not refreshed',
+          message: failureMessage(queueQuery.error),
+        }
+      : detailsQuery.error !== null &&
+          githubFailureKey(detailsQuery.error) !== dismissedFailureKey
+        ? {
+            key: githubFailureKey(detailsQuery.error),
+            title: `Pull request details unavailable${
+              highlightedPullRequest === undefined
+                ? ''
+                : ` · ${highlightedPullRequest.repository} #${highlightedPullRequest.number}`
+            }`,
+            message: failureMessage(detailsQuery.error),
+          }
+        : undefined;
+
+  useEffect(() => {
+    failureViewerRef.current?.scrollTo(0);
+  }, [activeFailure?.key]);
 
   const submitDraft = async (submission: SubmissionDraft): Promise<void> => {
     if (submission.decision !== 'approve' && !/\S/.test(submission.message)) {
@@ -201,6 +231,21 @@ function ReviewQueue({
   useKeyboard((key) => {
     if (draft !== undefined) {
       handleSubmissionKey(key, draft, setDraft, submitDraft);
+      return;
+    }
+
+    if (activeFailure !== undefined) {
+      key.preventDefault();
+      key.stopPropagation();
+      const viewer = failureViewerRef.current;
+      if (key.name === 'escape') {
+        setDismissedFailureKey(activeFailure.key);
+      } else if (key.name === 'up') viewer?.scrollBy(-1, 'step');
+      else if (key.name === 'down') viewer?.scrollBy(1, 'step');
+      else if (key.name === 'pageup') viewer?.scrollBy(-1, 'viewport');
+      else if (key.name === 'pagedown') viewer?.scrollBy(1, 'viewport');
+      else if (key.name === 'home') viewer?.scrollTo(0);
+      else if (key.name === 'end') viewer?.scrollTo(viewer.scrollHeight);
       return;
     }
 
@@ -259,7 +304,8 @@ function ReviewQueue({
   });
 
   const initialFailure = queueQuery.status === 'error' && queue.length === 0;
-  const queueOwnsInput = draft === undefined && !showHelp;
+  const queueOwnsInput =
+    draft === undefined && !showHelp && activeFailure === undefined;
 
   return (
     <box width="100%" height="100%" flexDirection="column">
@@ -310,6 +356,14 @@ function ReviewQueue({
       </box>
       {showHelp ? (
         <HelpOverlay keyBindings={keyBindings} theme={theme} />
+      ) : null}
+      {activeFailure !== undefined ? (
+        <FailureOverlay
+          ref={failureViewerRef}
+          title={activeFailure.title}
+          message={activeFailure.message}
+          theme={theme}
+        />
       ) : null}
       {draft !== undefined ? (
         <SubmissionModal
@@ -573,6 +627,55 @@ function StatusView({
         <strong>{title}</strong>
       </text>
       <text fg={theme?.textMuted}>{detail}</text>
+    </box>
+  );
+}
+
+function FailureOverlay({
+  ref,
+  title,
+  message,
+  theme,
+}: {
+  readonly ref: React.Ref<ScrollBoxRenderable>;
+  readonly title: string;
+  readonly message: string;
+  readonly theme: SystemTheme | undefined;
+}) {
+  return (
+    <box
+      position="absolute"
+      left="15%"
+      top="15%"
+      width="70%"
+      height="70%"
+      zIndex={15}
+      border
+      borderColor={theme?.error}
+      backgroundColor={theme?.background}
+      padding={1}
+      flexDirection="column"
+    >
+      <text flexShrink={0}>
+        <strong>{title}</strong>
+      </text>
+      <scrollbox
+        ref={ref}
+        flexGrow={1}
+        scrollY
+        viewportCulling
+        contentOptions={{ flexDirection: 'column' }}
+      >
+        {failureMessageLines(message).map((line) => (
+          <text key={line.key} width="100%" wrapMode="char">
+            {line.text}
+          </text>
+        ))}
+        <box height={1} />
+      </scrollbox>
+      <text flexShrink={0} fg={theme?.textMuted}>
+        ↑/↓ scroll PgUp/PgDn page Home/End Esc return
+      </text>
     </box>
   );
 }
@@ -873,6 +976,13 @@ function herdrFailureMessage(failure: HerdrFailure): string {
   return message;
 }
 
+function githubFailureKey(failure: GitHubFailure): string {
+  const url = 'url' in failure ? failure.url : '';
+  const stderr = 'stderr' in failure ? failure.stderr : '';
+  const diagnostic = 'diagnostic' in failure ? failure.diagnostic : '';
+  return `${failure.operation}:${url}:${failure.kind}:${diagnostic}:${stderr}`;
+}
+
 function failureMessage(failure: GitHubFailure): string {
   switch (failure.kind) {
     case 'startup':
@@ -935,6 +1045,17 @@ function footerText(keyBindings: EffectiveKeyBindings): string {
   )} review command  ${formatBindings(
     keyBindings.composeReviewSubmission
   )} submit review  ${formatBindings(keyBindings.showHelp)} help`;
+}
+
+function failureMessageLines(
+  message: string
+): readonly { readonly key: string; readonly text: string }[] {
+  let offset = 0;
+  return message.split('\n').map((text) => {
+    const line = { key: `${offset}:${text}`, text };
+    offset += text.length + 1;
+    return line;
+  });
 }
 
 function fileSummary(files: number): string {
