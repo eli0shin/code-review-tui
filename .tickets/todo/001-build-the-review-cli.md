@@ -37,6 +37,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Specify Review Submission interaction](../done/011-specify-review-submission-interaction.md) — Compose Review Submissions in a compact multiline modal with explicit decisions, safe discard, in-flight locking, draft-preserving retry, and post-success queue refresh.
 - [Choose the tool switching model](../done/008-choose-the-tool-switching-model.md) — Require Herdr, keep the queue in its saved tab, and run Lumen and Review Commands in dedicated Tool Tabs that return focus on exit.
 - [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
+- [Define external process execution](../done/012-define-external-process-execution.md) — Use Herdr v0.8.2 direct-process Tool Tabs, pane-only ownership and cleanup, explicit launch uncertainty, and one best-effort queue-pane focus attempt after ordinary tool exit.
 
 ## Not yet specified
 

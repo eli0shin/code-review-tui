@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 012-define-external-process-execution
+Blocked-By: []
 ---
 
 ## Question
