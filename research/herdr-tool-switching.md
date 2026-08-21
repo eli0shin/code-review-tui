@@ -1,0 +1,59 @@
+# Herdr tool-switching capabilities
+
+Research snapshot: Herdr `v0.8.2` (`9eb521456ac0d19d3ab3d9d7cea3cca10baa8a4c`).
+
+## Answer
+
+Herdr can own the terminal multiplexing for `review`, but only when `review` runs in a Herdr-managed pane and Herdr is an accepted runtime dependency. It supplies persistent terminal processes, tabs, panes, exact tab focus, process input and output, and direct terminal streams. `review` would still need a small Herdr adapter that creates a tool surface, starts `lumen diff` or the Review Command, records the Review Queue tab ID, and restores that tab after the tool ends. It would not need to implement a terminal emulator or multiplexer.
+
+Herdr has no **cab** object or API. Its documented topology is session → workspace → tab → pane, with optional plugin overlays and popups. No `cab` term occurs in the `v0.8.2` source or documentation. The closest temporary surfaces are plugin overlays and popups, not cabs. [Concepts](https://herdr.dev/docs/concepts/) [Socket API](https://herdr.dev/docs/socket-api/)
+
+## Capability matrix
+
+| Need | Herdr capability | Important limit for `review` |
+| --- | --- | --- |
+| Tabs | A tab is an addressable terminal layout in a workspace. The CLI and socket API can create, list, get, focus, rename, move, and close tabs. Creation returns the tab and root-pane IDs. | A normal `tab.create` starts an interactive shell. When a command run in that shell ends, the shell and tab remain open. [CLI reference](https://herdr.dev/docs/cli-reference/#tabs) [tab implementation](https://github.com/herdrdev/herdr/blob/v0.8.2/src/app/api/tabs.rs) |
+| Cabs | None. | Do not base the design on a Herdr cab abstraction. |
+| Process launch | `pane.run` sends a shell command and Enter to an existing shell pane. `layout.apply` and plugin pane entrypoints can launch an argv-backed process directly. Launch methods accept a cwd and per-process environment. Herdr injects its socket, workspace, tab, and pane IDs. | `pane.run` has output matching but no general “foreground command exited” wait. Direct argv launch has pane-exit lifecycle events, but `layout.apply` requires the socket API and plugin entrypoints require an installed manifest with a declared command. [CLI reference: panes and waits](https://herdr.dev/docs/cli-reference/#panes) [Socket API: layouts and launch environment](https://herdr.dev/docs/socket-api/) [layout implementation](https://github.com/herdrdev/herdr/blob/v0.8.2/src/app/api/layouts.rs#L34-L218) |
+| Focus | `workspace.focus` and `tab.focus` select exact objects. Creation and splits accept a focus flag. Caller-sensitive pane commands can use `HERDR_PANE_ID` through `--current`; omission instead targets the UI-focused pane. | `--current` identifies the calling pane. It does not create a parent-child focus relationship for a new tab. `review` must save `HERDR_TAB_ID` before it switches away. [CLI reference](https://herdr.dev/docs/cli-reference/#panes) [Socket API](https://herdr.dev/docs/socket-api/) |
+| Return to caller | Plugin overlays remember the prior pane and restore it after the overlay process exits. An argv-backed pane emits `pane.exited`; when its only pane is removed, its tab is removed too. | There is no general `return_to_caller` operation for regular tabs. Tab removal selects an adjacent tab by index, not a recorded caller. Exact return requires `review` to focus its saved tab ID. Overlay return is available only through the plugin pane API. [exit and overlay restoration](https://github.com/herdrdev/herdr/blob/v0.8.2/src/app/api.rs#L210-L350) [tab selection after pane removal](https://github.com/herdrdev/herdr/blob/v0.8.2/src/workspace.rs#L228-L235) [plugin pane implementation](https://github.com/herdrdev/herdr/blob/v0.8.2/src/app/api/plugins/panes.rs) |
+| Interactive terminal control | `terminal session control` provides a writable stream of newline-delimited terminal frames and accepts input, resize, scroll, and release commands. Observe mode is read-only. Only one controller can own a terminal unless takeover is requested. | This is useful only if `review` must render a Herdr terminal itself. Focusing a Herdr tab is smaller and leaves rendering and input ownership with Herdr. [CLI reference: direct terminal attach](https://herdr.dev/docs/cli-reference/#direct-terminal-attach) |
+| Persistence | The Herdr server owns panes and processes. A client can detach and reattach without stopping them. | This is more persistence than `review` requires, but it avoids child-terminal ownership in the OpenTUI process. [Concepts](https://herdr.dev/docs/concepts/#client-and-server) |
+
+## Viable integration shapes
+
+### 1. Regular shell tab through CLI
+
+`review` can create and focus a labeled tab, read its returned root-pane ID, and use `pane.run` to start the tool. This uses only simple CLI wrappers.
+
+This shape is not self-returning. The tool exits back to the tab's shell. `review` must detect completion by adding its own shell wrapper or by polling `pane process-info`, then close the tool tab and focus the saved Review Queue tab. Output matching is not a reliable generic completion signal because the Review Command is user-configured.
+
+### 2. Direct argv tab through the socket API
+
+`review` can call `layout.apply` with one pane, an argv command, `focus: true`, the repository cwd, and a label. For the configured Review Command, the argv can be the configured shell plus its command flag. For Lumen, it can be `lumen diff` as argv.
+
+When the direct process exits, Herdr emits `pane.exited` and removes the one-pane tab. A subscriber can then explicitly focus the saved Review Queue tab. These subscriptions are session-wide, so the adapter must act only on events whose pane or tab ID matches the launched tool. This is the cleanest Herdr route: it has deterministic process lifecycle and no idle shell, but it requires a small socket client and event handling. Herdr recommends the raw socket API for protocol clients and event subscribers. [Socket API: integration layers and events](https://herdr.dev/docs/socket-api/) [event schema](https://github.com/herdrdev/herdr/blob/v0.8.2/src/api/schema/events.rs)
+
+### 3. Herdr plugin overlay or tab
+
+A packaged Herdr plugin can declare fixed terminal entrypoints and open them as an overlay, popup, split, tab, or zoomed pane. An overlay restores its previous focus on exit. A popup is session-modal, has no pane ID, and is outside pane and agent APIs. [CLI reference: managed terminal panes](https://herdr.dev/docs/cli-reference/#plugins)
+
+This gives the best built-in return behavior, but it makes `review` installation depend on a Herdr plugin manifest. Runtime argv registration is not part of plugin v1, so a wrapper entrypoint would have to read `review` configuration and launch the user-configured Review Command. This is a larger packaging contract than the direct socket route.
+
+## Recommendation for the prototype
+
+Prototype the direct argv tab route, not regular shell tabs or direct terminal streaming:
+
+1. Require `HERDR_ENV=1`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, and a reachable Herdr socket.
+2. Save `HERDR_TAB_ID` as the Review Queue return target.
+3. Use `layout.apply` to create one focused, labeled tool tab with a direct argv process.
+4. Subscribe to `pane.exited` and `tab.closed` before launch to avoid a completion race.
+5. Record the tool pane and tab IDs from the `layout.apply` response. Buffer events received before that response, and ignore all events that do not match those IDs.
+6. On the matching exit, focus the saved Review Queue tab if it still exists. Show a recoverable error if it does not.
+7. Let Herdr render the tool terminal and own all tool input. Do not consume `terminal session control` frames in OpenTUI.
+
+This design delegates terminal emulation, PTYs, resize, focus delivery, and process persistence to Herdr. The remaining code is orchestration, not a terminal multiplexer.
+
+## Decision boundary
+
+Use Herdr if the product may require that users start `review` inside Herdr and have a compatible Herdr version installed. Do not select it as the only tool-switching model if `review` must also work in an ordinary terminal: outside a Herdr pane there is no deterministic caller tab, and Herdr cannot return to a terminal surface that it does not own.
