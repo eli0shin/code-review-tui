@@ -6,7 +6,6 @@ Tags:
 Parent: 001-build-the-review-cli
 Blocked-By:
   - 021-build-opentui-review-queue-and-submission
-  - 025-replace-herdr-socket-adapter-with-cli
 ---
 
 ## Goal

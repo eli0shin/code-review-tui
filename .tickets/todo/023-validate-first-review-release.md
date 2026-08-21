@@ -6,7 +6,6 @@ Tags:
 Parent: 001-build-the-review-cli
 Blocked-By:
   - 022-compose-review-startup-shutdown-and-smoke-tests
-  - 025-replace-herdr-socket-adapter-with-cli
 ---
 
 ## Goal

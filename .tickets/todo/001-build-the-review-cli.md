@@ -44,7 +44,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 
 ## Implementation path
 
-- [Replace the Herdr socket adapter with CLI execution](025-replace-herdr-socket-adapter-with-cli.md) before any remaining feature work.
+- [Replace the Herdr socket adapter with CLI execution](../done/025-replace-herdr-socket-adapter-with-cli.md) before any remaining feature work.
 - [Implement strict Review configuration](../done/015-implement-strict-review-configuration.md).
 - [Implement the GitHub CLI data adapter](../done/016-implement-github-cli-data-adapter.md).
 - Implement Review Queue and detail queries with TanStack React Query and one numeric Cursor in the OpenTUI page; ticket 024 replaces the rejected merged implementation.

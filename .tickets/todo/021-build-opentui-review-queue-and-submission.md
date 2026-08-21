@@ -6,7 +6,6 @@ Tags:
 Parent: 001-build-the-review-cli
 Blocked-By:
   - 020-connect-review-queue-herdr-actions
-  - 025-replace-herdr-socket-adapter-with-cli
 ---
 
 ## Goal

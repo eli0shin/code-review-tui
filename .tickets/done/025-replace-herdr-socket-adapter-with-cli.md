@@ -62,3 +62,7 @@ Use a fake `herdr` executable or process runner. Test only:
 - Do not implement the Herdr protocol.
 - Do not add a subscription, listener, callback registry, event bus, store, controller, state machine, lifecycle coordinator, or shutdown coordinator.
 - Update active tickets and architecture documents so they describe CLI execution only.
+
+## Resolution
+
+Implemented and merged in PR #19 as commit `6eca75565ea2d3dbdab3f23a63e53934998a6b5c`.

@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 025-replace-herdr-socket-adapter-with-cli
+Blocked-By: []
 ---
 
 ## Goal
