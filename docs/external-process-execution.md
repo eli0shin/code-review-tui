@@ -15,26 +15,31 @@ At TUI startup, require all of these conditions:
 - a reachable Herdr socket whose protocol supports `session.snapshot`, `layout.apply`, `tab.focus`, `tab.close`, `pane.close`, and event subscriptions; and
 - a snapshot in which the supplied workspace, Review Queue Tab, and Review Queue pane exist and have the stated relationship.
 
-The initial `HERDR_PANE_ID` identifies the Review Queue pane. From the startup snapshot, save that pane's stable Herdr terminal ID in addition to its current pane, tab, and workspace IDs. The initial tab and workspace IDs establish its first saved return target. Match `pane.moved` events against the current pane ID and update all resource IDs from Herdr's authoritative move result. Use the stable terminal ID to find the pane in later snapshots. Create later Tool Tabs in the Review Queue's current saved workspace. Do not derive the return target from whichever tab is focused.
+The initial `HERDR_PANE_ID` identifies the Review Queue pane. From the startup snapshot, save that pane's stable Herdr terminal ID in addition to its current pane, tab, and workspace IDs. The initial tab and workspace IDs establish its first saved return target. Use the stable terminal ID to find the pane and update all current resource IDs from later snapshots. Create later Tool Tabs in the Review Queue's current saved workspace. Do not derive the return target from whichever tab is focused.
 
 Failure of any startup condition stops TUI startup. Identify Herdr, the missing or incompatible condition, and the action to start or update Herdr and run `review` inside a Herdr pane. Do not silently fall back to an ordinary terminal, physical-terminal handoff, or an OpenTUI embedded PTY.
 
 Herdr v0.8.2 accepts one request and returns one response on each control connection, then closes that connection. Open a fresh control connection for every `session.snapshot`, `layout.apply`, focus, close, or other request. Keep a control connection only until its response, error, end-of-file, or timeout. Concurrent requests use separate connections.
 
-Use one separate, persistent `events.subscribe` connection. Establish the event subscription before the startup snapshot and buffer events until that snapshot is applied. This closes the startup observation gap and ensures that a fast child cannot exit before observation starts. Request IDs correlate replies on their individual connections. Resource IDs from Herdr correlate later events.
+Use one separate, persistent `events.subscribe` connection. Herdr v0.8.2 starts each subscription at sequence zero and replays retained history without an exposed cursor. Therefore, treat every event only as an invalidation notice. Never update focus, movement, ownership, or completion state directly from an event payload.
+
+Establish the subscription before the startup snapshot and coalesce notices while that authoritative baseline is loading. If notices arrived, take one follow-up snapshot; continue this one-active-plus-one-pending snapshot pattern while notices arrive. Compare authoritative snapshots to validate the current resources and focus. This closes the startup observation gap without treating replayed history as live. Focus provenance before the baseline is unknown. Request IDs correlate replies on their individual connections. Stable terminal IDs correlate resources across snapshots.
 
 ## Tool launch model
 
 A queue action starts one launch operation for the selected pull request. Generate a unique, in-memory tool ID before sending the request. The launch has these states:
 
 1. **launching**: subscribed, but no confirmed Tool Tab exists;
-2. **running**: Herdr returned the Tool Tab and pane IDs;
-3. **closing**: `review` requested closure and is waiting for Herdr confirmation; and
-4. **ended**: no owned pane or Tool Tab remains.
+2. **running**: Herdr returned the Tool Tab and pane IDs and a snapshot confirmed the pane;
+3. **indeterminate**: the launch request can have taken effect, but no current resource can prove its outcome;
+4. **closing**: `review` requested closure and is waiting for Herdr confirmation; and
+5. **ended**: no owned pane or Tool Tab remains.
 
 Use `layout.apply` to create one focused tab with one direct argv-backed pane. Set a concise tab and pane label that distinguishes Lumen from a Review Command and includes the pull request repository, number, and unique tool ID. Also put that ID in the pane environment as `REVIEW_TOOL_ID`; it is lifecycle correlation data, not durable Review Queue state.
 
-Buffer lifecycle events received while the matching `layout.apply` control connection is unresolved. After the response supplies the pane and tab IDs, apply buffered matching events before reporting the tool as running. Ignore session-wide events for resources that `review` does not own.
+Coalesce event notices received while the matching `layout.apply` control connection is unresolved. After a successful response supplies the pane and tab IDs, always take an authoritative snapshot. Find the pane first by its returned pane ID and then, if it moved and that ID is absent, by its unique tool label. Save its stable terminal ID before reporting the tool as running. If notices arrived during this baseline, request one follow-up snapshot. Do not apply buffered event payloads directly.
+
+If the successful response confirmed launch but the pane is absent from the baseline, the tool started and ended before ownership baselining completed. Mark it ended, keep focus provenance unknown, and do not restore the Review Queue from that transition.
 
 Each action creates a new Tool Tab. A pull request can have Lumen, a Review Command, or several instances of either running concurrently. Do not reuse a shell tab, replace an existing Tool Tab, impose one-tool-at-a-time behavior, or infer Review Queue state from a running or completed tool.
 
@@ -81,13 +86,13 @@ A Tool Tab can continue to run and produce output while unfocused. Returning to 
 
 ## Completion and return focus
 
-Observe `pane.exited`, `pane.closed`, `pane.moved`, `pane.focused`, `tab.closed`, `tab.focused`, and `workspace.closed` events. Track a moved owned tool pane by the new resource IDs from Herdr. Match a Review Queue move against its current pane ID, update its pane, tab, and workspace IDs, and retain its stable terminal ID for snapshot reconciliation. Track pane focus separately from tab focus so that an unrelated pane added to a Tool Tab does not count as the tool owning focus. Treat either confirmed process exit or external closure of its pane as tool completion. Resource closure is idempotent: duplicate or reordered exit and close events produce one completion.
+Subscribe to `pane.exited`, `pane.closed`, `pane.moved`, `pane.focused`, `tab.closed`, `tab.focused`, and `workspace.closed`, but use them only to request snapshot reconciliation. Find owned tool panes and the Review Queue pane by stable terminal ID in each snapshot, then update their current pane, tab, and workspace IDs. Track pane focus separately from tab focus so that an unrelated pane added to a Tool Tab does not count as the tool owning focus. A transition from present to absent in authoritative snapshots confirms completion. Duplicate or replayed notices can request extra snapshots but cannot produce duplicate completion.
 
-Closure of the saved Review Queue tab or workspace is provisional because Herdr can emit container-close events before the `pane.moved` event that places the Review Queue pane in its new container. Do not start shutdown from a tab or workspace close alone. A matching move updates the saved return target. A confirmed close of the Review Queue pane starts shutdown.
+Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Do not start shutdown from a tab or workspace event alone. Update the saved return target when the next snapshot finds the stable Review Queue terminal in a new container. Start shutdown only when snapshot reconciliation confirms that the Review Queue pane is absent.
 
 When a direct process exits, Herdr removes its pane and removes the Tool Tab when it is empty. `review` must not close or modify a tab that now contains a pane it does not own.
 
-Focus the saved Review Queue Tab after completion only when the ending tool owned focus immediately before its exit. If the user had already focused the Review Queue, another Tool Tab, or another Herdr surface, preserve that choice. A background tool exit must not steal focus from an active tool.
+Focus the saved Review Queue Tab after completion only when an uninterrupted subscription has two validated states: the last authoritative snapshot showed that exact owned tool pane focused, and reconciliation requested by a matching current-resource exit or close notice confirms that it is absent. If focus provenance is from startup, reconnect, replay alone, or otherwise cannot validate that transition, preserve the surface focused in the latest snapshot. A background or uncertain tool exit must not steal focus.
 
 If the saved Review Queue Tab exists but focus restoration fails, show a recoverable Herdr control failure. If the saved tab or workspace is absent, disable launches and reconcile the Review Queue pane by stable terminal ID through a fresh snapshot. Update the saved resource IDs and retry focus when the pane exists in a new container. Start shutdown only when the snapshot confirms that the Review Queue pane no longer exists.
 
@@ -107,11 +112,13 @@ Distinguish these cases:
 
 Once Herdr starts the direct process, `review` cannot distinguish a successful exit, nonzero exit, or terminating signal. In particular, `/bin/sh` can start and then return status 126 or 127 for a Review Command, but Herdr does not expose that status. Do not misreport this completion as a launch failure or success.
 
-A failed `layout.apply` response means no Tool Tab exists only when Herdr says the request made no change. Loss or timeout of that request's control connection has an unknown result. Open a fresh control connection for `session.snapshot` and reconcile the request by its known resource IDs and unique tool label before permitting a retry. If a Tool Tab might exist, treat it as owned and offer cleanup; do not issue a second launch that can duplicate it.
+A failed `layout.apply` response means no Tool Tab exists only when Herdr says the request made no change. Loss or timeout of that request's control connection has an unknown result. Open a fresh control connection for `session.snapshot` and look for the unique tool label. If a matching resource exists, adopt it as owned and continue reconciliation.
 
-If the event-subscription connection disconnects, mark tool lifecycle as degraded and disable new launches. Establish a new subscription first, buffer its events, and then take a fresh snapshot through a new control connection before resuming. Existing tools continue under Herdr. First find the Review Queue pane by stable terminal ID and update its current pane, tab, and workspace IDs; start shutdown if it is absent. Then reconcile each owned tool resource as running or ended, apply buffered events after the snapshot, and do not infer completion only from socket loss.
+If no matching resource exists, the process can still have started, performed work, and ended before the snapshot. Set the launch to **indeterminate**. Do not claim that it failed or completed, and do not permit an automatic or ordinary retry. Show that the command may already have run and require explicit user acknowledgement before enabling a new launch action. Acknowledgement clears the safety interlock only; it does not assert an outcome.
 
-If the snapshot shows that a tool ended while events were unavailable, the prior focus owner is unknowable. Mark the tool ended and preserve the surface that the snapshot says is now focused. Do not restore the Review Queue in this case because that could steal the user's current focus.
+If the event-subscription connection disconnects, mark tool lifecycle as degraded and disable new launches. Establish a new subscription first, coalesce replayed notices, and then take a fresh baseline snapshot through a new control connection. Existing tools continue under Herdr. First find the Review Queue pane by stable terminal ID and update its current pane, tab, and workspace IDs; start shutdown if it is absent. Then reconcile each owned tool resource as running or ended. If notices arrived during the baseline, request a follow-up snapshot rather than applying their payloads.
+
+Focus provenance across the disconnect and new baseline is unknown. If the baseline shows that a tool ended while events were unavailable, mark the tool ended and preserve the surface that the snapshot says is now focused. Resume validated transition handling only after this baseline. Do not restore the Review Queue from replayed events or socket loss.
 
 ## Shutdown
 
