@@ -6,11 +6,11 @@ Research date: 2026-08-21. Validated against the installed GitHub CLI 2.97.0.
 
 Use GitHub CLI as the complete GitHub boundary:
 
-| Operation | Command |
-| --- | --- |
-| Load the cross-repository Review Queue | `gh search prs` |
-| Load pull request details | `gh pr view <pull-request-url>` |
-| Create a Review Submission | `gh pr review <pull-request-url>` |
+| Operation                              | Command                           |
+| -------------------------------------- | --------------------------------- |
+| Load the cross-repository Review Queue | `gh search prs`                   |
+| Load pull request details              | `gh pr view <pull-request-url>`   |
+| Create a Review Submission             | `gh pr review <pull-request-url>` |
 
 Use the pull request `url` from the Review Queue as the identity passed to all later commands. A number is only unique inside one repository. The URL also contains the host, owner, repository, and number.
 
@@ -138,23 +138,43 @@ The command names and flags are stable public GitHub CLI interfaces, but JSON fi
 ## Sources
 
 [^gh-search-prs]: GitHub CLI manual, [`gh search prs`](https://cli.github.com/manual/gh_search_prs).
+
 [^gh-pr-view]: GitHub CLI manual, [`gh pr view`](https://cli.github.com/manual/gh_pr_view).
+
 [^gh-pr-review]: GitHub CLI manual, [`gh pr review`](https://cli.github.com/manual/gh_pr_review).
+
 [^gh-formatting]: GitHub CLI manual, [JSON formatting](https://cli.github.com/manual/gh_help_formatting).
+
 [^gh-search]: GitHub CLI manual, [`gh search` and negated qualifiers](https://cli.github.com/manual/gh_search).
+
 [^gh-environment]: GitHub CLI manual, [environment variables](https://cli.github.com/manual/gh_help_environment).
+
 [^gh-auth-switch]: GitHub CLI manual, [`gh auth switch`](https://cli.github.com/manual/gh_auth_switch).
+
 [^github-pr-search]: GitHub Docs, [searching issues and pull requests: review status and reviewer](https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests#search-by-pull-request-review-status-and-reviewer).
+
 [^github-rest-search]: GitHub Docs, [REST API endpoints for search](https://docs.github.com/en/rest/search/search?apiVersion=2022-11-28#about-search).
+
 [^github-rest-reviews]: GitHub Docs, [create a review for a pull request](https://docs.github.com/en/rest/pulls/reviews?apiVersion=2022-11-28#create-a-review-for-a-pull-request).
+
 [^gh-search-prs-source]: GitHub CLI 2.97.0 source, [`pkg/cmd/search/prs/prs.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/search/prs/prs.go#L74-L80).
+
 [^gh-searcher-source]: GitHub CLI 2.97.0 source, [`pkg/search/searcher.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/search/searcher.go#L162-L187).
+
 [^gh-search-output-source]: GitHub CLI 2.97.0 source, [`pkg/cmd/search/shared/shared.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/search/shared/shared.go#L58-L94).
+
 [^gh-search-export]: GitHub CLI 2.97.0 source, [`pkg/search/result.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/search/result.go#L403-L443).
+
 [^gh-search-host]: GitHub CLI 2.97.0 source, [`pkg/cmd/search/shared/shared.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/search/shared/shared.go#L41-L55).
+
 [^gh-pr-finder]: GitHub CLI 2.97.0 source, [`pkg/cmd/pr/shared/finder.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/pr/shared/finder.go#L112-L123) and [`ParseURL`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/pr/shared/finder.go#L303-L328).
+
 [^gh-pr-pagination]: GitHub CLI 2.97.0 source, [`pkg/cmd/pr/shared/finder.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/pr/shared/finder.go#L267-L278) and [`preloadPrReviews`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/pr/shared/finder.go#L440-L477).
+
 [^gh-pr-query-builder]: GitHub CLI 2.97.0 source, [`api/query_builder.go`](https://github.com/cli/cli/blob/v2.97.0/api/query_builder.go#L101-L145).
+
 [^gh-pr-review-source]: GitHub CLI 2.97.0 source, [`pkg/cmd/pr/review/review.go`](https://github.com/cli/cli/blob/v2.97.0/pkg/cmd/pr/review/review.go#L66-L132).
+
 [^gh-add-review]: GitHub CLI 2.97.0 source, [`api/queries_pr_review.go`](https://github.com/cli/cli/blob/v2.97.0/api/queries_pr_review.go#L249-L276).
+
 [^gh-http-auth]: GitHub CLI 2.97.0 source, [`api/http_client.go`](https://github.com/cli/cli/blob/v2.97.0/api/http_client.go#L148-L170).
