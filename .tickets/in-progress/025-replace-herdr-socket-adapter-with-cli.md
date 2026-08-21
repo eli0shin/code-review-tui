@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@025-replace-herdr-socket-adapter-with-cli
 Tags:
   - task
   - afk
