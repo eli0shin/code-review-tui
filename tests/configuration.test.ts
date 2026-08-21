@@ -450,6 +450,46 @@ describe('Review configuration contract', () => {
     }
   });
 
+  test('reports control-digit aliases on conventional terminals', async () => {
+    const aliases = [
+      ['ctrl+space', 'ctrl+2'],
+      ['ctrl+space', 'ctrl+shift+2'],
+      ['escape', 'ctrl+3'],
+      ['escape', 'ctrl+shift+3'],
+      ['backspace', 'ctrl+8'],
+      ['backspace', 'ctrl+shift+8'],
+      ['ctrl+alt+space', 'ctrl+alt+2'],
+      ['ctrl+alt+space', 'ctrl+alt+shift+2'],
+      ['alt+escape', 'ctrl+alt+3'],
+      ['alt+escape', 'ctrl+alt+shift+3'],
+      ['alt+backspace', 'ctrl+alt+8'],
+      ['alt+backspace', 'ctrl+alt+shift+8'],
+    ];
+
+    for (const [named, control] of aliases) {
+      const { file, environment } = await makeEnvironment();
+      await writeConfiguration(file, {
+        ...completeConfiguration,
+        keyBindings: {
+          selectPrevious: [named],
+          quit: [control],
+        },
+      });
+
+      expectFailure(
+        await loadReviewConfiguration(environment),
+        file,
+        'keyBindings.quit',
+        /collision/i
+      );
+
+      const directory = testDirectory;
+      if (directory === undefined) throw new Error('Expected test directory');
+      await rm(directory, { recursive: true, force: true });
+      testDirectory = undefined;
+    }
+  });
+
   test('reports Alt control-character aliases on conventional terminals', async () => {
     const aliases = [
       ['alt+backspace', 'ctrl+alt+h'],

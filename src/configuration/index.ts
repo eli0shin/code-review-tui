@@ -102,6 +102,21 @@ const shiftedDigitAliases = new Map([
   ['shift+0', ')'],
 ]);
 
+const controlDigitAliases = new Map([
+  ['ctrl+2', 'ctrl+space'],
+  ['ctrl+shift+2', 'ctrl+space'],
+  ['ctrl+3', 'escape'],
+  ['ctrl+shift+3', 'escape'],
+  ['ctrl+8', 'backspace'],
+  ['ctrl+shift+8', 'backspace'],
+  ['ctrl+alt+2', 'ctrl+alt+space'],
+  ['ctrl+alt+shift+2', 'ctrl+alt+space'],
+  ['ctrl+alt+3', 'alt+escape'],
+  ['ctrl+alt+shift+3', 'alt+escape'],
+  ['ctrl+alt+8', 'alt+backspace'],
+  ['ctrl+alt+shift+8', 'alt+backspace'],
+]);
+
 export function getReviewConfigPath(
   environment: ConfigurationEnvironment = process.env,
   fallbackHome: string = homedir()
@@ -488,6 +503,8 @@ function normalizeKeyDescriptor(descriptor: string): string {
   if (/^[A-Z]$/.test(descriptor)) return `shift+${descriptor.toLowerCase()}`;
   const shiftedDigit = shiftedDigitAliases.get(descriptor);
   if (shiftedDigit !== undefined) return shiftedDigit;
+  const controlDigit = controlDigitAliases.get(descriptor);
+  if (controlDigit !== undefined) return controlDigit;
 
   let event = descriptor;
   if (/^ctrl\+shift\+[a-z]$/.test(event)) {
