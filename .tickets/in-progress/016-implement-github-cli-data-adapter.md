@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@016-implement-github-cli-data-adapter
 Tags:
   - task
   - afk
