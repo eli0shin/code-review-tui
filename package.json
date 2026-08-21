@@ -7,6 +7,7 @@
   "scripts": {
     "build": "bun build src/cli.tsx --compile --outfile review",
     "dev": "bun run src/cli.tsx",
+    "prototype:switching": "bun run src/tool-switching.prototype.tsx",
     "typecheck": "bun tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
