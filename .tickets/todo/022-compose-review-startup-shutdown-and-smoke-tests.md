@@ -10,12 +10,13 @@ Blocked-By:
 
 ## Goal
 
-Compose the complete TUI runtime and lifecycle in `src/cli.tsx` and `src/runtime.ts`, then add native executable smoke tests.
+Make the `review` executable start and stop correctly.
 
 ## Done when
 
-- Startup routes configuration values to their owning modules and fails before starting later dependencies.
-- Valid startup mounts OpenTUI and starts the initial Review Queue load.
-- Quit, end-of-input, pane loss, and signals coordinate direct Tool Tab shutdown, presentation unmount, and renderer destruction.
-- Presentation unmount removes query observers and cancels active query work.
-- Native executable smoke tests cover critical startup, command independence, and termination paths without duplicating OpenTUI page tests.
+- Startup loads configuration, connects to Herdr, renders the page, and starts the Review Queue query.
+- A startup failure prints a useful error and exits non-zero.
+- Quit, end-of-input, a closed Review Queue pane, and termination signals exit the application.
+- Exit stops input, unmounts the page, disconnects from Herdr, and destroys the renderer.
+- Exit does not close Herdr tabs that run Lumen or Review Commands.
+- Native smoke tests cover successful startup, startup failure, and exit.

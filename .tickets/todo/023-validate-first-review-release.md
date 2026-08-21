@@ -2,7 +2,7 @@
 Assigned-To:
 Tags:
   - task
-  - afk
+  - hitl
 Parent: 001-build-the-review-cli
 Blocked-By:
   - 022-compose-review-startup-shutdown-and-smoke-tests
@@ -10,11 +10,17 @@ Blocked-By:
 
 ## Goal
 
-Validate and document the first complete Review CLI release.
+Validate the finished CLI and its documentation.
 
 ## Done when
 
-- Installer, updater, and workflow contracts agree on the four artifact names and the completed `src/cli.tsx` composition root.
-- The native executable is tested on supported target builds, including installer and update failure paths.
-- User documentation covers configuration, required `gh`, Lumen and Herdr context, Review Commands, key bindings, submission, installation, and update behavior.
-- Generated release outputs and binary assets are inspected and contain only intended changes.
+- The complete CLI is exercised as a user against real `gh`, Lumen, and Herdr installations.
+- The four supported binaries build and start.
+- Installer and updater success and failure paths are checked.
+- User documentation covers configuration, requirements, keys, Review Commands, Review Submissions, installation, and updates.
+- Generated files and binaries contain only intended changes.
+- The user accepts the finished CLI.
+
+## Release gate
+
+Do not inspect, update, publish, or merge a release pull request until the user accepts the finished CLI and explicitly authorizes release work.

@@ -22,6 +22,6 @@ _Avoid_: Inline comment
 The saved Herdr tab that contains the Review Queue. `review` makes a best-effort attempt to focus its Review Queue pane when a launched tool exits.
 _Avoid_: Parent tab, caller tab
 
-**Tool Tab**:
-A Herdr tab that runs one Lumen or Review Command process for the pull request under the cursor.
-_Avoid_: Cab, embedded terminal
+**Herdr tab**:
+A tab created by Herdr to run Lumen or a Review Command for the pull request under the Cursor.
+_Avoid_: Tool Tab, Cab, embedded terminal
