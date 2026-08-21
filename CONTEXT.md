@@ -6,8 +6,12 @@
 The current GitHub search result containing pull requests that need the user's review.
 _Avoid_: Workflow queue, task list
 
+**Cursor**:
+The position in the Review Queue that highlights one visible pull request row. The cursor has no pull request identity.
+_Avoid_: Selection, selected pull request
+
 **Review Command**:
-The user-configured shell command that starts an interactive agent review for a selected pull request. The command includes the program, flags, and initial input.
+The user-configured shell command that starts an interactive agent review for the pull request under the cursor. The command includes the program, flags, and initial input.
 _Avoid_: Review Prompt, Pi command
 
 **Review Submission**:
@@ -19,5 +23,5 @@ The saved Herdr tab that contains the Review Queue. `review` makes a best-effort
 _Avoid_: Parent tab, caller tab
 
 **Tool Tab**:
-A Herdr tab that runs one Lumen or Review Command process for a selected pull request.
+A Herdr tab that runs one Lumen or Review Command process for the pull request under the cursor.
 _Avoid_: Cab, embedded terminal

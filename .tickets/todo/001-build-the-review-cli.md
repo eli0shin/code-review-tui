@@ -8,7 +8,7 @@ Blocked-By: []
 
 ## Destination
 
-Build the complete `review` CLI as scoped: a personal OpenTUI React application that shows the configured GitHub CLI pull request search, opens the selected diff in `lumen diff`, runs a configurable Review Command, and submits comment, approve, or request-changes reviews.
+Build the complete `review` CLI as scoped: a personal OpenTUI React application that shows the configured GitHub CLI pull request search, opens the pull request under the Cursor in `lumen diff`, runs a configurable Review Command, and submits comment, approve, or request-changes reviews.
 
 ## Notes
 
@@ -31,9 +31,9 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Research Herdr tabs and cabs for tool switching](../done/004-research-herdr-tabs-and-cabs-for-tool-switching.md) — Herdr provides persistent tabs, direct process launch, focus, layouts, and lifecycle events, but no cab or general return-to-caller abstraction.
 - [Research the GitHub CLI integration contract](../done/005-research-the-github-cli-integration-contract.md) — Build the queue, details, and submission boundary with `gh search prs`, `gh pr view`, and `gh pr review`, while delegating host and authentication to `gh`.
 - [Bootstrap the application from the tickets project shell](../done/006-bootstrap-the-application-from-the-tickets-project-shell.md) — The `review` executable now has the Tickets-derived Bun, OpenTUI React, installer, updater, test, CI, Changesets, and cross-platform release shell.
-- [Prototype the Review Queue interaction](../done/007-prototype-the-review-queue-interaction.md) — Use a borderless GitHub-style list with terminal-derived semantic colors and a subtle full-row selection surface that preserves row colors.
+- [Prototype the Review Queue interaction](../done/007-prototype-the-review-queue-interaction.md) — Use a borderless GitHub-style list with terminal-derived semantic colors and a subtle highlighted row under the Cursor that preserves row colors.
 - [Define configuration and Review Command expansion](../done/009-define-configuration-and-review-command-expansion.md) — Use one strict XDG JSON config, tokenize search without shell evaluation, and expose pull request values to the opaque Review Command through child environment variables.
-- [Define GitHub data refresh and failure behavior](../done/010-define-github-data-refresh-and-failure-behavior.md) — Replace queue data atomically, preserve selection by PR URL, refresh manually or after submission, and show operation-specific `gh` failures without local workflow state.
+- ~~Preserve selection by PR URL across refresh~~ — Rejected. The latest successful GitHub result is the visible Review Queue, and the Cursor only highlights a visible row.
 - [Specify Review Submission interaction](../done/011-specify-review-submission-interaction.md) — Compose Review Submissions in a compact multiline modal with explicit decisions, safe discard, in-flight locking, draft-preserving retry, and post-success queue refresh.
 - [Choose the tool switching model](../done/008-choose-the-tool-switching-model.md) — Require Herdr, keep the queue in its saved tab, and run Lumen and Review Commands in dedicated Tool Tabs that return focus on exit.
 - [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
