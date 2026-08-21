@@ -2,7 +2,7 @@
 Assigned-To:
 Tags:
   - task
-  - hitl
+  - afk
 Parent: 001-build-the-review-cli
 Blocked-By: []
 ---
@@ -15,7 +15,7 @@ The OpenTUI React Review Queue page owns its data and loading behavior:
 
 1. When the page opens, it loads pull requests.
 2. When the user presses `r`, it loads pull requests.
-3. While the page is open, one timer loads pull requests at a fixed interval.
+3. While the page is open, one timer loads pull requests every 60 seconds.
 
 All three triggers call the same page-owned load function.
 
@@ -30,6 +30,6 @@ All three triggers call the same page-owned load function.
 - Stop the timer when the page unmounts.
 - Test the three load triggers and timer cleanup through the page. Do not recreate session-level orchestration tests.
 
-## HITL gate
+## Authorization
 
-The user must confirm the fixed timer interval and authorize implementation before work starts. No downstream implementation work is authorized before this cleanup is accepted.
+The user selected a fixed 60-second interval and authorized this cleanup. No downstream implementation work can resume before this cleanup is accepted.
