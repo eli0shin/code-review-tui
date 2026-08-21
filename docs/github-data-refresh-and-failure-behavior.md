@@ -79,7 +79,7 @@ For each failure, show:
 3. GitHub CLI stderr without rewriting it, when stderr is present; and
 4. a direct retry action when the operation is retryable.
 
-If the process cannot start, identify `gh` as the executable and include the operating-system error. If GitHub CLI exits unsuccessfully with empty stderr, include its exit status and a fallback message. A parse or validation failure must say that GitHub CLI returned invalid JSON data; do not display the full response because it can be large or contain unexpected data.
+If the process cannot start, identify `gh` as the executable and include the operating-system error. If GitHub CLI exits unsuccessfully with empty stderr, include its exit status and a fallback message. A parse failure must say that GitHub CLI returned malformed JSON. A validation failure must say that GitHub CLI returned unexpected or incompatible data and identify the missing or invalid required field when possible. Do not display the full response because it can be large or contain unexpected data.
 
 Keep each failure at its boundary:
 
