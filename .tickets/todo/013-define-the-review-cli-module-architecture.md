@@ -5,7 +5,6 @@ Tags:
   - afk
 Parent: 001-build-the-review-cli
 Blocked-By:
-  - 006-bootstrap-the-application-from-the-tickets-project-shell
   - 007-prototype-the-review-queue-interaction
   - 008-choose-the-tool-switching-model
   - 009-define-configuration-and-review-command-expansion
