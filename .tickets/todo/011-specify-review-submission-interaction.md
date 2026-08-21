@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 007-prototype-the-review-queue-interaction
+Blocked-By: []
 ---
 
 ## Question
