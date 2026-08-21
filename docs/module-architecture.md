@@ -4,7 +4,7 @@
 
 Keep true external dependencies behind two deep ports: `GitHub` and `ToolTabs`. Use production adapters for GitHub CLI and Herdr. Keep configuration, OpenTUI presentation, composition, and release operations outside those adapters.
 
-The OpenTUI React Review Queue page owns its temporary presentation state and loading behavior. It uses ordinary React state for pull requests, selection, details, loading, failures, Review Submission, and tool notices. One page-owned function loads pull requests. The page calls it when the page opens, when the user presses `r`, and from one 60-second interval. The page clears that interval when it unmounts.
+The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local selected pull request URL. Its queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`.
 
 Do not add a session module, store, controller, event bus, state machine, scheduler service, queue, request-generation protocol, coalescing protocol, or presentation subscription interface. Add no coordination seam between the page and the external ports.
 
@@ -150,22 +150,20 @@ function mountReviewPresentation(
 ): MountedPresentation;
 ```
 
-The page owns only ordinary state needed to render:
+TanStack React Query owns:
 
-- the last complete Review Queue;
-- selected pull request URL and details;
-- initial and later loading indicators;
-- GitHub operation failures;
-- Review Submission input, target, decision, and operation status;
-- tool notices needed by the visible page.
+- the last complete Review Queue and pull request details;
+- pending, error, and success status;
+- the fixed 60-second Review Queue refetch interval;
+- request cancellation through the query function's supplied `AbortSignal`.
 
-The page loads pull requests directly through `GitHub`. A successful load replaces the queue and preserves selection by URL when that URL remains present. A failed later load keeps the prior queue and selection visible. Selection starts detail loading. Effect cleanup can abort obsolete detail work.
+The page keeps only one local selection value: the selected pull request URL. It derives the effective selection from that URL and current queue data. The details query key contains that effective URL.
 
-The same `loadPullRequests` function serves page open, `r`, and the fixed 60-second page timer. Do not coordinate overlapping calls, coalesce calls, assign request generations, or move the timer outside the page. Clear the timer during page unmount.
+Configure TanStack Query's public `environmentManager` for the long-lived non-browser OpenTUI runtime before mounting queries. The queue query loads on mount, sets `refetchInterval: 60_000`, and uses `refetch()` for `r`. Do not add fetch effects, timer effects, cloned selection objects, request generations, or another remote-state layer.
 
 Queue bindings run only while the Review Queue owns input. The Review Submission modal blocks queue actions. Tool Tabs never send input through OpenTUI because Herdr owns their PTYs and focus.
 
-Use OpenTUI's test renderer. Test loading triggers, timer cleanup, key bindings, modal input ownership, and visible states through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
+Use OpenTUI's test renderer. Test query loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; URL-only selection; detail loading; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
 
 ### 5. Composition root and runtime lifecycle
 
@@ -179,9 +177,9 @@ The composition root performs this order for the TUI command:
 4. create the GitHub CLI adapter with tokenized search;
 5. create the OpenTUI renderer and mount the Review Queue page with both ports and effective key bindings.
 
-Mounting the page starts its initial Review Queue load and its timer. A failure before mounting prints one actionable startup error and exits nonzero.
+Mounting the page subscribes its queries, which starts the initial Review Queue load and query-owned polling. A failure before mounting prints one actionable startup error and exits nonzero.
 
-One runtime lifecycle function coordinates quit, end-of-input, Review Queue pane loss, and signals with Tool Tab shutdown, presentation unmount, and renderer destruction. Tool ownership and pane cleanup stay inside `ToolTabs`. OpenTUI resource cleanup and timer cleanup stay inside the mounted presentation.
+One runtime lifecycle function coordinates quit, end-of-input, Review Queue pane loss, and signals with Tool Tab shutdown, presentation unmount, and renderer destruction. Tool ownership and pane cleanup stay inside `ToolTabs`. Presentation unmount removes query observers and cancels active query work.
 
 ### 6. Release
 
@@ -211,10 +209,10 @@ Do not model or review focus races or event-ordering races.
 
 Render the page and send terminal input. Prove:
 
-- pull request loading on page open, `r`, and each 60-second timer tick;
-- timer cleanup on unmount;
-- queue replacement, URL-based selection, and detail loading;
-- initial, later-load, empty, stale-detail, and failure surfaces;
+- pull request loading on page open, `r`, and each 60-second query refetch;
+- query cancellation on unmount;
+- queue results, URL-only selection, and keyed detail loading;
+- pending, error, success, empty, and detail surfaces;
 - effective key bindings and help text;
 - Review Submission behavior and modal input isolation;
 - tool actions and visible notices.
@@ -233,7 +231,7 @@ Keep release tests independent from TUI tests. Prove supported platform mapping,
 
 1. Complete strict configuration and its contract tests.
 2. Add domain values and the GitHub CLI adapter contract.
-3. Build Review Queue loading, selection, and details directly in the OpenTUI page.
+3. Build Review Queue and detail queries with TanStack React Query and keep URL-only selection in the OpenTUI page.
 4. Add Review Submission state and actions directly to that page.
 5. Add Tool Tabs and the Herdr fake-server contract.
 6. Connect page tool actions and lifecycle notices directly to `ToolTabs`.

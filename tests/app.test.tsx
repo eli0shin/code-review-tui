@@ -2,6 +2,7 @@ import { afterEach, describe, expect, jest, test } from 'bun:test';
 import { createTestRenderer } from '@opentui/core/testing';
 import { createRoot } from '@opentui/react';
 import { testRender } from '@opentui/react/test-utils';
+import { notifyManager } from '@tanstack/react-query';
 import { act } from 'react';
 import { App, ReviewQueuePage } from '../src/app.tsx';
 import type {
@@ -10,6 +11,9 @@ import type {
   ReviewQueue,
 } from '../src/domain/pull-request.ts';
 import type { GitHub, GitHubResult } from '../src/github/types.ts';
+
+notifyManager.setScheduler(queueMicrotask);
+notifyManager.setNotifyFunction(act);
 
 const pullRequest = {
   url: 'https://github.com/acme/widgets/pull/7',
@@ -23,17 +27,27 @@ const pullRequest = {
   updatedAt: '2026-08-21T10:00:00Z',
 } satisfies PullRequestSummary;
 
-function pullRequestDetails(title: string): PullRequestDetails {
+const secondPullRequest = {
+  ...pullRequest,
+  url: 'https://github.com/acme/widgets/pull/8',
+  number: 8,
+  title: 'Add more widgets',
+} satisfies PullRequestSummary;
+
+function pullRequestDetails(
+  title: string,
+  request: PullRequestSummary = pullRequest
+): PullRequestDetails {
   return {
-    url: pullRequest.url,
-    number: pullRequest.number,
+    url: request.url,
+    number: request.number,
     title,
     body: 'Pull request body',
-    author: pullRequest.author,
-    state: pullRequest.state,
-    isDraft: pullRequest.isDraft,
-    createdAt: pullRequest.createdAt,
-    updatedAt: pullRequest.updatedAt,
+    author: request.author,
+    state: request.state,
+    isDraft: request.isDraft,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
     baseRefName: 'main',
     headRefName: 'widgets',
     additions: 10,
@@ -73,16 +87,28 @@ describe('application shell', () => {
 });
 
 describe('Review Queue page loading', () => {
-  test('loads on open, r, and the 60-second timer and clears the timer on unmount', async () => {
-    jest.useFakeTimers();
+  test('loads on mount, r, and 60 seconds and cancels on unmount', async () => {
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
       value: true,
     });
-    const pendingQueueLoad = Promise.withResolvers<never>().promise;
-    const loadReviewQueue = jest.fn(async () => await pendingQueueLoad);
-    const setIntervalSpy = jest.spyOn(globalThis, 'setInterval');
-    const clearIntervalSpy = jest.spyOn(globalThis, 'clearInterval');
+    const initialQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const manualQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const timedQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const unmountedQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const queueLoads = [
+      initialQueue.promise,
+      manualQueue.promise,
+      timedQueue.promise,
+      unmountedQueue.promise,
+    ];
+    let queueLoadIndex = 0;
+    const loadReviewQueue = jest.fn((_signal: AbortSignal) => {
+      const queueLoad = queueLoads[queueLoadIndex];
+      queueLoadIndex += 1;
+      return queueLoad;
+    });
+    const intervalSpy = jest.spyOn(globalThis, 'setInterval');
     const github = {
       loadReviewQueue,
       async loadPullRequestDetails() {
@@ -101,44 +127,59 @@ describe('Review Queue page loading', () => {
     await view.renderOnce();
     expect(view.captureCharFrame()).toContain('Loading pull requests');
     expect(loadReviewQueue).toHaveBeenCalledTimes(1);
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 60_000);
 
+    await act(async () => initialQueue.resolve(success([])));
+    await view.waitForFrame((frame) =>
+      frame.includes('No pull requests need your review.')
+    );
     await act(async () => view.mockInput.pressKey('r'));
     expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    await act(async () => manualQueue.resolve(success([])));
 
-    act(() => {
-      jest.advanceTimersByTime(60_000);
+    const intervalCall = intervalSpy.mock.calls.find(
+      ([, delay]) => delay === 60_000
+    );
+    expect(intervalCall).toBeDefined();
+    const intervalCallback = intervalCall?.[0];
+    if (typeof intervalCallback !== 'function') {
+      throw new Error('The query refresh interval callback is missing');
+    }
+    await act(async () => {
+      intervalCallback();
+      await Promise.resolve();
     });
     expect(loadReviewQueue).toHaveBeenCalledTimes(3);
+    await act(async () => timedQueue.resolve(success([])));
 
-    const clearCallsBeforeUnmount = clearIntervalSpy.mock.calls.length;
+    await act(async () => view.mockInput.pressKey('r'));
+    expect(loadReviewQueue).toHaveBeenCalledTimes(4);
+    const activeSignal = loadReviewQueue.mock.calls[3][0];
+    expect(activeSignal.aborted).toBe(false);
     act(() => {
       root.unmount();
     });
-    expect(clearIntervalSpy).toHaveBeenCalledTimes(clearCallsBeforeUnmount + 1);
+    expect(activeSignal.aborted).toBe(true);
     view.renderer.destroy();
   });
 
-  test('reloads details when refresh preserves the selected URL', async () => {
-    const initialQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const refreshedQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const initialDetails =
+  test('derives URL selection and loads details for that URL', async () => {
+    const queueLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const firstDetails =
       Promise.withResolvers<GitHubResult<PullRequestDetails>>();
-    const refreshedDetails =
+    const secondDetails =
       Promise.withResolvers<GitHubResult<PullRequestDetails>>();
-    let queueLoad = initialQueue.promise;
-    let detailLoad = initialDetails.promise;
+    const detailLoads = [firstDetails.promise, secondDetails.promise];
+    let detailLoadIndex = 0;
+    const loadPullRequestDetails = jest.fn((_url: string) => {
+      const detailLoad = detailLoads[detailLoadIndex];
+      detailLoadIndex += 1;
+      return detailLoad;
+    });
     const github = {
       loadReviewQueue() {
-        const result = queueLoad;
-        queueLoad = refreshedQueue.promise;
-        return result;
+        return queueLoad.promise;
       },
-      loadPullRequestDetails() {
-        const result = detailLoad;
-        detailLoad = refreshedDetails.promise;
-        return result;
-      },
+      loadPullRequestDetails,
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
       },
@@ -148,18 +189,38 @@ describe('Review Queue page loading', () => {
       width: 80,
       height: 24,
     });
-    await act(async () => initialQueue.resolve(success([pullRequest])));
     await act(async () =>
-      initialDetails.resolve(success(pullRequestDetails('Original details')))
+      queueLoad.resolve(success([pullRequest, secondPullRequest]))
     );
-    await view.waitForFrame((frame) => frame.includes('Original details'));
+    const detailsLoadingFrame = await view.waitForFrame((frame) =>
+      frame.includes('Loading pull request details…')
+    );
+    expect(detailsLoadingFrame).toContain('Loading pull request details…');
+    await act(async () =>
+      firstDetails.resolve(success(pullRequestDetails('First details')))
+    );
+    await view.waitForFrame((frame) => frame.includes('First details'));
+    expect(loadPullRequestDetails).toHaveBeenNthCalledWith(
+      1,
+      pullRequest.url,
+      expect.any(AbortSignal)
+    );
 
-    await act(async () => view.mockInput.pressKey('r'));
-    await act(async () => refreshedQueue.resolve(success([pullRequest])));
+    await act(async () => view.mockInput.pressArrow('down'));
     await act(async () =>
-      refreshedDetails.resolve(success(pullRequestDetails('Updated details')))
+      secondDetails.resolve(
+        success(pullRequestDetails('Second details', secondPullRequest))
+      )
     );
-    await view.waitForFrame((frame) => frame.includes('Updated details'));
+    const selectedFrame = await view.waitForFrame((frame) =>
+      frame.includes('Second details')
+    );
+    expect(selectedFrame).toContain('Second details');
+    expect(loadPullRequestDetails).toHaveBeenNthCalledWith(
+      2,
+      secondPullRequest.url,
+      expect.any(AbortSignal)
+    );
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
       value: false,

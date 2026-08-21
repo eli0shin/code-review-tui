@@ -1,134 +1,125 @@
 import { createCliRenderer } from '@opentui/core';
 import { createRoot, useKeyboard } from '@opentui/react';
-import { useCallback, useEffect, useState } from 'react';
-import type {
-  PullRequestDetails,
-  PullRequestSummary,
-  ReviewQueue,
-} from './domain/pull-request.ts';
+import {
+  environmentManager,
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from '@tanstack/react-query';
+import { useState } from 'react';
+import type { PullRequestDetails, ReviewQueue } from './domain/pull-request.ts';
 import type { GitHub, GitHubFailure } from './github/types.ts';
 
+environmentManager.setIsServer(() => false);
+
 const refreshIntervalMs = 60_000;
+const detailsQueryKey = ['pullRequestDetails'] as const;
 
 type ReviewQueuePageProps = {
   readonly github: GitHub;
 };
 
 export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
-  const [queue, setQueue] = useState<ReviewQueue>([]);
-  const [selection, setSelection] = useState<PullRequestSummary>();
-  const [details, setDetails] = useState<PullRequestDetails>();
-  const [loadingQueue, setLoadingQueue] = useState(false);
-  const [loadingDetails, setLoadingDetails] = useState(false);
-  const [queueFailure, setQueueFailure] = useState<GitHubFailure>();
-  const [detailsFailure, setDetailsFailure] = useState<GitHubFailure>();
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { gcTime: Infinity, retry: false },
+        },
+      })
+  );
 
-  const loadPullRequests = useCallback(async () => {
-    setLoadingQueue(true);
-    setQueueFailure(undefined);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ReviewQueue github={github} />
+    </QueryClientProvider>
+  );
+}
 
-    const result = await github.loadReviewQueue(new AbortController().signal);
-    setLoadingQueue(false);
-    if (!result.ok) {
-      setQueueFailure(result.failure);
-      return;
-    }
-
-    setQueue(result.value);
-    setSelection((currentSelection) => {
-      const nextSelection =
-        result.value.find(
-          (pullRequest) => pullRequest.url === currentSelection?.url
-        ) ?? result.value.at(0);
-      return nextSelection === undefined ? undefined : { ...nextSelection };
-    });
-  }, [github]);
-
-  useEffect(() => {
-    void loadPullRequests();
-    const refreshTimer = setInterval(() => {
-      void loadPullRequests();
-    }, refreshIntervalMs);
-
-    return () => clearInterval(refreshTimer);
-  }, [loadPullRequests]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-
-    async function loadSelectedDetails() {
-      setDetails((currentDetails) =>
-        currentDetails?.url === selection?.url ? currentDetails : undefined
-      );
-      setDetailsFailure(undefined);
-      if (selection === undefined) {
-        setLoadingDetails(false);
-        return;
+function ReviewQueue({ github }: ReviewQueuePageProps) {
+  const [selectedUrl, setSelectedUrl] = useState<string>();
+  const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
+    queryKey: ['reviewQueue'],
+    async queryFn({ signal }) {
+      const result = await github.loadReviewQueue(signal);
+      if (!result.ok) throw result.failure;
+      return result.value;
+    },
+    refetchInterval: refreshIntervalMs,
+  });
+  const queue = queueQuery.data ?? [];
+  const effectiveSelectedUrl =
+    queue.find((pullRequest) => pullRequest.url === selectedUrl)?.url ??
+    queue.at(0)?.url;
+  const detailsQuery = useQuery<PullRequestDetails, GitHubFailure>({
+    queryKey: [...detailsQueryKey, effectiveSelectedUrl],
+    enabled: effectiveSelectedUrl !== undefined,
+    async queryFn({ signal }) {
+      if (effectiveSelectedUrl === undefined) {
+        throw new Error('A selected pull request URL is required');
       }
-
-      setLoadingDetails(true);
       const result = await github.loadPullRequestDetails(
-        selection.url,
-        controller.signal
+        effectiveSelectedUrl,
+        signal
       );
-      if (!active) return;
-      setLoadingDetails(false);
-      if (result.ok) setDetails(result.value);
-      else setDetailsFailure(result.failure);
-    }
-
-    void loadSelectedDetails();
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [github, selection]);
+      if (!result.ok) throw result.failure;
+      return result.value;
+    },
+  });
 
   useKeyboard((key) => {
     if (key.name === 'r') {
-      void loadPullRequests();
+      void queueQuery.refetch();
       return;
     }
 
     const offset = key.name === 'down' ? 1 : key.name === 'up' ? -1 : 0;
     if (offset === 0) return;
-    setSelection((currentSelection) => {
-      const currentIndex = queue.findIndex(
-        (pullRequest) => pullRequest.url === currentSelection?.url
-      );
-      return queue[currentIndex + offset] ?? currentSelection;
-    });
+    const currentIndex = queue.findIndex(
+      (pullRequest) => pullRequest.url === effectiveSelectedUrl
+    );
+    const nextIndex = currentIndex + offset;
+    if (nextIndex < 0 || nextIndex >= queue.length) return;
+    setSelectedUrl(queue[nextIndex].url);
   });
 
   return (
     <box flexDirection="column">
       <text>Review Queue</text>
-      {loadingQueue ? <text>Loading pull requests…</text> : null}
-      {queueFailure ? (
+      {queueQuery.status === 'pending' ? (
+        <text>Loading pull requests…</text>
+      ) : null}
+      {queueQuery.status === 'error' ? (
         <text>
-          Could not load pull requests: {failureMessage(queueFailure)}
+          Could not load pull requests: {failureMessage(queueQuery.error)}
         </text>
       ) : null}
-      {!loadingQueue && !queueFailure && queue.length === 0 ? (
+      {queueQuery.status === 'success' && queueQuery.isFetching ? (
+        <text>Loading pull requests…</text>
+      ) : null}
+      {queueQuery.status === 'success' && queue.length === 0 ? (
         <text>No pull requests need your review.</text>
       ) : null}
       {queue.map((pullRequest) => (
         <text key={pullRequest.url}>
-          {pullRequest.url === selection?.url ? '› ' : '  '}
+          {pullRequest.url === effectiveSelectedUrl ? '› ' : '  '}
           {pullRequest.repository}#{pullRequest.number} {pullRequest.title}
         </text>
       ))}
-      {loadingDetails ? <text>Loading pull request details…</text> : null}
-      {detailsFailure ? (
+      {effectiveSelectedUrl !== undefined &&
+      detailsQuery.status === 'pending' ? (
+        <text>Loading pull request details…</text>
+      ) : null}
+      {detailsQuery.status === 'error' ? (
         <text>
-          Could not load pull request details: {failureMessage(detailsFailure)}
+          Could not load pull request details:{' '}
+          {failureMessage(detailsQuery.error)}
         </text>
       ) : null}
-      {details ? (
+      {detailsQuery.data ? (
         <box flexDirection="column">
-          <text>{details.title}</text>
-          <text>{details.body}</text>
+          <text>{detailsQuery.data.title}</text>
+          <text>{detailsQuery.data.body}</text>
         </box>
       ) : null}
     </box>
@@ -155,7 +146,9 @@ function failureMessage(failure: GitHubFailure): string {
         : failure.diagnostic;
     case 'exit':
       return failure.stderr || `gh exited with code ${failure.exitCode}`;
-    case 'interrupted':
-      return failure.diagnostic || failure.stderr || failure.reason;
+    case 'interrupted': {
+      const diagnostic = failure.diagnostic || failure.reason;
+      return failure.stderr ? `${diagnostic}\n${failure.stderr}` : diagnostic;
+    }
   }
 }

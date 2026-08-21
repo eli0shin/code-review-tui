@@ -12,7 +12,7 @@ Blocked-By:
 
 ## Goal
 
-Complete the approved OpenTUI React Review Queue page and Review Submission presentation around its ordinary page-owned state and direct port calls.
+Complete the approved OpenTUI React Review Queue page and Review Submission presentation around TanStack React Query remote state, URL-only local selection, and direct port calls.
 
 ## Done when
 
@@ -20,4 +20,4 @@ Complete the approved OpenTUI React Review Queue page and Review Submission pres
 - Effective queue key bindings act only while the queue owns input.
 - The compact multiline Review Submission modal has isolated input, fixed controls, visible decisions, and in-flight locking.
 - OpenTUI renderer tests cover direct page behavior, key mapping, modal ownership, visual states, and non-color decision marks.
-- The implementation does not add a second state copy or an application-state coordination layer.
+- The implementation uses query status for remote loading and failures and does not add a second state copy or an application-state coordination layer.
