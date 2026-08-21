@@ -20,16 +20,16 @@ Both mechanisms need explicit process and terminal cleanup. `CliRenderer.suspend
 
 ## Capability matrix
 
-| Need | Embedded session | Physical-terminal handoff |
-| --- | --- | --- |
-| Launch | `Bun.spawn(..., { terminal })` | `renderer.suspend()`, then spawn with inherited standard streams |
-| Display | `EmbeddedTerminalRenderable.write()` | Child writes directly to the user's terminal |
-| Input | Focused renderable encodes keys, paste, focus, and mouse; `onData` writes bytes to the PTY | Child owns terminal input while OpenTUI is suspended |
-| Alternate-screen state | The retained Ghostty VT terminal owns the child screen state | Child owns the real terminal; OpenTUI exits and later re-enters its configured screen |
-| Resize | `onTerminalResize(cols, rows)` calls `terminal.resize(cols, rows)` | The foreground child receives normal terminal resize behavior; OpenTUI reads current dimensions after return |
-| Switch | Keep each session mounted and layout-visible; blur and move the old panel outside a clipped viewport, then move/focus the new one | Not a multi-session switch mechanism |
-| Suspend child execution | Not required for switching; moving a panel off-screen does not stop the process | Not provided by `CliRenderer.suspend()` |
-| Shutdown | Kill and await the child, close its PTY, destroy its renderable, then destroy the app renderer | Kill and await an active child, then destroy the suspended renderer |
+| Need                    | Embedded session                                                                                                                  | Physical-terminal handoff                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Launch                  | `Bun.spawn(..., { terminal })`                                                                                                    | `renderer.suspend()`, then spawn with inherited standard streams                                             |
+| Display                 | `EmbeddedTerminalRenderable.write()`                                                                                              | Child writes directly to the user's terminal                                                                 |
+| Input                   | Focused renderable encodes keys, paste, focus, and mouse; `onData` writes bytes to the PTY                                        | Child owns terminal input while OpenTUI is suspended                                                         |
+| Alternate-screen state  | The retained Ghostty VT terminal owns the child screen state                                                                      | Child owns the real terminal; OpenTUI exits and later re-enters its configured screen                        |
+| Resize                  | `onTerminalResize(cols, rows)` calls `terminal.resize(cols, rows)`                                                                | The foreground child receives normal terminal resize behavior; OpenTUI reads current dimensions after return |
+| Switch                  | Keep each session mounted and layout-visible; blur and move the old panel outside a clipped viewport, then move/focus the new one | Not a multi-session switch mechanism                                                                         |
+| Suspend child execution | Not required for switching; moving a panel off-screen does not stop the process                                                   | Not provided by `CliRenderer.suspend()`                                                                      |
+| Shutdown                | Kill and await the child, close its PTY, destroy its renderable, then destroy the app renderer                                    | Kill and await an active child, then destroy the suspended renderer                                          |
 
 ## Select by tool contract
 
@@ -46,38 +46,38 @@ Bun's `terminal` spawn option attaches stdin, stdout, and stderr to one PTY. The
 OpenTUI's first-party example gives the required wiring:[^embedded-example]
 
 ```ts
-const initialCols = 80
-const initialRows = 24
+const initialCols = 80;
+const initialRows = 24;
 
 const terminal = new EmbeddedTerminalRenderable(renderer, {
   id: sessionId,
   cols: initialCols,
   rows: initialRows,
-  width: "100%",
+  width: '100%',
   flexGrow: 1,
   onData(data) {
-    child?.terminal?.write(data)
+    child?.terminal?.write(data);
   },
   onTerminalResize(cols, rows) {
-    child?.terminal?.resize(cols, rows)
+    child?.terminal?.resize(cols, rows);
   },
-})
+});
 
 child = Bun.spawn(command, {
   cwd,
   env: {
     ...process.env,
-    TERM: "xterm-256color",
-    COLORTERM: "truecolor",
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
   },
   terminal: {
     cols: initialCols,
     rows: initialRows,
     data(_pty, data) {
-      terminal.write(data)
+      terminal.write(data);
     },
   },
-})
+});
 ```
 
 Both `onData` sources, `"input"` and `"response"`, must go to the PTY. The response bytes include replies to child terminal queries. Filtering them can break an interactive program.[^embedded-doc]
@@ -130,13 +130,13 @@ These APIs are **not a complete handoff contract**. A child launched with inheri
 The external-process lifecycle contract must first define and test parent signal survival, child signal forwarding, job control, and platform behavior. After that policy is active, the launch must use this shape:
 
 ```ts
-installHandoffSignalPolicy()
-renderer.suspend()
+installHandoffSignalPolicy();
+renderer.suspend();
 try {
-  await runChildOnInheritedTerminal(command)
+  await runChildOnInheritedTerminal(command);
 } finally {
-  renderer.resume()
-  removeHandoffSignalPolicy()
+  renderer.resume();
+  removeHandoffSignalPolicy();
 }
 ```
 
@@ -179,18 +179,33 @@ OpenTUI supports both terminal boundaries, but the application must not choose o
 OpenTUI React does not provide an embedded terminal as a standard JSX component or process manager. If a PTY-compatible tool uses this mechanism, the application needs a session controller and either a small `extend()` registration or an imperative Core integration.
 
 [^lumen-contract]: [Merged `lumen diff` launch contract](lumen-diff-launch-contract.md#terminal-ownership-and-return-of-control)
+
 [^embedded-doc]: [OpenTUI: Embedded terminal](https://opentui.com/docs/components/embedded-terminal/)
+
 [^embedded-source]: [`EmbeddedTerminalRenderable` source at OpenTUI 0.5.6](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/core/src/renderables/EmbeddedTerminal.ts)
+
 [^embedded-native]: [OpenTUI native embedded-terminal implementation](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/native/src/embedded-terminal/main.zig)
+
 [^embedded-example]: [OpenTUI embedded-terminal example](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/examples/src/embedded-terminal-demo.ts)
+
 [^bun-pty]: [Bun: Terminal (PTY) support](https://bun.sh/docs/runtime/child-process#terminal-pty-support)
+
 [^posix-terminal]: [POSIX: General terminal interface, controlling terminal and foreground process group](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap11.html#tag_11_01_03)
+
 [^renderable-source]: [OpenTUI Core `Renderable.visible` source](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/core/src/Renderable.ts)
+
 [^react-doc]: [OpenTUI: React bindings and component extension](https://opentui.com/docs/bindings/react/)
+
 [^react-host]: [OpenTUI React host configuration](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/react/src/reconciler/host-config.ts)
+
 [^lifecycle-doc]: [OpenTUI: Lifecycle and cleanup](https://opentui.com/docs/core-concepts/lifecycle/)
+
 [^renderer-source]: [`CliRenderer.suspend()` and `resume()` source](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/core/src/renderer.ts#L4123-L4218)
+
 [^renderer-native]: [OpenTUI native renderer terminal setup and shutdown](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/native/src/renderer.zig)
+
 [^renderer-doc]: [OpenTUI: Renderer](https://opentui.com/docs/core-concepts/renderer/)
+
 [^renderer-tests]: [OpenTUI renderer control tests](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/core/src/tests/renderer.control.test.ts)
+
 [^core-package]: [`@opentui/core` 0.5.6 package metadata](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/core/package.json)
