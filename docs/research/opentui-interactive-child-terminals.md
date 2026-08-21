@@ -45,8 +45,13 @@ Bun's `terminal` spawn option attaches stdin, stdout, and stderr to one PTY. The
 OpenTUI's first-party example gives the required wiring:[^embedded-example]
 
 ```ts
+const initialCols = 80
+const initialRows = 24
+
 const terminal = new EmbeddedTerminalRenderable(renderer, {
   id: sessionId,
+  cols: initialCols,
+  rows: initialRows,
   width: "100%",
   flexGrow: 1,
   onData(data) {
@@ -65,8 +70,8 @@ child = Bun.spawn(command, {
     COLORTERM: "truecolor",
   },
   terminal: {
-    cols: Math.max(1, terminal.width),
-    rows: Math.max(1, terminal.height),
+    cols: initialCols,
+    rows: initialRows,
     data(_pty, data) {
       terminal.write(data)
     },
