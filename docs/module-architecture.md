@@ -34,7 +34,7 @@ Production adapters can import domain types, but domain modules cannot import ad
 
 Put stable application values in `src/domain/`:
 
-- `PullRequestSummary`, identified by its canonical `url`;
+- `PullRequestSummary`, identified by its canonical `url`, including row-level file, change, label, and comment metadata;
 - `PullRequestDetails`, also identified by `url`;
 - `ReviewDecision`: `comment`, `approve`, or `requestChanges`;
 - `ReviewSubmission`, with a captured target, exact message, and decision.
@@ -92,7 +92,7 @@ interface GitHub {
 }
 ```
 
-The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSON validation, domain conversion, and operation-specific failures. It starts `gh` directly from `PATH` without a shell. It inherits the environment and does not set authentication values. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
+The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSON validation, domain conversion, and operation-specific failures. It starts `gh` directly from `PATH` without a shell. It inherits the environment and does not set authentication values. It enriches each search result with `gh pr view` file and change counts at bounded concurrency before it publishes the complete Review Queue. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
 
 Construct the adapter with tokenized GitHub search from configuration. Page tests use a small in-memory `GitHub` implementation. Adapter tests put a recording `gh` executable first in `PATH`.
 

@@ -27,6 +27,11 @@ const pullRequest = {
   state: 'open',
   createdAt: '2026-08-20T10:00:00Z',
   updatedAt: '2026-08-21T10:00:00Z',
+  additions: 10,
+  deletions: 2,
+  changedFiles: 1,
+  labels: ['review'],
+  commentsCount: 3,
 } satisfies PullRequestSummary;
 
 const secondPullRequest = {
@@ -280,8 +285,17 @@ describe('Review Queue page loading', () => {
       async loadReviewQueue() {
         return success([pullRequest, secondPullRequest]);
       },
-      async loadPullRequestDetails() {
-        return success(pullRequestDetails('Improve widgets'));
+      async loadPullRequestDetails(url: string) {
+        const request =
+          url === secondPullRequest.url ? secondPullRequest : pullRequest;
+        return success(
+          pullRequestDetails(
+            request === secondPullRequest
+              ? 'Second row details'
+              : 'Improve widgets',
+            request
+          )
+        );
       },
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
@@ -300,6 +314,10 @@ describe('Review Queue page loading', () => {
     expect(frame).toContain('● Improve widgets');
     expect(frame).toContain('acme/widgets #7 opened by octocat');
     expect(frame).toContain('● Add more widgets');
+    const metadataRows = frame
+      .split('\n')
+      .filter((line) => line.includes('1 file +10 -2 · 3 comments · review'));
+    expect(metadataRows).toHaveLength(2);
     expect(frame).toContain('main ← widgets');
     expect(frame).toContain('1 file  +10 -2');
     expect(frame).toContain('Pull request body');
@@ -307,6 +325,110 @@ describe('Review Queue page loading', () => {
       'j/k move  d/enter diff  c review command  s submit review  ? help'
     );
 
+    await act(async () => view.mockInput.pressArrow('down'));
+    const movedFrame = await view.waitForFrame((renderedFrame) =>
+      renderedFrame.includes('Second row details')
+    );
+    expect(
+      movedFrame
+        .split('\n')
+        .filter((line) => line.includes('1 file +10 -2 · 3 comments · review'))
+    ).toHaveLength(2);
+
+    view.renderer.destroy();
+  });
+
+  test('keeps the Cursor visible in a bounded small-terminal viewport', async () => {
+    const queue = Array.from({ length: 6 }, (_, index) => ({
+      ...pullRequest,
+      url: `https://github.com/acme/widgets/pull/${index + 7}`,
+      number: index + 7,
+      title: `Queue item ${index + 7}`,
+    }));
+    const github = {
+      async loadReviewQueue() {
+        return success(queue);
+      },
+      async loadPullRequestDetails(url: string) {
+        const request = queue.find((item) => item.url === url);
+        if (request === undefined) throw new Error('Unknown pull request');
+        return success(
+          pullRequestDetails(`Details #${request.number}`, request)
+        );
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 16,
+    });
+    await view.waitForFrame((frame) => frame.includes('Details #7'));
+
+    for (let index = 0; index < 5; index += 1) {
+      await act(async () => view.mockInput.pressKey('j'));
+    }
+    const finalFrame = await view.waitForFrame((frame) =>
+      frame.includes('Details #12')
+    );
+    expect(finalFrame).toContain('Queue item 12');
+    expect(finalFrame).not.toContain('Queue item 7');
+    expect(finalFrame).toContain('Pull request details');
+    expect(finalFrame).toContain('j/k move');
+    view.renderer.destroy();
+  });
+
+  test('keeps a small-terminal refresh failure separate from scrolled rows', async () => {
+    const queue = Array.from({ length: 6 }, (_, index) => ({
+      ...pullRequest,
+      url: `https://github.com/acme/widgets/pull/${index + 7}`,
+      number: index + 7,
+      title: `Queue item ${index + 7}`,
+    }));
+    let loadCount = 0;
+    const github = {
+      async loadReviewQueue() {
+        loadCount += 1;
+        if (loadCount === 1) return success(queue);
+        return {
+          ok: false,
+          failure: {
+            kind: 'exit',
+            operation: 'reviewQueue',
+            exitCode: 1,
+            stderr: 'one line failure',
+          },
+        } as const;
+      },
+      async loadPullRequestDetails(url: string) {
+        const request = queue.find((item) => item.url === url);
+        if (request === undefined) throw new Error('Unknown pull request');
+        return success(
+          pullRequestDetails(`Details #${request.number}`, request)
+        );
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 16,
+    });
+    await view.waitForFrame((frame) => frame.includes('Details #7'));
+    for (let index = 0; index < 5; index += 1) {
+      await act(async () => view.mockInput.pressKey('j'));
+    }
+    await view.waitForFrame((frame) => frame.includes('Details #12'));
+
+    await act(async () => view.mockInput.pressKey('r'));
+    const failedFrame = await view.waitForFrame((frame) =>
+      frame.includes('Review Queue not refreshed: one line failure')
+    );
+    expect(failedFrame).toContain('Queue item 12');
+    expect(failedFrame).toContain('Details #12');
+    expect(failedFrame).toContain('j/k move');
     view.renderer.destroy();
   });
 

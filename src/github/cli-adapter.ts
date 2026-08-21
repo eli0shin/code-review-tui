@@ -15,7 +15,9 @@ import type {
 } from './types.ts';
 
 const queueFields =
-  'number,title,author,isDraft,state,createdAt,updatedAt,url,repository';
+  'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount';
+const queueStatsFields = 'additions,deletions,changedFiles';
+const queueEnrichmentConcurrency = 8;
 const detailFields =
   'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests,latestReviews';
 
@@ -41,7 +43,13 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         signal
       );
       if (!processResult.ok) return processResult;
-      return parseOutput(processResult.value, 'reviewQueue', parseReviewQueue);
+      const parsed = parseOutput(
+        processResult.value,
+        'reviewQueue',
+        parseReviewQueue
+      );
+      if (!parsed.ok) return parsed;
+      return enrichReviewQueue(parsed.value, signal);
     },
 
     async loadPullRequestDetails(url, signal) {
@@ -283,6 +291,56 @@ function validateJson<Value>(
   }
 }
 
+async function enrichReviewQueue(
+  queue: ReviewQueue,
+  signal: AbortSignal
+): Promise<GitHubResult<ReviewQueue>> {
+  const enriched: PullRequestSummary[] = [];
+  for (
+    let offset = 0;
+    offset < queue.length;
+    offset += queueEnrichmentConcurrency
+  ) {
+    const batch = queue.slice(offset, offset + queueEnrichmentConcurrency);
+    const results = await Promise.all(batch.map(loadSummaryStats));
+    const failureResult = results.find((result) => !result.ok);
+    if (failureResult !== undefined) return failureResult;
+    enriched.push(
+      ...results.flatMap((result) => (result.ok ? [result.value] : []))
+    );
+  }
+  return { ok: true, value: enriched };
+
+  async function loadSummaryStats(
+    pullRequest: PullRequestSummary
+  ): Promise<GitHubResult<PullRequestSummary>> {
+    const processResult = await runGh(
+      ['pr', 'view', pullRequest.url, '--json', queueStatsFields],
+      '',
+      'reviewQueue',
+      undefined,
+      signal
+    );
+    if (!processResult.ok) return processResult;
+    return parseOutput(processResult.value, 'reviewQueue', (value) =>
+      addSummaryStats(pullRequest, value)
+    );
+  }
+}
+
+function addSummaryStats(
+  pullRequest: PullRequestSummary,
+  value: unknown
+): PullRequestSummary {
+  const stats = record(value, '$');
+  return {
+    ...pullRequest,
+    additions: integer(stats.additions, '$.additions'),
+    deletions: integer(stats.deletions, '$.deletions'),
+    changedFiles: integer(stats.changedFiles, '$.changedFiles'),
+  };
+}
+
 function parseReviewQueue(value: unknown): ReviewQueue {
   const items = array(value, '$');
   return items.map((item, index) => parseSummary(item, `$[${index}]`));
@@ -305,6 +363,14 @@ function parseSummary(value: unknown, path: string): PullRequestSummary {
       repository.nameWithOwner,
       `${path}.repository.nameWithOwner`
     ),
+    additions: 0,
+    deletions: 0,
+    changedFiles: 0,
+    labels: array(item.labels, `${path}.labels`).map((label, index) => {
+      const labelValue = record(label, `${path}.labels[${index}]`);
+      return string(labelValue.name, `${path}.labels[${index}].name`);
+    }),
+    commentsCount: integer(item.commentsCount, `${path}.commentsCount`),
   };
 }
 

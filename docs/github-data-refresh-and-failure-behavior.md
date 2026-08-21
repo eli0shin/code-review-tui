@@ -24,7 +24,7 @@ TanStack React Query owns request deduplication, polling, status, caching, and c
 A load is atomic:
 
 - Keep the current Review Queue visible while a refresh is active.
-- Replace it only after GitHub CLI exits successfully and the complete JSON array passes validation.
+- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation.
 - Treat malformed JSON, a non-array result, or any item without a required field as a failed load. Do not display a partial result.
 - An empty valid array is a successful load and an empty Review Queue.
 

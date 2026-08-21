@@ -4,6 +4,7 @@ import {
   RGBA,
   TextAttributes,
   type KeyEvent,
+  type ScrollBoxRenderable,
   type TerminalColors,
   type TextareaRenderable,
 } from '@opentui/core';
@@ -347,70 +348,117 @@ function ReviewQueueContent({
   readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
 }) {
+  const queueViewportRef = useRef<ScrollBoxRenderable>(null);
+  useEffect(() => {
+    const viewport = queueViewportRef.current;
+    if (viewport === null) return;
+    const rowHeight = 4;
+    const rowTop = cursorPosition * rowHeight;
+    const rowBottom = rowTop + rowHeight;
+    const viewportTop = viewport.scrollTop;
+    const viewportBottom = viewportTop + viewport.viewport.height;
+    if (rowTop < viewportTop) viewport.scrollTop = rowTop;
+    else if (rowBottom > viewportBottom) {
+      viewport.scrollTop = rowBottom - viewport.viewport.height;
+    }
+  }, [cursorPosition, queue.length]);
+
   return (
     <box flexGrow={1} flexDirection="column" paddingLeft={2} paddingRight={2}>
-      <box height={3} alignItems="center" justifyContent="space-between">
-        <text>
-          <strong>Review requests</strong>{' '}
-          <span attributes={TextAttributes.DIM}>{queue.length} open</span>
-        </text>
-        <text attributes={TextAttributes.DIM}>
-          {refreshing ? 'refreshing…' : 'updated'}{' '}
-          {formatBindings(keyBindings.refresh)} refresh
-        </text>
+      <box height={4} flexShrink={0} flexDirection="column" overflow="hidden">
+        <box
+          width="100%"
+          height={1}
+          flexDirection="row"
+          alignItems="center"
+          justifyContent="space-between"
+        >
+          <text>
+            <strong>Review requests</strong>{' '}
+            <span attributes={TextAttributes.DIM}>{queue.length} open</span>
+          </text>
+          <text attributes={TextAttributes.DIM}>
+            {refreshing ? 'refreshing…' : 'updated'}{' '}
+            {formatBindings(keyBindings.refresh)} refresh
+          </text>
+        </box>
+        <scrollbox
+          id="review-status"
+          height={3}
+          scrollY
+          viewportCulling
+          contentOptions={{ flexDirection: 'column' }}
+        >
+          {notice !== undefined ? (
+            <text fg={theme?.success}>{notice}</text>
+          ) : null}
+          {refreshFailure !== null ? (
+            <text fg={theme?.error}>
+              Review Queue not refreshed: {failureMessage(refreshFailure)}
+            </text>
+          ) : null}
+          {herdrActionFailure !== undefined ? (
+            <>
+              <text fg={theme?.error}>
+                Could not open {herdrActionFailure.action}:{' '}
+                {herdrFailureMessage(herdrActionFailure.failure)}
+              </text>
+              {herdrActionFailure.failure.stderr ? (
+                <text fg={theme?.error}>
+                  {herdrActionFailure.failure.stderr}
+                </text>
+              ) : null}
+            </>
+          ) : null}
+        </scrollbox>
       </box>
-      {notice !== undefined ? <text fg={theme?.success}>{notice}</text> : null}
-      {refreshFailure !== null ? (
-        <text fg={theme?.error}>
-          Review Queue not refreshed: {failureMessage(refreshFailure)}
-        </text>
-      ) : null}
-      {herdrActionFailure !== undefined ? (
-        <text fg={theme?.error}>
-          Could not open {herdrActionFailure.action}:{' '}
-          {herdrFailureMessage(herdrActionFailure.failure)}
-        </text>
-      ) : null}
-      <box flexDirection="column">
+      <scrollbox
+        ref={queueViewportRef}
+        flexGrow={1}
+        flexShrink={1}
+        minHeight={4}
+        scrollY
+        viewportCulling
+        contentOptions={{ flexDirection: 'column' }}
+      >
         {queue.map((pullRequest, index) => (
           <ReviewQueueRow
             key={pullRequest.url}
+            id={`review-queue-row-${index}`}
             pullRequest={pullRequest}
             underCursor={index === cursorPosition}
-            details={
-              index === cursorPosition && details?.url === pullRequest.url
-                ? details
-                : undefined
-            }
             theme={theme}
           />
         ))}
-      </box>
+      </scrollbox>
       <DetailsPane
         status={detailsStatus}
         details={details}
         failure={detailsFailure}
         theme={theme}
       />
-      <box flexGrow={1} />
-      <text attributes={TextAttributes.DIM}> {footerText(keyBindings)}</text>
+      <text flexShrink={0} attributes={TextAttributes.DIM}>
+        {' '}
+        {footerText(keyBindings)}
+      </text>
     </box>
   );
 }
 
 function ReviewQueueRow({
+  id,
   pullRequest,
   underCursor,
-  details,
   theme,
 }: {
+  readonly id: string;
   readonly pullRequest: PullRequestSummary;
   readonly underCursor: boolean;
-  readonly details: PullRequestDetails | undefined;
   readonly theme: SystemTheme | undefined;
 }) {
   return (
     <box
+      id={id}
       width="100%"
       height={4}
       paddingLeft={1}
@@ -430,19 +478,19 @@ function ReviewQueueRow({
         <span fg={theme?.secondary}>{pullRequest.author}</span>
         <span fg={theme?.textMuted}>
           {' '}
-          · updated {relativeAge(pullRequest.updatedAt)}
-          {details === undefined
-            ? ''
-            : ` · ${fileSummary(details.changedFiles)} `}
+          · updated {relativeAge(pullRequest.updatedAt)} ·{' '}
+          {fileSummary(pullRequest.changedFiles)}{' '}
         </span>
-        {details === undefined ? null : (
-          <>
-            <span fg={theme?.success}>+{details.additions}</span>{' '}
-            <span fg={theme?.error}>-{details.deletions}</span>
-            {details.labels.length === 0 ? null : (
-              <span fg={theme?.warning}> · {details.labels.join('  ')}</span>
-            )}
-          </>
+        <span fg={theme?.success}>+{pullRequest.additions}</span>{' '}
+        <span fg={theme?.error}>-{pullRequest.deletions}</span>
+        <span fg={theme?.textMuted}>
+          {' '}
+          · {pullRequest.commentsCount}{' '}
+          {pullRequest.commentsCount === 1 ? 'comment' : 'comments'}
+          {pullRequest.labels.length === 0 ? '' : ' · '}
+        </span>
+        {pullRequest.labels.length === 0 ? null : (
+          <span fg={theme?.warning}>{pullRequest.labels.join('  ')}</span>
         )}
       </text>
     </box>
@@ -461,7 +509,14 @@ function DetailsPane({
   readonly theme: SystemTheme | undefined;
 }) {
   return (
-    <box marginTop={1} paddingLeft={1} flexDirection="column">
+    <box
+      height={6}
+      flexShrink={0}
+      overflow="hidden"
+      marginTop={1}
+      paddingLeft={1}
+      flexDirection="column"
+    >
       <text>
         <strong>Pull request details</strong>
       </text>
@@ -815,7 +870,7 @@ function herdrFailureMessage(failure: HerdrFailure): string {
     failure.exitCode === undefined
       ? failure.message
       : `${failure.message} (exit code ${failure.exitCode})`;
-  return failure.stderr ? `${message}\n${failure.stderr}` : message;
+  return message;
 }
 
 function failureMessage(failure: GitHubFailure): string {
