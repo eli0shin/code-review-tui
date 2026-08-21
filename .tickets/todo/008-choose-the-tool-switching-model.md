@@ -4,8 +4,7 @@ Tags:
   - prototype
   - hitl
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 003-research-opentui-control-of-interactive-child-terminals
+Blocked-By: []
 ---
 
 ## Question
