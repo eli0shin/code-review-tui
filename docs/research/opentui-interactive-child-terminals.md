@@ -18,7 +18,7 @@ Use an **embedded session for each concurrent interactive tool**. Combine:
 - `write()` for child output;
 - `onData` and `Bun.Terminal.write()` for input and terminal replies;
 - `onTerminalResize` and `Bun.Terminal.resize()` for size propagation;
-- `visible`, `focus()`, and `blur()` to switch sessions without stopping them; and
+- layout-visible clipped panels plus `focus()` and `blur()` to switch sessions without stopping them; and
 - explicit process, PTY, renderable, React-root, and renderer cleanup.
 
 Use `CliRenderer.suspend()` and `resume()` only for a **physical-terminal handoff** to one foreground child. These methods suspend and resume OpenTUI, not the child. This handoff cannot by itself support instant switching among concurrent child applications.
@@ -32,8 +32,8 @@ Use `CliRenderer.suspend()` and `resume()` only for a **physical-terminal handof
 | Input | Focused renderable encodes keys, paste, focus, and mouse; `onData` writes bytes to the PTY | Child owns terminal input while OpenTUI is suspended |
 | Alternate-screen state | The retained Ghostty VT terminal owns the child screen state | Child owns the real terminal; OpenTUI exits and later re-enters its configured screen |
 | Resize | `onTerminalResize(cols, rows)` calls `terminal.resize(cols, rows)` | The foreground child receives normal terminal resize behavior; OpenTUI reads current dimensions after return |
-| Switch | Keep each session mounted; blur/hide the old one and show/focus the new one | Not a multi-session switch mechanism |
-| Suspend child execution | Not required for switching; hiding does not stop the process | Not provided by `CliRenderer.suspend()` |
+| Switch | Keep each session mounted and layout-visible; blur and move the old panel outside a clipped viewport, then move/focus the new one | Not a multi-session switch mechanism |
+| Suspend child execution | Not required for switching; moving a panel off-screen does not stop the process | Not provided by `CliRenderer.suspend()` |
 | Shutdown | Kill and await the child, close its PTY, destroy its renderable, then destroy the app renderer | Kill and await an active child, then destroy the suspended renderer |
 
 ## Embedded session contract
@@ -87,18 +87,21 @@ Both `onData` sources, `"input"` and `"response"`, must go to the PTY. The respo
 
 For a switch:
 
-1. Consume the host switch key before it reaches the focused child. OpenTUI renderer key listeners run before focused-renderable input.[^embedded-doc]
-2. Set the old renderable to `visible = false`. The Core visibility setter blurs a focused renderable.[^renderable-source]
-3. Set the selected renderable to `visible = true` and call `focus()`.
-4. Let layout run. A visible size change calls `onTerminalResize`; forward it to the PTY.[^embedded-source]
+1. Put each session in an absolute panel that keeps the viewport width and height. Keep the terminal renderable `visible = true` for layout. Put inactive panels outside a parent with `overflow = "hidden"`, so they keep their grid size but do not paint or receive pointer input in the viewport.
+2. Consume the host switch key before it reaches the focused child. OpenTUI renderer key listeners run before focused-renderable input.[^embedded-doc]
+3. Blur the old terminal and move its panel outside the clipped viewport.
+4. Move the selected panel into the viewport and call `focus()` on its terminal.
+5. Forward every `onTerminalResize` call to that session's PTY.[^embedded-source]
 
-Do not destroy or replace a session only because it becomes inactive. `destroy()` frees the native emulator. Core `remove()` is only detachment, but React deletion then calls `destroyRecursively()` on the detached renderable.[^lifecycle-doc][^react-host] Thus, conditional React removal loses the emulator state. It still does not clean up the separately owned child and PTY. Keep inactive React sessions mounted and hidden.
+Do not set an inactive terminal to `visible = false`. OpenTUI records layout size changes while a renderable is hidden, but `onLayoutResize()` only calls `onResize()` while it is visible. If the hidden layout size is already current when the terminal becomes visible, no resize callback occurs. The emulator and PTY can then retain their old grid.[^renderable-source] Keeping every terminal layout-visible avoids this missed activation resize, at the cost of composing inactive sessions when their output changes.
+
+Do not destroy or replace a session only because it becomes inactive. `destroy()` frees the native emulator. Core `remove()` is only detachment, but React deletion then calls `destroyRecursively()` on the detached renderable.[^lifecycle-doc][^react-host] Thus, conditional React removal loses the emulator state. It still does not clean up the separately owned child and PTY. Keep inactive React sessions mounted and layout-visible.
 
 ### React integration
 
-There is no built-in React `<embedded-terminal>` element. Use the Core object from a React-owned session controller, or register it with React `extend()` and add the `OpenTUIComponents` TypeScript declaration. React constructs an extended renderable with its props, and its visibility hooks set the Core `visible` property.[^react-doc][^react-host]
+There is no built-in React `<embedded-terminal>` element. Use the Core object from a React-owned session controller, or register it with React `extend()` and add the `OpenTUIComponents` TypeScript declaration. React constructs an extended renderable with its props.[^react-doc][^react-host]
 
-The session controller, not a React component key, should own the child and PTY. A stable ref to the renderable lets the controller change focus and perform ordered cleanup. Keep all sessions mounted and use `visible` to select one.
+The session controller, not a React component key, should own the child and PTY. A stable ref to the renderable lets the controller change focus and perform ordered cleanup. Keep all sessions mounted and select one by panel placement, not by React deletion or `visible = false`.
 
 ### Resize details
 
@@ -108,8 +111,8 @@ Therefore:
 
 - pass the initial grid to both objects;
 - forward every later `onTerminalResize` call;
-- keep the child output callback active while hidden; and
-- on activation, allow the visible layout pass to synchronize a changed grid before normal interaction.
+- keep the child output callback active while inactive; and
+- keep inactive terminal renderables layout-visible, off-screen, and clipped so parent resize causes `onTerminalResize` before later activation.
 
 ### Input boundaries
 
