@@ -6,7 +6,6 @@ Tags:
 Parent: 001-build-the-review-cli
 Blocked-By:
   - 003-research-opentui-control-of-interactive-child-terminals
-  - 004-research-herdr-tabs-and-cabs-for-tool-switching
 ---
 
 ## Question

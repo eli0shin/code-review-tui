@@ -27,6 +27,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 ## Decisions so far
 
 - [Research the Lumen diff launch contract](../done/002-research-the-lumen-diff-launch-contract.md) — Launch `lumen diff` with a full PR URL from any Git or Jujutsu repository and treat it as a foreground interactive child.
+- [Research Herdr tabs and cabs for tool switching](../done/004-research-herdr-tabs-and-cabs-for-tool-switching.md) — Herdr provides persistent tabs, direct process launch, focus, layouts, and lifecycle events, but no cab or general return-to-caller abstraction.
 
 ## Not yet specified
 
