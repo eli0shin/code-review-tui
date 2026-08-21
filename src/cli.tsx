@@ -3,11 +3,9 @@ import { version } from '../package.json';
 import { launchApplication } from './app.tsx';
 import { handleAutoUpdate } from './auto-update.ts';
 import {
-  getConfigPath,
-  getUpdateBehavior,
-  getUpdateCheckInterval,
-  readConfig,
-} from './config.ts';
+  getReviewConfigPath,
+  readUpdateConfigurationFile,
+} from './configuration/index.ts';
 import { updateCommand, type UpdateDependencies } from './commands/update.ts';
 import { getReviewExecutablePath } from './update.ts';
 import { runUpdaterWorker } from './updater-worker.ts';
@@ -62,20 +60,17 @@ export function createProgram({
 }
 
 type UpdateConfig = {
-  readonly behavior: ReturnType<typeof getUpdateBehavior>;
+  readonly behavior: 'auto' | 'notify' | 'off';
   readonly checkIntervalHours: number;
 };
 
 export async function getUpdateConfigFromFile(
-  configPath: string = getConfigPath()
+  configPath: string = getReviewConfigPath()
 ): Promise<UpdateConfig> {
-  const result = await readConfig(configPath);
-  if (!result.success) {
-    return { behavior: 'off', checkIntervalHours: 24 };
-  }
+  const config = await readUpdateConfigurationFile(configPath);
   return {
-    behavior: getUpdateBehavior(result.data),
-    checkIntervalHours: getUpdateCheckInterval(result.data),
+    behavior: config.updateBehavior,
+    checkIntervalHours: config.updateCheckIntervalHours,
   };
 }
 

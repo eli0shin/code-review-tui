@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@015-implement-strict-review-configuration
 Tags:
   - task
   - afk
@@ -9,7 +9,7 @@ Blocked-By: []
 
 ## Goal
 
-Implement the strict XDG configuration module in `docs/module-architecture.md` and `docs/configuration-and-review-command-expansion.md`.
+Implement the strict XDG configuration module in `docs/module-architecture.md` and `docs/configuration-contract.md`.
 
 ## Done when
 
