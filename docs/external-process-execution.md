@@ -2,124 +2,61 @@
 
 ## Decision
 
-`review` requires a compatible Herdr session. The Review Queue stays in a tracked Herdr tab. Each Lumen or Review Command process runs directly in a new, dedicated Tool Tab in the Review Queue's current workspace. Herdr owns the Tool Tab pseudo-terminal (PTY), rendering, input, resize delivery, and process persistence. `review` owns launch correlation, lifecycle notices, and return focus.
+`review` uses the installed `herdr` CLI as its only Herdr boundary. The Review Queue stays in its saved Review Queue Tab. Each Lumen or Review Command action creates a dedicated Herdr tab in the same workspace. Herdr owns that tab's terminal, rendering, input, and process persistence.
 
-This contract replaces physical-terminal handoff and OpenTUI-embedded terminals for these tools. It implements the accepted [Herdr tab decision](adr/0001-use-herdr-tabs-for-tool-switching.md). It does not add a terminal emulator or multiplexer to `review`.
+`review` does not open a Herdr socket, implement the Herdr protocol, subscribe to events, or track command lifecycle.
 
 ## Required Herdr context
 
-At TUI startup, require all of these conditions:
+Require `HERDR_ENV=1` and nonblank `HERDR_WORKSPACE_ID` and `HERDR_TAB_ID` values injected by Herdr. The workspace ID identifies where new Herdr tabs are created. The tab ID is the saved Review Queue Tab for best-effort return focus.
 
-- `HERDR_ENV=1`;
-- nonblank `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` values injected by Herdr;
-- a reachable Herdr v0.8.2 socket whose protocol supports `session.snapshot`, `layout.apply`, `pane.get`, `pane.focus`, and event subscriptions; and
-- a snapshot in which the supplied workspace, Review Queue Tab, and Review Queue pane exist and have the stated relationship.
+Missing context stops TUI startup with an actionable instruction to run `review` inside Herdr. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
 
-The initial `HERDR_PANE_ID` identifies the Review Queue pane. From the startup snapshot, save that pane's stable Herdr terminal ID in addition to its current pane, tab, and workspace IDs. The initial tab and workspace IDs establish its first saved return target. Use the stable terminal ID to find the pane and update all current resource IDs from later snapshots. Create later Tool Tabs in the Review Queue's current saved workspace. Do not derive the return target from whichever tab is focused.
+## Herdr CLI sequence
 
-Failure of any startup condition stops TUI startup. Identify Herdr, the missing or incompatible condition, and the action to start or update Herdr and run `review` inside a Herdr pane. Do not silently fall back to an ordinary terminal, physical-terminal handoff, or an OpenTUI embedded PTY.
+For each action, execute these installed CLI commands directly from `PATH` without a shell around the CLI process:
 
-Open a fresh control connection for every `session.snapshot`, `layout.apply`, focus, close, or other request. Keep a control connection only until its response, error, end-of-file, or timeout. Concurrent requests use separate connections. Do not impose an application timeout on `layout.apply` while its connection remains open; wait for its response, an error, or end-of-file.
+1. `herdr tab create --workspace … --cwd … --label … --no-focus` creates a shell-backed Herdr tab. Pass the child environment with explicit `--env KEY=VALUE` arguments.
+2. Parse only `.result.tab.tab_id` and `.result.root_pane.pane_id` from the JSON response.
+3. `herdr pane run PANE_ID COMMAND` runs the requested command followed by a best-effort `herdr tab focus REVIEW_QUEUE_TAB_ID` command in that tab's shell.
+4. `herdr tab focus TAB_ID` focuses the new Herdr tab.
 
-Use one separate, persistent `events.subscribe` connection and establish it before the first launch. Herdr v0.8.2 replays retained events from sequence zero and exposes no cursor. Correlate events with the current known resource IDs and use a fresh snapshot when resource state is uncertain. Request IDs correlate replies on their individual connections. Stable terminal IDs correlate resources across snapshots.
+Return success after these immediate CLI calls succeed. Return the first immediate startup, exit, or JSON compatibility failure to the Review Queue page. Never retry an action automatically. A failed call does not disable a later user call.
 
-Do not require Herdr capabilities beyond v0.8.2.
+Each action creates a new Herdr tab. Do not reuse tabs or infer Review Queue state from launched commands. There are no tool IDs, running or ended phases, notices, subscriptions, snapshots, indexes, or launch acknowledgements.
 
-## Tool launch model
+## Lumen
 
-A queue action starts one launch operation for the pull request under the Cursor. Generate a unique, in-memory tool ID before sending the request. The launch has these states:
+Before creating a Herdr tab, walk the directory from which `review` started and its ancestors for a `.git` or `.jj` marker. If none exists, report that `lumen diff` requires `review` to start inside a Git or Jujutsu repository.
 
-1. **launching**: subscribed, but no confirmed Tool Tab exists;
-2. **running**: Herdr returned the Tool Tab and pane IDs and a snapshot confirmed the pane;
-3. **indeterminate**: the launch request can have taken effect, but no current resource can prove its outcome;
-4. **closing**: `review` requested closure and is waiting for Herdr confirmation; and
-5. **ended**: no owned pane or Tool Tab remains.
-
-Use `layout.apply` to create one focused tab with one direct argv-backed pane. Set a concise tab and pane label that distinguishes Lumen from a Review Command and includes the pull request repository, number, and unique tool ID. Also put the ID in the pane environment as `REVIEW_TOOL_ID`. The label and environment value are lifecycle correlation data, not durable Review Queue state.
-
-Retain matching `pane.created` and `pane.exited` events received while the `layout.apply` control connection is unresolved. After a successful response supplies the pane and tab IDs, open a fresh control connection for `pane.get` with the returned pane ID. Herdr retains that old ID as an alias if another client moves the pane across workspaces, so this request captures the stable terminal ID even after a move or rename. Then take an authoritative snapshot, find the pane by stable terminal ID, and save its current pane, tab, and workspace IDs before reporting the tool as running. If notices arrived during this baseline, request one follow-up snapshot. Do not apply buffered event payloads directly.
-
-If `pane.get` returns `pane_not_found`, the successful response confirmed launch but the tool ended before ownership baselining completed. Mark it ended. If the continuously connected subscription observed its matching `pane.exited` event, treat that as an ordinary exit and make the one best-effort Review Queue focus attempt; otherwise, do not restore focus. Any other `pane.get` control failure keeps the launch unresolved and its returned pane ID owned; retry `pane.get` rather than falling back to mutable labels.
-
-Each action creates a new Tool Tab. A pull request can have Lumen, a Review Command, or several instances of either running concurrently. Do not reuse a shell tab, replace an existing Tool Tab, impose one-tool-at-a-time behavior, or infer Review Queue state from a running or completed tool.
-
-### Lumen
-
-Launch Lumen without a shell:
+Run this command in the new Herdr tab:
 
 ```text
-["lumen", "diff", PULL_REQUEST_URL]
+lumen diff PULL_REQUEST_URL
 ```
 
-Use the complete canonical URL of the pull request under the Cursor. Do not use a pull request number, `--origin`, `--detect-pr`, shell text, or a target checkout.
+Use the complete canonical pull request URL under the Cursor. Quote it as one shell argument. Use the startup working directory and inherited environment. Do not add Review Command variables.
 
-Use the directory from which `review` started as the child working directory. Before creating a Tool Tab, walk that directory and its ancestors for a Git or Jujutsu repository marker. If none exists, do not launch. Report that `lumen diff` requires `review` to start inside any Git or Jujutsu repository; the repository does not have to match the pull request. This preserves the accepted [Lumen launch contract](../research/lumen-diff-launch-contract.md) without creating or selecting application-owned checkouts.
+## Review Command
 
-Lumen inherits the parent environment. `review` does not add the Review Command pull request variables to Lumen.
-
-### Review Command
-
-Launch the Review Command as exactly:
+Run the configured Review Command through this command in the new Herdr tab:
 
 ```text
-["/bin/sh", "-c", CONFIGURED_REVIEW_COMMAND]
+/bin/sh -c CONFIGURED_REVIEW_COMMAND
 ```
 
-The configured string is the one command operand. Do not tokenize, rewrite, concatenate pull request values into, or separately evaluate any part of it.
+The configured string is the one `-c` operand. Do not tokenize, rewrite, concatenate pull request values into, or separately evaluate it.
 
-Use the directory from which `review` started as the shell working directory. Inherit the parent environment and replace the pull request variables defined by the [configuration contract](configuration-contract.md#opaque-review-command) for this child only. Also add `REVIEW_TOOL_ID`. Herdr then adds its authoritative managed variables for the Tool Tab. Do not change the parent environment.
+Use the startup working directory. Inherit the parent environment and replace the `REVIEW_PR_*` values defined by the [configuration contract](configuration-contract.md#opaque-review-command) for this Herdr tab only. Do not change the parent environment.
 
-A shell operator, redirection, pipeline, expansion, or background process has its normal POSIX shell meaning. A process that deliberately daemonizes and detaches from the Tool Tab's terminal and process group leaves the lifecycle that this application owns; `review` cannot adopt or terminate it.
+## Terminal ownership and return focus
 
-## Terminal ownership, input, and resize
+After the final `herdr tab focus`, Herdr owns all terminal input and rendering for the launched command. OpenTUI continues to render only the Review Queue. Switching tabs uses Herdr controls.
 
-After `layout.apply` focuses a Tool Tab, Herdr is the only owner of that tool's terminal path:
+The command sent by `herdr pane run` appends a shell-safe `herdr tab focus` command for the saved Review Queue Tab. The shell runs this command after Lumen or the Review Command exits. This focus operation is best effort: its later result is not reported to `review`, it is not retried, and it can race with a user focus choice.
 
-- Herdr sends keyboard, paste, mouse, and terminal focus input to the focused Tool Tab.
-- Herdr resizes the Tool Tab PTY and delivers the resulting terminal resize behavior.
-- Herdr retains the PTY screen and process while another tab is focused.
-- OpenTUI continues to render only the Review Queue Tab. It does not read, forward, filter, or reserve input for a Tool Tab.
+Opening or leaving a command does not refresh or change the Review Queue or Cursor.
 
-Queue key bindings apply only when the Review Queue pane has focus. Tool input must not pass through OpenTUI first. Switching among the Review Queue and Tool Tabs uses Herdr's own tab controls. `review` does not synthesize switch keys or suspend a background tool.
+## Exit
 
-A Tool Tab can continue to run and produce output while unfocused. Returning to the Review Queue does not stop it. Opening or leaving a tool does not refresh the Review Queue.
-
-## Completion and return focus
-
-Subscribe to `pane.created`, `pane.exited`, `pane.closed`, `pane.moved`, `tab.closed`, `tab.moved`, and `workspace.closed`. Track known tool panes and the Review Queue pane by current resource IDs and use stable terminal IDs to reconcile their pane, tab, and workspace IDs through snapshots. Duplicate or replayed events must not produce duplicate completion.
-
-Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Update the saved return target when a move event or snapshot finds the Review Queue pane in a new container. When snapshot reconciliation confirms that the Review Queue pane is absent, disable launches and emit one Review Queue closed notice so the runtime can exit.
-
-An ordinary exit observation is a `pane.exited` event that arrives while the subscription has remained connected and matches the current pane ID of an owned tool. On this event, mark the tool ended and make one best-effort `pane.focus` request for the saved Review Queue pane. Do not inspect or wait for focus events first, and do not retry focus only because another focus event races with the request. This attempt can override a nearly simultaneous user focus choice or lose to it. The application does not promise race-free focus restoration and does not chase event-ordering edge cases.
-
-When a direct process exits, Herdr removes its pane and removes the Tool Tab when it is empty. If `pane.focus` fails, show a recoverable Herdr control failure. If the saved Review Queue pane ID is stale, take a snapshot and update it by stable terminal ID, but do not retry focus for that exit. Exit only when the snapshot confirms that the Review Queue pane no longer exists.
-
-Herdr's accepted `pane.exited` event does not include the direct process exit status or terminating signal. Treat every observed exit as completion and do not claim whether the tool succeeded. The Tool Tab is the tool's output surface while it runs.
-
-An exit does not change Review Queue membership, add review progress state, or cause an automatic refresh.
-
-## Launch and control failures
-
-Keep launch failures at the queue action boundary. Preserve the Review Queue and Cursor and permit the user to retry the action. Never retry a tool launch automatically because a Review Command can have non-idempotent effects.
-
-Distinguish these cases:
-
-- **Precondition failure:** no pull request under the Cursor, no repository working directory for Lumen, or invalid saved Herdr context. Do not send `layout.apply`.
-- **Could not start:** Herdr rejects tab or direct process creation. Name the executable, pull request, Herdr error code, and operating-system error when available.
-- **Control failure:** focus, close, subscription, or socket operations fail after creation. Keep ownership of any known Tool Tab until Herdr confirms that it ended.
-
-Once Herdr starts the direct process, `review` cannot distinguish a successful exit, nonzero exit, or terminating signal. In particular, `/bin/sh` can start and then return status 126 or 127 for a Review Command, but Herdr does not expose that status. Do not misreport this completion as a launch failure or success.
-
-A failed `layout.apply` response means no Tool Tab exists only when Herdr says the request made no change. Loss of that request's control connection has an unknown result because Herdr can still finish the request. Continue watching retained and future `pane.created` events for the unique tool label and use fresh snapshots while the request can still take effect. If a matching resource appears, adopt it as owned, capture its stable terminal ID, and continue reconciliation. If matching creation and exit events both arrive, settle it as ended and apply the ordinary-exit focus rule.
-
-If no matching resource or creation event exists, the process can still start later or can already have performed work and ended. Set the launch to **indeterminate**. Do not claim that it failed or completed, and do not permit an automatic or ordinary retry. Show that the command may already have run and require explicit user acknowledgement before enabling a new launch action. Acknowledgement clears the retry safety interlock only; it does not stop the creation watch, discard ownership, or prove that the request quiesced. A Herdr server/session end that makes late creation impossible also settles the watch.
-
-If the event-subscription connection disconnects, mark tool lifecycle as degraded and disable new launches. Establish a new subscription and take a fresh snapshot. Existing tools continue under Herdr. Find the Review Queue pane and each owned tool by stable terminal ID and update their current resource IDs. Mark a tool ended when the snapshot shows it absent, but do not restore Review Queue focus for an exit inferred only from reconnect reconciliation. Resume best-effort focus restoration for later ordinary matching `pane.exited` events.
-
-## Shutdown
-
-A quit key or termination signal exits the `review` process immediately. Process exit closes its Herdr socket connections. Do not close Tool Tab panes or tabs during shutdown. Herdr continues to own and run those Tool Tabs until their direct processes exit or the user closes them.
-
-## Temporary state boundary
-
-Keep tool IDs, Herdr resource IDs, launch state, focus state, and exit notices only in `review` memory. Do not write running, completed, failed, viewed, or reviewed tool state to the Review Queue or disk. A process restart discovers no prior application ownership; Herdr session persistence is not application review-progress persistence.
+Quit, end-of-input, or a termination signal exits `review` immediately after normal presentation cleanup. There is no Herdr shutdown operation. Herdr tabs and their commands continue under Herdr ownership.

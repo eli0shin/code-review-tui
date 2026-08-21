@@ -89,7 +89,7 @@ The actions have these meanings:
 | `composeReviewSubmission` | `s`          | Open Review Submission composition for the pull request under the Cursor. |
 | `refresh`                 | `r`          | Refresh the Review Queue.                                                 |
 | `showHelp`                | `?`          | Show the queue help, including effective bindings.                        |
-| `quit`                    | `q`          | Exit `review` after the process-lifecycle contract permits it.            |
+| `quit`                    | `q`          | Exit `review` after normal presentation cleanup.                          |
 
 ## Opaque Review Command
 

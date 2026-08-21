@@ -2,7 +2,7 @@
 
 ## Decision
 
-Keep true external dependencies behind two deep ports: `GitHub` and `ToolTabs`. Use production adapters for GitHub CLI and Herdr. Keep configuration, OpenTUI presentation, composition, and release operations outside those adapters.
+Keep true external dependencies behind two deep ports: `GitHub` and `Herdr`. Use production CLI adapters for GitHub and Herdr. Keep configuration, OpenTUI presentation, composition, and release operations outside those adapters.
 
 The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local numeric Cursor. Its queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`.
 
@@ -13,7 +13,7 @@ This shape keeps these concerns separate:
 - GitHub CLI owns GitHub host, account, authentication, search, details, and Review Submission transport.
 - The configuration module owns the XDG path, strict JSON validation, search tokenization, and effective key bindings.
 - The OpenTUI Review Queue page owns temporary user-interface state and calls the configured ports directly.
-- The Tool Tabs module owns Review Command child data, Lumen launch checks, Herdr requests, tool lifecycle, and best-effort focus restoration.
+- The Herdr module owns Review Command child data, Lumen launch checks, exact Herdr CLI calls, response parsing, and the best-effort Review Queue focus command.
 - The release module owns update checks, executable replacement, installer rules, and release assets.
 
 ## Dependency direction
@@ -24,11 +24,11 @@ src/cli.tsx (composition root)
   ├── release
   └── runtime
        ├── github/cli-adapter ──> gh process
-       ├── tools/herdr-adapter ─> Herdr socket
-       └── presentation/opentui ─> GitHub + ToolTabs ports
+       ├── tools/herdr-adapter ─> herdr process
+       └── presentation/opentui ─> GitHub + Herdr ports
 ```
 
-Production adapters can import domain types, but domain modules cannot import adapters. The OpenTUI page receives configured port instances and effective key bindings from the composition root. It does not receive GitHub search tokens, Review Command text, Herdr protocol values, or release settings.
+Production adapters can import domain types, but domain modules cannot import adapters. The OpenTUI page receives configured port instances and effective key bindings from the composition root. It does not receive GitHub search tokens, Review Command text, Herdr CLI response data, or release settings.
 
 ## Shared domain values
 
@@ -37,10 +37,9 @@ Put stable application values in `src/domain/`:
 - `PullRequestSummary`, identified by its canonical `url`;
 - `PullRequestDetails`, also identified by `url`;
 - `ReviewDecision`: `comment`, `approve`, or `requestChanges`;
-- `ReviewSubmission`, with a captured target, exact message, and decision;
-- application-level tool notices.
+- `ReviewSubmission`, with a captured target, exact message, and decision.
 
-These are data values, not active objects. Do not put GitHub CLI JSON, Herdr resource IDs, OpenTUI key events, or update state in these types.
+These are data values, not active objects. Do not put GitHub CLI JSON, Herdr CLI JSON, OpenTUI key events, or update state in these types.
 
 The configured search order is the Review Queue order. A pull request URL identifies the target for detail loading, Review Submission, Lumen, and the Review Command.
 
@@ -97,45 +96,24 @@ The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSO
 
 Construct the adapter with tokenized GitHub search from configuration. Page tests use a small in-memory `GitHub` implementation. Adapter tests put a recording `gh` executable first in `PATH`.
 
-### 3. Tool Tabs
+### 3. Herdr
 
 **Target paths:** `src/tools/types.ts`, `src/tools/herdr-adapter.ts`
 
 ```ts
-type ToolKind = 'lumen' | 'reviewCommand';
-
-type ToolRequest = {
-  readonly kind: ToolKind;
-  readonly pullRequest: PullRequestSummary;
-};
-
-interface ToolTabs {
-  launch(request: ToolRequest): Promise<ToolLaunchOutcome>;
-  acknowledgeIndeterminateLaunch(toolId: ToolId): void;
-  subscribe(listener: (notice: ToolNotice) => void): () => void;
-  shutdown(reason: ShutdownReason): Promise<ToolShutdownOutcome>;
+interface Herdr {
+  openLumen(pullRequest: PullRequestSummary): Promise<HerdrResult>;
+  openReviewCommand(pullRequest: PullRequestSummary): Promise<HerdrResult>;
 }
 ```
 
-Construct the adapter with the exact Review Command, startup working directory, inherited environment, verified Herdr context, and control transport. The adapter keeps Herdr identifiers and protocol state private.
+Construct the adapter with the exact Review Command, startup working directory, inherited child environment, and Herdr CLI environment. Require Herdr workspace and Review Queue Tab IDs from that environment. There is no Herdr connection to start or stop.
 
-For Lumen, it builds exactly:
+For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The pane command runs either `lumen diff PULL_REQUEST_URL` or `/bin/sh -c CONFIGURED_REVIEW_COMMAND`, then makes one best-effort CLI focus call for the saved Review Queue Tab.
 
-```text
-["lumen", "diff", PULL_REQUEST_URL]
-```
+Add the specified `REVIEW_PR_*` values to the Review Command Herdr tab environment. Do not add a public tool ID or track a running phase. Return the first immediate CLI or JSON failure. A failure does not disable later calls.
 
-For the Review Command, it builds exactly:
-
-```text
-["/bin/sh", "-c", CONFIGURED_REVIEW_COMMAND]
-```
-
-It adds the specified `REVIEW_PR_*` values and `REVIEW_TOOL_ID` to the child environment. `/bin/sh` performs normal shell expansion after launch.
-
-On an ordinary matching `pane.exited` event, make one focus request for the saved Review Queue pane. Do not add state, protocol operations, tests, or review criteria for focus races or event-ordering races.
-
-Test the adapter against a small fake Unix socket server that implements only the accepted Herdr v0.8.2 messages.
+Test the adapter with a recording fake `herdr` executable. Prove exact calls, JSON parsing, immediate failure, later calls after failure, and the appended best-effort Review Queue focus command.
 
 ### 4. OpenTUI Review Queue page
 
@@ -145,7 +123,7 @@ Test the adapter against a small fake Unix socket server that implements only th
 function mountReviewPresentation(
   renderer: CliRenderer,
   github: GitHub,
-  toolTabs: ToolTabs,
+  herdr: Herdr,
   keyBindings: EffectiveKeyBindings
 ): MountedPresentation;
 ```
@@ -161,7 +139,7 @@ The page keeps one local numeric Cursor and clamps its rendered position to the 
 
 Configure TanStack Query's public `environmentManager` for the long-lived non-browser OpenTUI runtime before mounting queries. The queue query loads on mount, sets `refetchInterval: 60_000`, and uses `refetch()` for `r`. Do not add fetch effects, timer effects, pull request identity for the Cursor, request generations, or another remote-state layer.
 
-Queue bindings run only while the Review Queue owns input. The Review Submission modal blocks queue actions. Tool Tabs never send input through OpenTUI because Herdr owns their PTYs and focus.
+Queue bindings run only while the Review Queue owns input. The Review Submission modal blocks queue actions. Herdr tabs never send input through OpenTUI because Herdr owns their terminals and focus.
 
 Use OpenTUI's test renderer. Test query loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; Cursor movement; detail loading for the highlighted row; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
 
@@ -173,13 +151,13 @@ The composition root performs this order for the TUI command:
 
 1. load and validate complete TUI configuration;
 2. route updater settings to release behavior;
-3. validate Herdr and create the Tool Tabs adapter with the exact Review Command;
+3. validate Herdr context and create the Herdr CLI adapter with the exact Review Command;
 4. create the GitHub CLI adapter with tokenized search;
 5. create the OpenTUI renderer and mount the Review Queue page with both ports and effective key bindings.
 
 Mounting the page subscribes its queries, which starts the initial Review Queue load and query-owned polling. A failure before mounting prints one actionable startup error and exits nonzero.
 
-The runtime exits the `review` process immediately for quit, end-of-input, confirmed Review Queue pane loss, or a termination signal. It does not close Tool Tab panes. Process exit closes socket connections and Herdr continues to own the Tool Tabs.
+The runtime exits the `review` process immediately for quit, end-of-input, or a termination signal. It does not close Herdr tabs. There is no Herdr shutdown call, and Herdr continues to own launched commands.
 
 ### 6. Release
 
@@ -199,9 +177,9 @@ Use temporary XDG and HOME directories. Prove path selection, complete validatio
 
 Use a recording fake `gh` process. Prove exact arguments and environment, complete JSON validation and conversion, failure classes, Review Submission input, and no shell or authentication mutation.
 
-### Tool Tabs adapter contract
+### Herdr CLI adapter contract
 
-Use a fake Herdr v0.8.2 socket. Prove startup checks, exact process descriptions and environment, Lumen repository checks, ownership, lifecycle notices, indeterminate launch acknowledgement, shutdown without pane closure, and one best-effort focus request after an ordinary observed exit.
+Use a recording fake `herdr` executable. Prove exact Lumen and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the appended best-effort Review Queue focus command.
 
 Do not model or review focus races or event-ordering races.
 
@@ -215,13 +193,13 @@ Render the page and send terminal input. Prove:
 - pending, error, success, empty, and detail surfaces;
 - effective key bindings and help text;
 - Review Submission behavior and modal input isolation;
-- tool actions and visible notices.
+- Herdr actions and visible immediate CLI failures.
 
 These are page tests. Do not reproduce the removed session-level coordination tests.
 
 ### Executable smoke contract
 
-Build the native executable and use recording `gh` and Herdr adapters at their real process and socket seams. Prove only critical composition paths: startup ordering, a valid initial Review Queue, command independence from TUI configuration, and immediate process termination without Tool Tab closure. Do not duplicate page scenarios.
+Build the native executable and use recording `gh` and `herdr` executables at their real process seams. Prove only critical composition paths: startup ordering, a valid initial Review Queue, command independence from TUI configuration, and immediate process termination without closing Herdr tabs. Do not duplicate page scenarios.
 
 ### Release contract
 
@@ -233,8 +211,8 @@ Keep release tests independent from TUI tests. Prove supported platform mapping,
 2. Add domain values and the GitHub CLI adapter contract.
 3. Build Review Queue and detail queries with TanStack React Query and keep one numeric Cursor in the OpenTUI page.
 4. Add Review Submission state and actions directly to that page.
-5. Add Tool Tabs and the Herdr fake-server contract.
-6. Connect page tool actions and lifecycle notices directly to `ToolTabs`.
+5. Add the `Herdr` port and recording fake-CLI contract.
+6. Connect page tool actions and immediate failures directly to `Herdr`.
 7. Complete the Review Queue layout and Review Submission modal.
 8. Compose startup and shutdown, then add the small executable smoke suite.
 9. Validate release and installer contracts against the completed executable.
@@ -243,8 +221,8 @@ Add a seam only when its production and test adapters both exist. Do not add an 
 
 ## Accepted limits
 
-- GitHub CLI output fields and Herdr v0.8.2 protocol behavior are compatibility seams. Report incompatibility; do not add fallback parsers or protocols.
-- Review Queue, Cursor, details, Review Submission draft, and tool lifecycle data are memory-only page state.
-- Herdr owns Tool Tab terminals. OpenTUI owns only the Review Queue presentation.
-- Best-effort Review Queue focus restoration stops after one focus request for an ordinary observed tool exit.
+- GitHub and Herdr CLI output fields are compatibility seams. Report incompatibility; do not add fallback parsers or protocols.
+- Review Queue, Cursor, details, and Review Submission draft are memory-only page state.
+- Herdr owns Herdr tab terminals. OpenTUI owns only the Review Queue presentation.
+- Best-effort Review Queue focus restoration is one CLI command appended after the launched command.
 - Release update state is the only application state in the XDG state area.
