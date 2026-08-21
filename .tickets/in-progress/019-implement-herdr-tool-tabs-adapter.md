@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@019-implement-herdr-tool-tabs-adapter
 Tags:
   - task
   - afk
@@ -14,6 +14,6 @@ Implement the `ToolTabs` port and Herdr v0.8.2 adapter from `docs/external-proce
 ## Done when
 
 - Fixed Lumen and opaque Review Commands launch as direct-process Tool Tabs with exact argv and environment.
-- The adapter owns lifecycle correlation, launch uncertainty, acknowledgement, disconnect reconciliation, and pane-only cleanup.
+- The adapter owns lifecycle correlation, launch uncertainty, acknowledgement, and disconnect reconciliation. Shutdown does not close Tool Tab panes.
 - Ordinary matching exit causes one best-effort `pane.focus` request for the saved Review Queue pane.
 - Fake-socket contract tests cover accepted Herdr v0.8.2 behavior. Do not model focus or event-ordering races or add protocol requirements.

@@ -2,7 +2,7 @@
 
 ## Decision
 
-`review` requires a compatible Herdr session. The Review Queue stays in a tracked Herdr tab. Each Lumen or Review Command process runs directly in a new, dedicated Tool Tab in the Review Queue's current workspace. Herdr owns the Tool Tab pseudo-terminal (PTY), rendering, input, resize delivery, and process persistence. `review` owns launch correlation, lifecycle notices, return focus, and shutdown of every Tool Tab that it creates.
+`review` requires a compatible Herdr session. The Review Queue stays in a tracked Herdr tab. Each Lumen or Review Command process runs directly in a new, dedicated Tool Tab in the Review Queue's current workspace. Herdr owns the Tool Tab pseudo-terminal (PTY), rendering, input, resize delivery, and process persistence. `review` owns launch correlation, lifecycle notices, and return focus.
 
 This contract replaces physical-terminal handoff and OpenTUI-embedded terminals for these tools. It implements the accepted [Herdr tab decision](adr/0001-use-herdr-tabs-for-tool-switching.md). It does not add a terminal emulator or multiplexer to `review`.
 
@@ -12,7 +12,7 @@ At TUI startup, require all of these conditions:
 
 - `HERDR_ENV=1`;
 - nonblank `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` values injected by Herdr;
-- a reachable Herdr v0.8.2 socket whose protocol supports `session.snapshot`, `layout.apply`, `pane.get`, `pane.focus`, `pane.close`, and event subscriptions; and
+- a reachable Herdr v0.8.2 socket whose protocol supports `session.snapshot`, `layout.apply`, `pane.get`, `pane.focus`, and event subscriptions; and
 - a snapshot in which the supplied workspace, Review Queue Tab, and Review Queue pane exist and have the stated relationship.
 
 The initial `HERDR_PANE_ID` identifies the Review Queue pane. From the startup snapshot, save that pane's stable Herdr terminal ID in addition to its current pane, tab, and workspace IDs. The initial tab and workspace IDs establish its first saved return target. Use the stable terminal ID to find the pane and update all current resource IDs from later snapshots. Create later Tool Tabs in the Review Queue's current saved workspace. Do not derive the return target from whichever tab is focused.
@@ -88,13 +88,13 @@ A Tool Tab can continue to run and produce output while unfocused. Returning to 
 
 Subscribe to `pane.created`, `pane.exited`, `pane.closed`, `pane.moved`, `tab.closed`, `tab.moved`, and `workspace.closed`. Track known tool panes and the Review Queue pane by current resource IDs and use stable terminal IDs to reconcile their pane, tab, and workspace IDs through snapshots. Duplicate or replayed events must not produce duplicate completion.
 
-Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Do not start shutdown from a tab or workspace event alone. Update the saved return target when a move event or snapshot finds the Review Queue pane in a new container. Start shutdown only when snapshot reconciliation confirms that the Review Queue pane is absent.
+Absence of the saved Review Queue tab or workspace is provisional because the Review Queue pane can have moved to a new container. Update the saved return target when a move event or snapshot finds the Review Queue pane in a new container. When snapshot reconciliation confirms that the Review Queue pane is absent, disable launches and emit one Review Queue closed notice so the runtime can exit.
 
 An ordinary exit observation is a `pane.exited` event that arrives while the subscription has remained connected and matches the current pane ID of an owned tool. On this event, mark the tool ended and make one best-effort `pane.focus` request for the saved Review Queue pane. Do not inspect or wait for focus events first, and do not retry focus only because another focus event races with the request. This attempt can override a nearly simultaneous user focus choice or lose to it. The application does not promise race-free focus restoration and does not chase event-ordering edge cases.
 
-When a direct process exits, Herdr removes its pane and removes the Tool Tab when it is empty. `review` must not close or modify a tab that now contains a pane it does not own. If `pane.focus` fails, show a recoverable Herdr control failure. If the saved Review Queue pane ID is stale, take a snapshot and update it by stable terminal ID, but do not retry focus for that exit. Start shutdown only when the snapshot confirms that the Review Queue pane no longer exists.
+When a direct process exits, Herdr removes its pane and removes the Tool Tab when it is empty. If `pane.focus` fails, show a recoverable Herdr control failure. If the saved Review Queue pane ID is stale, take a snapshot and update it by stable terminal ID, but do not retry focus for that exit. Exit only when the snapshot confirms that the Review Queue pane no longer exists.
 
-Herdr's accepted `pane.exited` event does not include the direct process exit status or terminating signal. Treat every observed exit as completion and do not claim whether the tool succeeded. The Tool Tab is the tool's output surface while it runs. Closure requested by `review` during shutdown is also completion, not a tool failure.
+Herdr's accepted `pane.exited` event does not include the direct process exit status or terminating signal. Treat every observed exit as completion and do not claim whether the tool succeeded. The Tool Tab is the tool's output surface while it runs.
 
 An exit does not change Review Queue membership, add review progress state, or cause an automatic refresh.
 
@@ -112,33 +112,14 @@ Once Herdr starts the direct process, `review` cannot distinguish a successful e
 
 A failed `layout.apply` response means no Tool Tab exists only when Herdr says the request made no change. Loss of that request's control connection has an unknown result because Herdr can still finish the request. Continue watching retained and future `pane.created` events for the unique tool label and use fresh snapshots while the request can still take effect. If a matching resource appears, adopt it as owned, capture its stable terminal ID, and continue reconciliation. If matching creation and exit events both arrive, settle it as ended and apply the ordinary-exit focus rule.
 
-If no matching resource or creation event exists, the process can still start later or can already have performed work and ended. Set the launch to **indeterminate**. Do not claim that it failed or completed, and do not permit an automatic or ordinary retry. Show that the command may already have run and require explicit user acknowledgement before enabling a new launch action. Acknowledgement clears the retry safety interlock only; it does not stop the creation watch, discard ownership, prove that the request quiesced, or permit clean shutdown while the request can still take effect. A Herdr server/session end that makes late creation impossible also settles the watch.
+If no matching resource or creation event exists, the process can still start later or can already have performed work and ended. Set the launch to **indeterminate**. Do not claim that it failed or completed, and do not permit an automatic or ordinary retry. Show that the command may already have run and require explicit user acknowledgement before enabling a new launch action. Acknowledgement clears the retry safety interlock only; it does not stop the creation watch, discard ownership, or prove that the request quiesced. A Herdr server/session end that makes late creation impossible also settles the watch.
 
 If the event-subscription connection disconnects, mark tool lifecycle as degraded and disable new launches. Establish a new subscription and take a fresh snapshot. Existing tools continue under Herdr. Find the Review Queue pane and each owned tool by stable terminal ID and update their current resource IDs. Mark a tool ended when the snapshot shows it absent, but do not restore Review Queue focus for an exit inferred only from reconnect reconciliation. Resume best-effort focus restoration for later ordinary matching `pane.exited` events.
 
 ## Shutdown
 
-One asynchronous shutdown coordinator owns quit, end-of-input, confirmed Review Queue pane closure, `SIGHUP`, `SIGINT`, and `SIGTERM`. Install handlers that suppress the operating system's default immediate exit for these signals. The first request makes shutdown irreversible:
-
-1. stop accepting queue actions and new launches;
-2. settle every unresolved launch through its control response or snapshot reconciliation;
-3. request `pane.close` for every tool pane still owned by `review`, using one fresh control connection per close request;
-4. wait for matching close or exit confirmation;
-5. settle each active request connection or close it after its timeout;
-6. close the event-subscription connection;
-7. unmount the React root and destroy the OpenTUI renderer; and
-8. exit with the reason's appropriate status.
-
-Close owned tool panes concurrently, but correlate every result separately. Always use `pane.close`, including when the last snapshot showed an unchanged dedicated Tool Tab. This avoids a race in which another client adds or moves an unrelated pane into that tab before a separate `tab.close` request arrives. Herdr removes the Tool Tab when closing its owned process pane leaves the tab empty. Never close the Review Queue pane or tab through the cleanup path.
-
-Normal `q` does not exit while any launch request can still take effect or an owned Tool Tab has an unresolved close result. Show shutdown progress in the Review Queue. If Herdr reports a cleanup failure, keep the application alive in a cleanup-failed state with retry information instead of claiming a clean exit.
-
-For `SIGINT` and `SIGTERM`, start the same cleanup path and suppress OpenTUI's default immediate renderer destruction. For `SIGHUP`, which Herdr sends before it closes the Review Queue pane, immediately stop launches and issue `pane.close` for all known tool panes concurrently before other reconciliation or renderer cleanup. This conservative path does not need a current Tool Tab topology and cannot close unrelated panes. If the process remains alive, complete the normal shutdown sequence.
-
-Herdr can escalate pane closure from `SIGHUP` to `SIGTERM` and `SIGKILL` after its grace period. Cleanup caused by external closure of the Review Queue pane is therefore best effort and can be cut off by Herdr before confirmations arrive. A repeated termination signal can also force application exit after best-effort cleanup. These exits are explicitly unclean, and Herdr can still own persistent Tool Tabs. No application can guarantee cleanup after `SIGKILL`, power loss, or Herdr server failure.
-
-The ownership guarantee covers direct children and descendants that remain attached to the Tool Tab's process and terminal groups. It does not cover a Review Command that intentionally daemonizes, moves itself outside those groups, or delegates work to an external service.
+A quit key or termination signal exits the `review` process immediately. Process exit closes its Herdr socket connections. Do not close Tool Tab panes or tabs during shutdown. Herdr continues to own and run those Tool Tabs until their direct processes exit or the user closes them.
 
 ## Temporary state boundary
 
-Keep tool IDs, Herdr resource IDs, launch state, focus state, exit notices, and cleanup state only in `review` memory. Do not write running, completed, failed, viewed, or reviewed tool state to the Review Queue or disk. A process restart discovers no prior application ownership; Herdr session persistence is not application review-progress persistence.
+Keep tool IDs, Herdr resource IDs, launch state, focus state, and exit notices only in `review` memory. Do not write running, completed, failed, viewed, or reviewed tool state to the Review Queue or disk. A process restart discovers no prior application ownership; Herdr session persistence is not application review-progress persistence.
