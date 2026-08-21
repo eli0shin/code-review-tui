@@ -140,12 +140,19 @@ export function createReviewSession(github: GitHub): ReviewSession {
         ? undefined
         : detailValue(snapshot.details);
     if (selectionChanged) obsoleteDetails();
+    const detailRequestBeforePublish = detailRequest;
     publish({
       queue,
       queueLoad: { phase: 'idle' },
       selectedUrl,
       ...(selectionChanged ? { details: { phase: 'idle' } } : {}),
     });
+    if (
+      snapshot.selectedUrl !== selectedUrl ||
+      detailRequest !== detailRequestBeforePublish
+    ) {
+      return;
+    }
     loadDetails(selectedUrl, staleValue);
   }
 

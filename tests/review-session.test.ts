@@ -188,6 +188,34 @@ describe('ReviewSession queue and details contract', () => {
     });
   });
 
+  test('does not overwrite a selection dispatched during queue publication', async () => {
+    const github = createControllableGitHub();
+    const session = createReviewSession(github);
+    let selectedNext = false;
+    session.subscribe(() => {
+      const snapshot = session.getSnapshot();
+      if (
+        !selectedNext &&
+        snapshot.queueLoad.phase === 'idle' &&
+        snapshot.selectedUrl === summary(1).url
+      ) {
+        selectedNext = true;
+        session.dispatch({ type: 'selectNext' });
+      }
+    });
+
+    await loadInitial(session, github, [summary(1), summary(2)]);
+
+    expect(session.getSnapshot().selectedUrl).toBe(summary(2).url);
+    expect(session.getSnapshot().details).toEqual({
+      phase: 'loading',
+      url: summary(2).url,
+    });
+    expect(github.detailCalls.map((call) => call.url)).toEqual([
+      summary(2).url,
+    ]);
+  });
+
   test('does not lose a refresh scheduled during load completion', async () => {
     const github = createControllableGitHub();
     const session = createReviewSession(github);
