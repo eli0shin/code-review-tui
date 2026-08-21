@@ -80,22 +80,22 @@ Modifier names and named keys are lowercase. Aliases such as `esc`, `return`, `c
 
 The actions have these meanings:
 
-| Action                    | Default      | Effect                                                            |
-| ------------------------- | ------------ | ----------------------------------------------------------------- |
-| `selectPrevious`          | `k`, `up`    | Select the previous Review Queue item.                            |
-| `selectNext`              | `j`, `down`  | Select the next Review Queue item.                                |
-| `openDiff`                | `d`, `enter` | Open the selected pull request in fixed `lumen diff`.             |
-| `runReviewCommand`        | `c`          | Start the Review Command for the selected pull request.           |
-| `composeReviewSubmission` | `s`          | Open Review Submission composition for the selected pull request. |
-| `refresh`                 | `r`          | Refresh the Review Queue.                                         |
-| `showHelp`                | `?`          | Show the queue help, including effective bindings.                |
-| `quit`                    | `q`          | Exit `review` after the process-lifecycle contract permits it.    |
+| Action                    | Default      | Effect                                                                    |
+| ------------------------- | ------------ | ------------------------------------------------------------------------- |
+| `selectPrevious`          | `k`, `up`    | Move the Cursor to the previous Review Queue row.                         |
+| `selectNext`              | `j`, `down`  | Move the Cursor to the next Review Queue row.                             |
+| `openDiff`                | `d`, `enter` | Open the pull request under the Cursor in fixed `lumen diff`.             |
+| `runReviewCommand`        | `c`          | Start the Review Command for the pull request under the Cursor.           |
+| `composeReviewSubmission` | `s`          | Open Review Submission composition for the pull request under the Cursor. |
+| `refresh`                 | `r`          | Refresh the Review Queue.                                                 |
+| `showHelp`                | `?`          | Show the queue help, including effective bindings.                        |
+| `quit`                    | `q`          | Exit `review` after the process-lifecycle contract permits it.            |
 
 ## Opaque Review Command
 
 `reviewCommand` is one POSIX shell command string. It includes the program, flags, pipelines or redirections, and initial input that the user wants. The application must not tokenize, rewrite, template-expand, concatenate selected values into, or evaluate part of this string separately.
 
-The execution boundary passes the exact configured string as the single command operand to `/bin/sh -c`. It inherits the user's environment and adds the selected Review Queue item as these environment variables:
+The execution boundary passes the exact configured string as the single command operand to `/bin/sh -c`. It inherits the user's environment and adds the pull request under the Cursor as these environment variables:
 
 | Variable               | Source Review Queue field  | Value                              |
 | ---------------------- | -------------------------- | ---------------------------------- |

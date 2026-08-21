@@ -4,7 +4,7 @@
 
 Compose one top-level Review Submission in a modal over the Review Queue. The modal contains one multiline message editor and one three-value decision selector. It does not support file selection, line selection, pending reviews, or inline comments.
 
-Opening the modal captures the selected pull request URL as its target. Later detail updates cannot change that target. The header identifies the target as `OWNER/REPOSITORY #NUMBER` and shows its title so that the user can verify where the review will go.
+Opening the modal captures the URL under the Cursor as its target. Later Cursor movement or detail updates cannot change that target. The header identifies the target as `OWNER/REPOSITORY #NUMBER` and shows its title so that the user can verify where the review will go.
 
 Only one Review Submission interaction can be open, and only one submission can be active.
 
@@ -20,7 +20,7 @@ Use this compact order:
 
 The selected decision must have a persistent visual mark. Do not communicate it by color alone. The initial decision is `Comment`, which is the least privileged choice. The message editor receives initial focus.
 
-The modal owns input while it is open. Review Queue bindings do not run, and the queue selection does not move behind the modal.
+The modal owns input while it is open. Review Queue bindings do not run, and the Cursor does not move behind the modal.
 
 ## Editing and decision controls
 

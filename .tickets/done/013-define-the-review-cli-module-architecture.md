@@ -11,8 +11,8 @@ Blocked-By: []
 
 What deep module boundaries and end-to-end contracts isolate GitHub CLI data, XDG configuration, Review Command expansion, interactive process control, OpenTUI presentation, and release infrastructure well enough to make the complete CLI implementation and tests straightforward?
 
-## Resolution
+## Superseded resolution
 
-Use one deep `ReviewSession` application module with `GitHub` and `ToolTabs` ports. Keep strict XDG configuration, OpenTUI presentation, composition, and release operations outside that module. Verify each true external seam with contract adapters, verify complete Review Queue behavior through `ReviewSession`, and keep focus restoration at one best-effort Herdr request without race modeling. See the [Review CLI module architecture](../../docs/module-architecture.md).
+The application-state module selected by this decision was rejected wholesale. The current architecture keeps `GitHub` and `ToolTabs` as deep external ports and puts ordinary Review Queue state and loading directly in the OpenTUI React page. See the [Review CLI module architecture](../../docs/module-architecture.md).
 
-Merged by [Define review CLI module architecture](https://github.com/eli0shin/code-review-tui/pull/11) as commit `89176e3`.
+The original decision was merged by [Define review CLI module architecture](https://github.com/eli0shin/code-review-tui/pull/11) as commit `89176e3` and superseded by ticket 024.

@@ -7,13 +7,8 @@ Parent: 001-build-the-review-cli
 Blocked-By: []
 ---
 
-## Goal
+## Rejected result
 
-Implement the `ReviewSession` queue, selection, details, refresh, and subscription behavior through the approved `GitHub` port.
+The implementation merged by this ticket is rejected wholesale. Ticket 024 deletes its application-state module, contract tests, and changeset. Do not extend or restore its snapshots, subscriptions, refresh queue, request generations, coalescing, or reentrancy behavior.
 
-## Done when
-
-- Initial load and refresh keep the prior queue visible until atomic replacement.
-- Selection is preserved by pull request URL, and stale detail results cannot replace current details.
-- Refresh requests coalesce according to the accepted contract, and failures preserve valid prior data.
-- Controllable in-memory adapter tests prove the complete queue and details scenarios through the public session interface.
+TanStack React Query owns Review Queue and detail data, query status, polling, and cancellation in the OpenTUI React page. The page keeps only one numeric Cursor, and the highlighted row supplies the details URL. Page tests cover visible behavior and direct calls to the approved `GitHub` port.

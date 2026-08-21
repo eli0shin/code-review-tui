@@ -20,6 +20,7 @@
     "@commander-js/extra-typings": "^14.0.0",
     "@opentui/core": "^0.5.6",
     "@opentui/react": "^0.5.6",
+    "@tanstack/react-query": "^5.101.4",
     "commander": "^14.0.2",
     "react": "^19.2.4"
   },
