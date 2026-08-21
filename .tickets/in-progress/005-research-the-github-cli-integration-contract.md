@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@005-research-the-github-cli-integration-contract
 Tags:
   - research
   - afk
