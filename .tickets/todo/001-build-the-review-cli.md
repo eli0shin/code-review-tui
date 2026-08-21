@@ -32,6 +32,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Research the GitHub CLI integration contract](../done/005-research-the-github-cli-integration-contract.md) — Build the queue, details, and submission boundary with `gh search prs`, `gh pr view`, and `gh pr review`, while delegating host and authentication to `gh`.
 - [Bootstrap the application from the tickets project shell](../done/006-bootstrap-the-application-from-the-tickets-project-shell.md) — The `review` executable now has the Tickets-derived Bun, OpenTUI React, installer, updater, test, CI, Changesets, and cross-platform release shell.
 - [Define configuration and Review Command expansion](../done/009-define-configuration-and-review-command-expansion.md) — Use one strict XDG JSON config, tokenize search without shell evaluation, and expose pull request values to the opaque Review Command through child environment variables.
+- [Define GitHub data refresh and failure behavior](../done/010-define-github-data-refresh-and-failure-behavior.md) — Replace queue data atomically, preserve selection by PR URL, refresh manually or after submission, and show operation-specific `gh` failures without local workflow state.
 
 ## Not yet specified
 
