@@ -11,17 +11,12 @@ OpenTUI supplies the display and terminal-session APIs. It does not launch a pro
 
 ## Finding
 
-Use an **embedded session for each concurrent interactive tool**. Combine:
+Choose the mechanism from each tool's accepted launch contract:
 
-- `Bun.spawn(command, { terminal: ... })` to launch the child with a PTY;
-- one `EmbeddedTerminalRenderable` to parse and draw that PTY's VT output;
-- `write()` for child output;
-- `onData` and `Bun.Terminal.write()` for input and terminal replies;
-- `onTerminalResize` and `Bun.Terminal.resize()` for size propagation;
-- layout-visible clipped panels plus `focus()` and `blur()` to switch sessions without stopping them; and
-- explicit process, PTY, renderable, React-root, and renderer cleanup.
+- **Lumen requires physical-terminal foreground handoff.** Suspend OpenTUI, run `lumen diff` as a foreground child on the same controlling terminal, wait for it, and restore OpenTUI. Do not replace this contract with an embedded PTY.[^lumen-contract]
+- **Embedded sessions remain available for tools whose contracts permit a PTY.** For such a tool, combine `Bun.spawn(command, { terminal: ... })`, one retained `EmbeddedTerminalRenderable`, output through `write()`, input through `onData` and `Bun.Terminal.write()`, resize through `onTerminalResize` and `Bun.Terminal.resize()`, and layout-visible clipped panels with `focus()` and `blur()` for switching.
 
-Use `CliRenderer.suspend()` and `resume()` only for a **physical-terminal handoff** to one foreground child. These methods suspend and resume OpenTUI, not the child. This handoff cannot by itself support instant switching among concurrent child applications.
+Both mechanisms need explicit process and terminal cleanup. `CliRenderer.suspend()` and `resume()` suspend and resume OpenTUI, not a child. Physical handoff cannot by itself support instant switching among concurrent child applications.
 
 ## Capability matrix
 
@@ -35,6 +30,12 @@ Use `CliRenderer.suspend()` and `resume()` only for a **physical-terminal handof
 | Switch | Keep each session mounted and layout-visible; blur and move the old panel outside a clipped viewport, then move/focus the new one | Not a multi-session switch mechanism |
 | Suspend child execution | Not required for switching; moving a panel off-screen does not stop the process | Not provided by `CliRenderer.suspend()` |
 | Shutdown | Kill and await the child, close its PTY, destroy its renderable, then destroy the app renderer | Kill and await an active child, then destroy the suspended renderer |
+
+## Select by tool contract
+
+An embedded PTY changes the terminal boundary: OpenTUI remains the physical-terminal owner while a Ghostty emulator represents the child's terminal. Use this mode only when the tool's accepted contract permits that boundary and its required output fits the embedded renderer's limits. A need for concurrent switching does not override a physical-terminal launch contract.
+
+The merged Lumen contract requires the foreground physical terminal, so the Review Queue must use handoff for Lumen. The Review Command and other tools can use embedded sessions only after their own contracts explicitly permit a PTY. This note does not make that later lifecycle decision.
 
 ## Embedded session contract
 
@@ -122,7 +123,7 @@ Known display limits are important for tools such as diff viewers and editors: t
 
 ## Physical-terminal handoff boundary
 
-The OpenTUI part of a real-terminal handoff is `renderer.suspend()` before launch and `renderer.resume()` after the child returns. `suspend()` stops rendering, removes OpenTUI's stdin data listener, disables raw mode and mouse input, pauses stdin, removes renderer exit listeners, and runs the native terminal shutdown sequence. `resume()` restores raw input and listeners, restores the previous renderer control state, and requests a full repaint.[^renderer-source] The native shutdown sequence leaves OpenTUI's alternate screen and resets terminal modes; resume sets up the configured screen again.[^renderer-native]
+This is the required mechanism for the fixed Lumen integration.[^lumen-contract] The OpenTUI part of a real-terminal handoff is `renderer.suspend()` before launch and `renderer.resume()` after the child returns. `suspend()` stops rendering, removes OpenTUI's stdin data listener, disables raw mode and mouse input, pauses stdin, removes renderer exit listeners, and runs the native terminal shutdown sequence. `resume()` restores raw input and listeners, restores the previous renderer control state, and requests a full repaint.[^renderer-source] The native shutdown sequence leaves OpenTUI's alternate screen and resets terminal modes; resume sets up the configured screen again.[^renderer-native]
 
 These APIs are **not a complete handoff contract**. A child launched with inherited standard streams normally remains in the parent's foreground process group. Terminal-generated signals such as Ctrl+C are sent to the terminal's foreground process group and can reach both processes.[^posix-terminal] Because `suspend()` removes OpenTUI's exit listeners, the parent can terminate before any JavaScript `finally` block calls `resume()`. Job-control signals need the same explicit treatment. OpenTUI and Bun do not supply foreground-process-group transfer as part of these APIs.
 
@@ -141,7 +142,7 @@ try {
 
 The `finally` protects launch failures and normal child completion only while the process remains alive. Do not present it as protection from terminal-generated process termination. Also, do not use `pause()` for handoff: paused renderers can still perform one-shot renders, while suspended renderers reject render requests and release terminal input modes.[^renderer-doc][^renderer-tests]
 
-This model has one physical foreground terminal owner. It does not preserve several directly attached children or switch among them. To get concurrent tools and retained child screen state, use embedded PTYs.
+This model has one physical foreground terminal owner. It does not preserve several directly attached children or switch among them. Embedded PTYs can provide concurrency only for tools whose accepted contracts permit that terminal boundary.
 
 ## Clean shutdown ownership
 
@@ -169,10 +170,15 @@ A launch can fail before a child handle exists. Track each acquired resource sep
 
 ## Answer for the Review Queue design
 
-The API set is sufficient for concurrent, switchable interactive review tools **when each tool uses a separate Bun PTY and a retained `EmbeddedTerminalRenderable`**. OpenTUI React does not provide this as a standard JSX component or process manager, so the application needs a session controller and either a small `extend()` registration or an imperative Core integration.
+OpenTUI supports both terminal boundaries, but the application must not choose one boundary for all tools:
 
-Reserve `CliRenderer.suspend()` and `resume()` for exceptional whole-terminal handoff. Do not use them as the normal tab-switch implementation.
+- Launch the fixed Lumen integration with physical-terminal foreground handoff, as its merged contract requires.
+- Keep embedded Bun PTYs and retained `EmbeddedTerminalRenderable` instances as an available concurrent-switching mechanism for tools whose contracts permit a PTY.
+- Leave the Review Command boundary open until its external-process contract selects it.
 
+OpenTUI React does not provide an embedded terminal as a standard JSX component or process manager. If a PTY-compatible tool uses this mechanism, the application needs a session controller and either a small `extend()` registration or an imperative Core integration.
+
+[^lumen-contract]: [Merged `lumen diff` launch contract](lumen-diff-launch-contract.md#terminal-ownership-and-return-of-control)
 [^embedded-doc]: [OpenTUI: Embedded terminal](https://opentui.com/docs/components/embedded-terminal/)
 [^embedded-source]: [`EmbeddedTerminalRenderable` source at OpenTUI 0.5.6](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/core/src/renderables/EmbeddedTerminal.ts)
 [^embedded-native]: [OpenTUI native embedded-terminal implementation](https://github.com/anomalyco/opentui/blob/fa20a6bc20a519f24b2d01e1b66f7ed11ba3732b/packages/native/src/embedded-terminal/main.zig)
