@@ -15,6 +15,7 @@ import type {
   ReviewQueue,
 } from './domain/pull-request.ts';
 import type { GitHub, GitHubFailure } from './github/types.ts';
+import type { Herdr, HerdrFailure, HerdrResult } from './tools/types.ts';
 
 environmentManager.setIsServer(() => false);
 
@@ -40,9 +41,15 @@ type SubmissionDraft = {
 
 type ReviewQueuePageProps = {
   readonly github: GitHub;
+  readonly herdr: Herdr;
 };
 
-export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
+type HerdrActionFailure = {
+  readonly action: 'Lumen' | 'Review Command';
+  readonly failure: HerdrFailure;
+};
+
+export function ReviewQueuePage({ github, herdr }: ReviewQueuePageProps) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -54,15 +61,17 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ReviewQueue github={github} />
+      <ReviewQueue github={github} herdr={herdr} />
     </QueryClientProvider>
   );
 }
 
-function ReviewQueue({ github }: ReviewQueuePageProps) {
+function ReviewQueue({ github, herdr }: ReviewQueuePageProps) {
   const [cursor, setCursor] = useState(0);
   const [draft, setDraft] = useState<SubmissionDraft>();
   const [notice, setNotice] = useState<string>();
+  const [herdrActionFailure, setHerdrActionFailure] =
+    useState<HerdrActionFailure>();
   const editorRef = useRef<TextareaRenderable>(null);
   const submissionActiveRef = useRef(false);
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
@@ -133,6 +142,15 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
     if (refresh.isError) {
       setNotice(`${successNotice} Review Queue could not be refreshed.`);
     }
+  };
+
+  const openHerdrTab = async (
+    action: HerdrActionFailure['action'],
+    open: () => Promise<HerdrResult>
+  ): Promise<void> => {
+    setHerdrActionFailure(undefined);
+    const result = await open();
+    if (!result.ok) setHerdrActionFailure({ action, failure: result.failure });
   };
 
   useKeyboard((key) => {
@@ -206,10 +224,24 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
       return;
     }
 
-    if (key.name === 's' && highlightedPullRequest !== undefined) {
-      setNotice(undefined);
-      setDraft(createDraft(highlightedPullRequest));
-      return;
+    if (highlightedPullRequest !== undefined) {
+      if (key.name === 'd') {
+        void openHerdrTab('Lumen', () =>
+          herdr.openLumen(highlightedPullRequest)
+        );
+        return;
+      }
+      if (key.name === 'c') {
+        void openHerdrTab('Review Command', () =>
+          herdr.openReviewCommand(highlightedPullRequest)
+        );
+        return;
+      }
+      if (key.name === 's') {
+        setNotice(undefined);
+        setDraft(createDraft(highlightedPullRequest));
+        return;
+      }
     }
     if (key.name === 'r') {
       void queueQuery.refetch();
@@ -227,6 +259,12 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
     <box flexDirection="column">
       <text>Review Queue</text>
       {notice !== undefined ? <text>{notice}</text> : null}
+      {herdrActionFailure !== undefined ? (
+        <text>
+          Could not open {herdrActionFailure.action}:{' '}
+          {herdrFailureMessage(herdrActionFailure.failure)}
+        </text>
+      ) : null}
       {queueQuery.status === 'pending' ? (
         <text>Loading pull requests…</text>
       ) : null}
@@ -407,6 +445,14 @@ function submissionFailureMessage(draft: SubmissionDraft): string {
         ? `Review Submission for ${target} failed: ${failure.diagnostic}\n${failure.stderr}`
         : `Review Submission for ${target} failed: ${failure.diagnostic}`;
   }
+}
+
+function herdrFailureMessage(failure: HerdrFailure): string {
+  const message =
+    failure.exitCode === undefined
+      ? failure.message
+      : `${failure.message} (exit code ${failure.exitCode})`;
+  return failure.stderr ? `${message}\n${failure.stderr}` : message;
 }
 
 function failureMessage(failure: GitHubFailure): string {
