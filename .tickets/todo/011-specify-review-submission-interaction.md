@@ -5,7 +5,6 @@ Tags:
   - afk
 Parent: 001-build-the-review-cli
 Blocked-By:
-  - 005-research-the-github-cli-integration-contract
   - 007-prototype-the-review-queue-interaction
 ---
 

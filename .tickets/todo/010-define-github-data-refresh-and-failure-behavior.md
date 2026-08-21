@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 005-research-the-github-cli-integration-contract
+Blocked-By: []
 ---
 
 ## Question
