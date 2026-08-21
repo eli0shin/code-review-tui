@@ -42,9 +42,9 @@ A failed load does not change the Review Queue or selection. Selection is not wr
 
 ## Pull request details
 
-Load details after a pull request becomes selected. Starting any detail load cancels or makes obsolete the prior detail request, even when the selected URL is unchanged. A late result from a superseded request must not replace the details for the current selection.
+Load details after a pull request becomes selected. When the selected URL changes, clear the prior details immediately before the new load starts. Starting any detail load cancels or makes obsolete the prior detail request, even when the selected URL is unchanged. A late result from a superseded request must not replace the details for the current selection.
 
-After a successful Review Queue refresh, reload details for the resulting selection, including when its URL did not change. Keep the prior details visible as stale data while this reload is active. Clear them only when the resulting selection is empty or has a different URL.
+After a successful Review Queue refresh, reload details for the resulting selection, including when its URL did not change. Keep the prior details visible as stale data while this reload is active only if the selected URL is unchanged. The URL-changing rule above applies when the refresh selects a different pull request.
 
 A detail failure affects only the detail pane. Keep the Review Queue and selection usable, show the failure in that pane, and let the user retry by refreshing or reselecting the pull request. Never remove a pull request because its details cannot load.
 
