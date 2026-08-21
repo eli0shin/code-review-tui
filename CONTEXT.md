@@ -15,7 +15,7 @@ A GitHub pull request review with a message and one decision: comment, approve, 
 _Avoid_: Inline comment
 
 **Review Queue Tab**:
-The Herdr tab that contains the Review Queue and receives focus when a launched review tool exits.
+The saved Herdr tab that contains the Review Queue. `review` makes a best-effort attempt to focus its Review Queue pane when a launched tool exits.
 _Avoid_: Parent tab, caller tab
 
 **Tool Tab**:

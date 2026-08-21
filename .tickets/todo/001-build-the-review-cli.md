@@ -36,6 +36,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Define GitHub data refresh and failure behavior](../done/010-define-github-data-refresh-and-failure-behavior.md) — Replace queue data atomically, preserve selection by PR URL, refresh manually or after submission, and show operation-specific `gh` failures without local workflow state.
 - [Specify Review Submission interaction](../done/011-specify-review-submission-interaction.md) — Compose Review Submissions in a compact multiline modal with explicit decisions, safe discard, in-flight locking, draft-preserving retry, and post-success queue refresh.
 - [Choose the tool switching model](../done/008-choose-the-tool-switching-model.md) — Require Herdr, keep the queue in its saved tab, and run Lumen and Review Commands in dedicated Tool Tabs that return focus on exit.
+- [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
 
 ## Not yet specified
 

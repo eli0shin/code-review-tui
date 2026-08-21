@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 014-choose-the-herdr-focus-compatibility-boundary
+Blocked-By: []
 ---
 
 ## Question
