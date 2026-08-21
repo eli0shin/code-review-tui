@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@006-bootstrap-the-application-from-the-tickets-project-shell
 Tags:
   - task
   - afk
