@@ -5,7 +5,6 @@ Tags:
   - afk
 Parent: 001-build-the-review-cli
 Blocked-By:
-  - 018-implement-review-submission-behavior
   - 020-connect-review-queue-tool-actions
 ---
 
