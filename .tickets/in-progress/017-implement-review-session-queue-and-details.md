@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@017-implement-review-session-queue-and-details
 Tags:
   - task
   - afk
