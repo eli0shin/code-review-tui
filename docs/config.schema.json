@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/eli0shin/code-review-tui/blob/main/docs/config.schema.json",
+  "title": "review configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["search"],
+      "properties": {
+        "search": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "GitHub pull request search query. The value must contain a non-whitespace character."
+        }
+      }
+    },
+    "reviewCommand": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Opaque POSIX shell command. The value must contain a non-whitespace character."
+    },
+    "keyBindings": {
+      "$ref": "#/$defs/keyBindings"
+    },
+    "config": {
+      "$ref": "#/$defs/updateConfig"
+    }
+  },
+  "$defs": {
+    "bindingList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?:[!-~]|(?:ctrl\\+)?(?:alt\\+)?(?:shift\\+)?(?:[a-z0-9]|up|down|left|right|enter|escape|tab|backspace|delete|home|end|pageup|pagedown|space))$"
+      }
+    },
+    "keyBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selectPrevious": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["k", "up"]
+        },
+        "selectNext": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["j", "down"]
+        },
+        "openDiff": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["d", "enter"]
+        },
+        "runReviewCommand": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["c"]
+        },
+        "composeReviewSubmission": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["s"]
+        },
+        "refresh": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["r"]
+        },
+        "showHelp": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["?"]
+        },
+        "quit": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["q"]
+        }
+      }
+    },
+    "updateConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Update settings retained from the application shell.",
+      "properties": {
+        "updateBehavior": {
+          "enum": ["auto", "notify", "off"],
+          "default": "auto"
+        },
+        "updateCheckIntervalHours": {
+          "type": "number",
+          "default": 24
+        }
+      }
+    }
+  }
+}
