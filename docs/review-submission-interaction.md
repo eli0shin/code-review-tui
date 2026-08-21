@@ -80,13 +80,13 @@ Use `Commented on` and `Requested changes on` for the other decisions. Start the
 
 The success notice remains independently meaningful if the refresh fails. In that case, show both facts: the Review Submission succeeded and the Review Queue could not be refreshed. Queue replacement and notice behavior follow the [GitHub data refresh and failure contract](./github-data-refresh-and-failure-behavior.md).
 
-## Failure and retry
+## Failure
 
 Every process result other than exit status 0 keeps the modal open, including a startup error, nonzero exit, signal, timeout, or other interruption. Restore editing, preserve the exact message and selected decision, and show a Review Submission failure inside the modal. Identify the target, distinguish a startup failure, unsuccessful exit, and interruption, and show GitHub CLI stderr unchanged when present. If stderr is empty, show the exit status and a fallback message. When no exit status exists, identify how the process ended and state that submission success is unknown.
 
-The footer changes the submit action to `Ctrl+S retry`. The user can retry unchanged, edit the message, change the decision, or cancel through the same safe-cancellation flow. Starting a retry clears the prior failure display. A failed submission does not refresh or otherwise change the Review Queue.
+Keep the same `Ctrl+S submit` action after a failure. The user can submit again unchanged, edit the message, change the decision, or cancel through the same safe-cancellation flow. Starting another submission clears the prior failure display. A failed submission does not refresh or otherwise change the Review Queue.
 
-Do not retry automatically. Do not infer that a timed-out, interrupted, or otherwise failed process created a review. GitHub CLI exit status remains the success boundary.
+Never start another submission automatically. Do not infer that a timed-out, interrupted, or otherwise failed process created a review. GitHub CLI exit status remains the success boundary.
 
 ## State boundary
 

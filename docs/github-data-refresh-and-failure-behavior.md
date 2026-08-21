@@ -87,7 +87,7 @@ Keep each failure at its boundary:
 - An initial Review Queue failure shows an unavailable state with refresh as retry.
 - A refresh failure keeps the last successful Review Queue and marks it as not refreshed.
 - A detail failure stays in the detail pane.
-- A Review Submission failure stays in the submission interaction and preserves the user's message so it can be retried or edited.
+- A Review Submission failure stays in the submission interaction and preserves the user's message. The submission controls do not change, and the application does not start another submission automatically.
 
 A successful retry clears the corresponding failure. Starting a retry can clear an old success notice, but it must not hide the last usable GitHub data.
 
