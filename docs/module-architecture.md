@@ -13,7 +13,7 @@ This shape keeps these concerns separate:
 - GitHub CLI owns GitHub host, account, authentication, search, details, and Review Submission transport.
 - The configuration module owns the XDG path, strict JSON validation, search tokenization, and effective key bindings.
 - The OpenTUI Review Queue page owns temporary user-interface state and calls the configured ports directly.
-- The Tool Tabs module owns Review Command child data, Lumen launch checks, Herdr requests, tool lifecycle, best-effort focus restoration, and cleanup.
+- The Tool Tabs module owns Review Command child data, Lumen launch checks, Herdr requests, tool lifecycle, and best-effort focus restoration.
 - The release module owns update checks, executable replacement, installer rules, and release assets.
 
 ## Dependency direction
@@ -179,7 +179,7 @@ The composition root performs this order for the TUI command:
 
 Mounting the page subscribes its queries, which starts the initial Review Queue load and query-owned polling. A failure before mounting prints one actionable startup error and exits nonzero.
 
-One runtime lifecycle function coordinates quit, end-of-input, Review Queue pane loss, and signals with Tool Tab shutdown, presentation unmount, and renderer destruction. Tool ownership and pane cleanup stay inside `ToolTabs`. Presentation unmount removes query observers and cancels active query work.
+The runtime exits the `review` process immediately for quit, end-of-input, confirmed Review Queue pane loss, or a termination signal. It does not close Tool Tab panes. Process exit closes socket connections and Herdr continues to own the Tool Tabs.
 
 ### 6. Release
 
@@ -201,7 +201,7 @@ Use a recording fake `gh` process. Prove exact arguments and environment, comple
 
 ### Tool Tabs adapter contract
 
-Use a fake Herdr v0.8.2 socket. Prove startup checks, exact process descriptions and environment, Lumen repository checks, ownership, lifecycle notices, indeterminate launch acknowledgement, shutdown, and one best-effort focus request after an ordinary observed exit.
+Use a fake Herdr v0.8.2 socket. Prove startup checks, exact process descriptions and environment, Lumen repository checks, ownership, lifecycle notices, indeterminate launch acknowledgement, shutdown without pane closure, and one best-effort focus request after an ordinary observed exit.
 
 Do not model or review focus races or event-ordering races.
 
@@ -221,7 +221,7 @@ These are page tests. Do not reproduce the removed session-level coordination te
 
 ### Executable smoke contract
 
-Build the native executable and use recording `gh` and Herdr adapters at their real process and socket seams. Prove only critical composition paths: startup ordering, a valid initial Review Queue, command independence from TUI configuration, and owned termination cleanup. Do not duplicate page scenarios.
+Build the native executable and use recording `gh` and Herdr adapters at their real process and socket seams. Prove only critical composition paths: startup ordering, a valid initial Review Queue, command independence from TUI configuration, and immediate process termination without Tool Tab closure. Do not duplicate page scenarios.
 
 ### Release contract
 
