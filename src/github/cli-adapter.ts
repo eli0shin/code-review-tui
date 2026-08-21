@@ -142,8 +142,6 @@ async function runGh(
     });
   });
   signal.removeEventListener('abort', abort);
-  await inputSettled;
-
   if (outcome.kind === 'error') {
     return failure({
       kind: 'startup',
@@ -153,6 +151,8 @@ async function runGh(
       diagnostic: outcome.diagnostic,
     });
   }
+
+  await inputSettled;
   if (state.aborted) {
     return failure({
       kind: 'interrupted',
