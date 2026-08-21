@@ -40,9 +40,17 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Define external process execution](../done/012-define-external-process-execution.md) — Use Herdr v0.8.2 direct-process Tool Tabs, pane-only ownership and cleanup, explicit launch uncertainty, and one best-effort queue-pane focus attempt after ordinary tool exit.
 - [Define the Review CLI module architecture](../done/013-define-the-review-cli-module-architecture.md) — Build around one deep `ReviewSession` with `GitHub` and `ToolTabs` ports, keep configuration, presentation, composition, and release outside it, and test each true external seam through contract adapters.
 
-## Not yet specified
+## Implementation path
 
-- Installation documentation and release validation will become precise after the executable implementation is complete.
+- [Implement strict Review configuration](015-implement-strict-review-configuration.md).
+- [Implement the GitHub CLI data adapter](016-implement-github-cli-data-adapter.md).
+- [Implement ReviewSession queue and details](017-implement-review-session-queue-and-details.md).
+- [Implement Review Submission behavior](018-implement-review-submission-behavior.md).
+- [Implement the Herdr Tool Tabs adapter](019-implement-herdr-tool-tabs-adapter.md).
+- [Connect ReviewSession tool actions](020-connect-review-session-tool-actions.md).
+- [Build the OpenTUI Review Queue and submission](021-build-opentui-review-queue-and-submission.md).
+- [Compose startup, shutdown, and smoke tests](022-compose-review-startup-shutdown-and-smoke-tests.md).
+- [Validate the first Review release](023-validate-first-review-release.md).
 
 ## Out of scope
 
