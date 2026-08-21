@@ -4,7 +4,7 @@
 
 Keep true external dependencies behind two deep ports: `GitHub` and `ToolTabs`. Use production adapters for GitHub CLI and Herdr. Keep configuration, OpenTUI presentation, composition, and release operations outside those adapters.
 
-The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local selected pull request URL. Its queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`.
+The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local numeric Cursor. Its queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`.
 
 Do not add a session module, store, controller, event bus, state machine, scheduler service, queue, request-generation protocol, coalescing protocol, or presentation subscription interface. Add no coordination seam between the page and the external ports.
 
@@ -157,13 +157,13 @@ TanStack React Query owns:
 - the fixed 60-second Review Queue refetch interval;
 - request cancellation through the query function's supplied `AbortSignal`.
 
-The page keeps only one local selection value: the selected pull request URL. It derives the effective selection from that URL and current queue data. The details query key contains that effective URL.
+The page keeps one local numeric Cursor and clamps its rendered position to the current queue rows. The pull request under the Cursor supplies the details query URL. The Cursor has no pull request identity, and queue replacement does not preserve a URL. Queue refetch does not invalidate details for an unchanged URL under the Cursor.
 
-Configure TanStack Query's public `environmentManager` for the long-lived non-browser OpenTUI runtime before mounting queries. The queue query loads on mount, sets `refetchInterval: 60_000`, and uses `refetch()` for `r`. Do not add fetch effects, timer effects, cloned selection objects, request generations, or another remote-state layer.
+Configure TanStack Query's public `environmentManager` for the long-lived non-browser OpenTUI runtime before mounting queries. The queue query loads on mount, sets `refetchInterval: 60_000`, and uses `refetch()` for `r`. Do not add fetch effects, timer effects, pull request identity for the Cursor, request generations, or another remote-state layer.
 
 Queue bindings run only while the Review Queue owns input. The Review Submission modal blocks queue actions. Tool Tabs never send input through OpenTUI because Herdr owns their PTYs and focus.
 
-Use OpenTUI's test renderer. Test query loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; URL-only selection; detail loading; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
+Use OpenTUI's test renderer. Test query loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; Cursor movement; detail loading for the highlighted row; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
 
 ### 5. Composition root and runtime lifecycle
 
@@ -211,7 +211,7 @@ Render the page and send terminal input. Prove:
 
 - pull request loading on page open, `r`, and each 60-second query refetch;
 - query cancellation on unmount;
-- queue results, URL-only selection, and keyed detail loading;
+- queue results, Cursor movement, and detail loading for the highlighted row;
 - pending, error, success, empty, and detail surfaces;
 - effective key bindings and help text;
 - Review Submission behavior and modal input isolation;
@@ -231,7 +231,7 @@ Keep release tests independent from TUI tests. Prove supported platform mapping,
 
 1. Complete strict configuration and its contract tests.
 2. Add domain values and the GitHub CLI adapter contract.
-3. Build Review Queue and detail queries with TanStack React Query and keep URL-only selection in the OpenTUI page.
+3. Build Review Queue and detail queries with TanStack React Query and keep one numeric Cursor in the OpenTUI page.
 4. Add Review Submission state and actions directly to that page.
 5. Add Tool Tabs and the Herdr fake-server contract.
 6. Connect page tool actions and lifecycle notices directly to `ToolTabs`.
@@ -244,7 +244,7 @@ Add a seam only when its production and test adapters both exist. Do not add an 
 ## Accepted limits
 
 - GitHub CLI output fields and Herdr v0.8.2 protocol behavior are compatibility seams. Report incompatibility; do not add fallback parsers or protocols.
-- Review Queue, selection, details, Review Submission draft, and tool lifecycle data are memory-only page state.
+- Review Queue, Cursor, details, Review Submission draft, and tool lifecycle data are memory-only page state.
 - Herdr owns Tool Tab terminals. OpenTUI owns only the Review Queue presentation.
 - Best-effort Review Queue focus restoration stops after one focus request for an ordinary observed tool exit.
 - Release update state is the only application state in the XDG state area.

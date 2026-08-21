@@ -125,11 +125,11 @@ The application must:
 
 1. Start `gh` from `PATH`.
 2. Inherit the user's environment.
-3. Pass the tokenized configured search and selected pull request URL only as data arguments.
+3. Pass the tokenized configured search and the pull request URL under the Cursor only as data arguments.
 4. Parse stdout only after exit status 0.
 5. Show actionable command startup, authentication, API, parsing, and submission errors without trying to repair GitHub CLI configuration.
 
-The search implementation asks GitHub CLI configuration for its default host. GitHub CLI's HTTP transport then chooses the active token for each request's host.[^gh-search-host][^gh-http-auth] Detail and submission commands infer the host from the selected URL. This keeps host, credentials, and account selection outside the application while still supporting GitHub Enterprise hosts that provide the required search syntax and APIs.
+The search implementation asks GitHub CLI configuration for its default host. GitHub CLI's HTTP transport then chooses the active token for each request's host.[^gh-search-host][^gh-http-auth] Detail and submission commands infer the host from the target URL. This keeps host, credentials, and account selection outside the application while still supporting GitHub Enterprise hosts that provide the required search syntax and APIs.
 
 ## Compatibility boundary
 

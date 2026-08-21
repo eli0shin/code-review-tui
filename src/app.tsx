@@ -14,6 +14,7 @@ environmentManager.setIsServer(() => false);
 
 const refreshIntervalMs = 60_000;
 const detailsQueryKey = ['pullRequestDetails'] as const;
+const emptyReviewQueue: ReviewQueue = [];
 
 type ReviewQueuePageProps = {
   readonly github: GitHub;
@@ -37,7 +38,7 @@ export function ReviewQueuePage({ github }: ReviewQueuePageProps) {
 }
 
 function ReviewQueue({ github }: ReviewQueuePageProps) {
-  const [selectedUrl, setSelectedUrl] = useState<string>();
+  const [cursor, setCursor] = useState(0);
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
     queryKey: ['reviewQueue'],
     async queryFn({ signal }) {
@@ -47,21 +48,20 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
     },
     refetchInterval: refreshIntervalMs,
   });
-  const queue = queueQuery.data ?? [];
-  const effectiveSelectedUrl =
-    queue.find((pullRequest) => pullRequest.url === selectedUrl)?.url ??
-    queue.at(0)?.url;
+  const queue = queueQuery.data ?? emptyReviewQueue;
+  const cursorPosition =
+    queue.length === 0 ? 0 : Math.min(cursor, queue.length - 1);
+  const highlightedPullRequest = queue.at(cursorPosition);
+  const detailsUrl = highlightedPullRequest?.url;
+
   const detailsQuery = useQuery<PullRequestDetails, GitHubFailure>({
-    queryKey: [...detailsQueryKey, effectiveSelectedUrl],
-    enabled: effectiveSelectedUrl !== undefined,
+    queryKey: [...detailsQueryKey, detailsUrl],
+    enabled: detailsUrl !== undefined,
     async queryFn({ signal }) {
-      if (effectiveSelectedUrl === undefined) {
-        throw new Error('A selected pull request URL is required');
+      if (detailsUrl === undefined) {
+        throw new Error('A highlighted pull request URL is required');
       }
-      const result = await github.loadPullRequestDetails(
-        effectiveSelectedUrl,
-        signal
-      );
+      const result = await github.loadPullRequestDetails(detailsUrl, signal);
       if (!result.ok) throw result.failure;
       return result.value;
     },
@@ -75,12 +75,9 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
 
     const offset = key.name === 'down' ? 1 : key.name === 'up' ? -1 : 0;
     if (offset === 0) return;
-    const currentIndex = queue.findIndex(
-      (pullRequest) => pullRequest.url === effectiveSelectedUrl
-    );
-    const nextIndex = currentIndex + offset;
-    if (nextIndex < 0 || nextIndex >= queue.length) return;
-    setSelectedUrl(queue[nextIndex].url);
+    const nextPosition = cursorPosition + offset;
+    if (nextPosition < 0 || nextPosition >= queue.length) return;
+    setCursor(nextPosition);
   });
 
   return (
@@ -100,14 +97,13 @@ function ReviewQueue({ github }: ReviewQueuePageProps) {
       {queueQuery.status === 'success' && queue.length === 0 ? (
         <text>No pull requests need your review.</text>
       ) : null}
-      {queue.map((pullRequest) => (
+      {queue.map((pullRequest, index) => (
         <text key={pullRequest.url}>
-          {pullRequest.url === effectiveSelectedUrl ? '› ' : '  '}
+          {index === cursorPosition ? '› ' : '  '}
           {pullRequest.repository}#{pullRequest.number} {pullRequest.title}
         </text>
       ))}
-      {effectiveSelectedUrl !== undefined &&
-      detailsQuery.status === 'pending' ? (
+      {detailsUrl !== undefined && detailsQuery.status === 'pending' ? (
         <text>Loading pull request details…</text>
       ) : null}
       {detailsQuery.status === 'error' ? (

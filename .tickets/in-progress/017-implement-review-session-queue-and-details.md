@@ -11,4 +11,4 @@ Blocked-By: []
 
 The implementation merged by this ticket is rejected wholesale. Ticket 024 deletes its application-state module, contract tests, and changeset. Do not extend or restore its snapshots, subscriptions, refresh queue, request generations, coalescing, or reentrancy behavior.
 
-TanStack React Query owns Review Queue and detail data, query status, polling, and cancellation in the OpenTUI React page. The page keeps only the selected pull request URL as local selection state. Page tests cover visible behavior and direct calls to the approved `GitHub` port.
+TanStack React Query owns Review Queue and detail data, query status, polling, and cancellation in the OpenTUI React page. The page keeps only one numeric Cursor, and the highlighted row supplies the details URL. Page tests cover visible behavior and direct calls to the approved `GitHub` port.

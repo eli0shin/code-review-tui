@@ -15,7 +15,7 @@ Connect the OpenTUI React Review Queue page directly to `ToolTabs` for Lumen, Re
 
 ## Done when
 
-- Page actions capture and send the selected pull request without changing the Review Queue or adding review-progress state.
+- Page actions capture and send the pull request under the Cursor without changing the Review Queue or adding review-progress state.
 - Ordinary page state shows tool notices and acknowledgement actions.
 - Runtime shutdown rejects new page actions and delegates owned cleanup.
 - OpenTUI page tests cover actions and visible notices; Tool Tabs adapter tests cover launches, acknowledgement, completion, concurrent tools, and cleanup failures.

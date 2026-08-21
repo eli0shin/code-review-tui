@@ -27,7 +27,7 @@ Do not require Herdr capabilities beyond v0.8.2.
 
 ## Tool launch model
 
-A queue action starts one launch operation for the selected pull request. Generate a unique, in-memory tool ID before sending the request. The launch has these states:
+A queue action starts one launch operation for the pull request under the Cursor. Generate a unique, in-memory tool ID before sending the request. The launch has these states:
 
 1. **launching**: subscribed, but no confirmed Tool Tab exists;
 2. **running**: Herdr returned the Tool Tab and pane IDs and a snapshot confirmed the pane;
@@ -51,7 +51,7 @@ Launch Lumen without a shell:
 ["lumen", "diff", PULL_REQUEST_URL]
 ```
 
-Use the selected Review Queue item's complete canonical URL. Do not use a pull request number, `--origin`, `--detect-pr`, shell text, or a target checkout.
+Use the complete canonical URL of the pull request under the Cursor. Do not use a pull request number, `--origin`, `--detect-pr`, shell text, or a target checkout.
 
 Use the directory from which `review` started as the child working directory. Before creating a Tool Tab, walk that directory and its ancestors for a Git or Jujutsu repository marker. If none exists, do not launch. Report that `lumen diff` requires `review` to start inside any Git or Jujutsu repository; the repository does not have to match the pull request. This preserves the accepted [Lumen launch contract](../research/lumen-diff-launch-contract.md) without creating or selecting application-owned checkouts.
 
@@ -100,11 +100,11 @@ An exit does not change Review Queue membership, add review progress state, or c
 
 ## Launch and control failures
 
-Keep launch failures at the queue action boundary. Preserve the Review Queue and selected pull request and permit the user to retry the action. Never retry a tool launch automatically because a Review Command can have non-idempotent effects.
+Keep launch failures at the queue action boundary. Preserve the Review Queue and Cursor and permit the user to retry the action. Never retry a tool launch automatically because a Review Command can have non-idempotent effects.
 
 Distinguish these cases:
 
-- **Precondition failure:** no selected pull request, no repository working directory for Lumen, or invalid saved Herdr context. Do not send `layout.apply`.
+- **Precondition failure:** no pull request under the Cursor, no repository working directory for Lumen, or invalid saved Herdr context. Do not send `layout.apply`.
 - **Could not start:** Herdr rejects tab or direct process creation. Name the executable, pull request, Herdr error code, and operating-system error when available.
 - **Control failure:** focus, close, subscription, or socket operations fail after creation. Keep ownership of any known Tool Tab until Herdr confirms that it ended.
 

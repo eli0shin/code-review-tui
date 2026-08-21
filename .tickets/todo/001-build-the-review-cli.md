@@ -39,13 +39,13 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Choose the Herdr focus compatibility boundary](../done/014-choose-the-herdr-focus-compatibility-boundary.md) — Keep automatic queue focus restoration as a best-effort Herdr v0.8.2 behavior without race-free guarantees or new protocol requirements.
 - [Define external process execution](../done/012-define-external-process-execution.md) — Use Herdr v0.8.2 direct-process Tool Tabs, pane-only ownership and cleanup, explicit launch uncertainty, and one best-effort queue-pane focus attempt after ordinary tool exit.
 - The Review CLI architecture keeps external behavior behind `GitHub` and `ToolTabs`; TanStack React Query owns remote Review Queue and detail state in the OpenTUI React page. Do not add an application-state coordination layer.
-- [Replace rejected session machinery with page-owned loading](../in-progress/024-replace-review-session-machinery-with-page-owned-loading.md) — The queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`; the page keeps URL-only selection.
+- [Replace rejected session machinery with page-owned loading](../in-progress/024-replace-review-session-machinery-with-page-owned-loading.md) — The queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`; the page keeps one numeric Cursor.
 
 ## Implementation path
 
 - [Implement strict Review configuration](015-implement-strict-review-configuration.md).
 - [Implement the GitHub CLI data adapter](016-implement-github-cli-data-adapter.md).
-- Implement Review Queue and detail queries with TanStack React Query and URL-only selection in the OpenTUI page; ticket 024 replaces the rejected merged implementation.
+- Implement Review Queue and detail queries with TanStack React Query and one numeric Cursor in the OpenTUI page; ticket 024 replaces the rejected merged implementation.
 - [Implement Review Submission behavior](018-implement-review-submission-behavior.md).
 - [Implement the Herdr Tool Tabs adapter](019-implement-herdr-tool-tabs-adapter.md).
 - [Connect Review Queue tool actions](020-connect-review-queue-tool-actions.md).

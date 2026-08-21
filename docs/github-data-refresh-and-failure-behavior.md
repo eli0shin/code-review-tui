@@ -4,21 +4,22 @@
 
 The Review Queue is the last complete, successful result from the configured GitHub search. The application does not combine that result with local review status, hidden-item lists, or optimistic changes.
 
-The selected pull request is temporary interface state. Its URL identifies it across Review Queue replacements. It is not durable workflow state.
+The Cursor is temporary interface state. It is a numeric position that highlights one visible Review Queue row and has no pull request identity.
 
 ## Review Queue loading
 
 Load the Review Queue in these cases only:
 
-1. when the application starts;
-2. when the user requests a refresh; and
-3. immediately after a successful Review Submission.
+1. when the Review Queue page mounts;
+2. when the user requests a refresh with `r`;
+3. every 60 seconds while the page is mounted; and
+4. immediately after a successful Review Submission.
 
-Do not poll in the background. Returning from Lumen or the Review Command does not imply that GitHub changed, so it does not cause an automatic refresh. The user can request one.
+Returning from Lumen or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
 
 Use the `gh search prs` invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI. Do not sort or filter results in the application.
 
-Only one Review Queue load can be active. If another automatic or user request arrives during that load, remember one pending request and run it after the active load ends. More requests do not create more pending loads. This makes a submission-triggered refresh take effect without starting concurrent GitHub CLI commands.
+TanStack React Query owns request deduplication, polling, status, caching, and cancellation. Do not add an application refresh queue, pending-load state, or request coordination.
 
 A load is atomic:
 
@@ -27,32 +28,32 @@ A load is atomic:
 - Treat malformed JSON, a non-array result, or any item without a required field as a failed load. Do not display a partial result.
 - An empty valid array is a successful load and an empty Review Queue.
 
-The loading indicator must distinguish the initial load, which has no Review Queue to show, from a refresh, which keeps the current Review Queue usable.
+Render pending, error, and success from query status. During a refetch, keep the current successful Review Queue usable.
 
-## Selection after a successful load
+## Cursor after a successful load
 
-Use the pull request URL as selection identity.
+Render exactly the latest successful Review Queue result. Keep one numeric Cursor and clamp its rendered position to the current rows.
 
-- On the first successful non-empty load, select the first result.
-- When replacing a non-empty Review Queue, keep the selected URL if it is still present.
-- If the selected URL is absent, select the first result. Do not infer a successor from the prior row position.
-- When the new Review Queue is empty, clear the selection and pull request details.
+- The Cursor starts at row `0`.
+- Arrow keys move it only within the currently rendered rows.
+- A successful queue load replaces the rows without preserving a pull request URL.
+- When the Review Queue is empty, no row is highlighted and the details query is disabled.
 
-A failed load does not change the Review Queue or selection. Selection is not written to disk and is reset when the application starts.
+A failed load does not change the last successful Review Queue. The Cursor is not written to disk and resets when the page mounts.
 
 ## Pull request details
 
-Clearing the selection clears the prior details immediately and cancels or makes obsolete any active detail request. Load details after a pull request becomes selected. When the selected URL changes, clear the prior details immediately before the new load starts. Starting any detail load cancels or makes obsolete the prior detail request, even when the selected URL is unchanged. A late result from a superseded request must not replace the details for the current selection.
+Use one details query keyed only by the URL under the Cursor. Moving the Cursor or replacing its row changes or disables that query, and TanStack React Query cancels inactive query work through its supplied `AbortSignal`.
 
-After a successful Review Queue refresh, reload details for the resulting selection, including when its URL did not change. Keep the prior details visible as stale data while this reload is active only if the selected URL is unchanged. The URL-changing rule above applies when the refresh selects a different pull request.
+A Review Queue refresh does not invalidate details for an unchanged URL under the Cursor. Queue loading and detail loading remain independent.
 
-A detail failure affects only the detail pane. Keep the Review Queue and selection usable, show the failure in that pane, and let the user retry by refreshing or reselecting the pull request. Never remove a pull request because its details cannot load.
+A detail failure affects only the detail pane. Keep the Review Queue and Cursor usable and show the query failure in that pane. Never remove a pull request because its details cannot load.
 
 ## Successful Review Submissions
 
 GitHub CLI exit status 0 is the source of truth for submission success. Show success immediately and start a Review Queue refresh. Do not optimistically remove, mark, or reorder the submitted pull request.
 
-The refreshed GitHub search decides whether the pull request remains in the Review Queue. It can remain because the configured search does not depend on review requests or because GitHub search has not indexed the Review Submission yet. If it remains, display it and preserve its selection. If the refresh fails, keep the prior Review Queue, even though it can still contain the successfully reviewed pull request, and show both facts: the Review Submission succeeded, but the Review Queue could not be refreshed.
+The refreshed GitHub search decides whether the pull request remains in the Review Queue. It can remain because the configured search does not depend on review requests or because GitHub search has not indexed the Review Submission yet. If the refresh fails, keep the prior Review Queue, even though it can still contain the successfully reviewed pull request, and show both facts: the Review Submission succeeded, but the Review Queue could not be refreshed.
 
 A submission failure does not refresh or change the Review Queue.
 
@@ -92,6 +93,6 @@ A successful retry clears the corresponding failure. Starting a retry can clear 
 
 ## State boundary
 
-The application can keep temporary presentation state: the current Review Queue result, selected URL, loaded details, in-flight operation state, one pending refresh, and operation notices. None of this records review progress.
+TanStack React Query keeps temporary Review Queue and detail data, status, and operation failures. The page keeps one local numeric Cursor and other local interaction values that do not represent remote data. None of this records review progress.
 
 Do not persist or derive application-owned states such as reviewed, ready, diff viewed, Review Command run, hidden, snoozed, or failed before. GitHub data and the configured search are the only source of Review Queue membership.

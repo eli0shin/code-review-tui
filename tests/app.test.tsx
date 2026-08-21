@@ -112,7 +112,7 @@ describe('Review Queue page loading', () => {
     const github = {
       loadReviewQueue,
       async loadPullRequestDetails() {
-        throw new Error('No pull request is selected');
+        throw new Error('No pull request is highlighted');
       },
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
@@ -162,7 +162,7 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('derives URL selection and loads details for that URL', async () => {
+  test('moves the Cursor and loads details for its highlighted row', async () => {
     const queueLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
     const firstDetails =
       Promise.withResolvers<GitHubResult<PullRequestDetails>>();
@@ -212,15 +212,66 @@ describe('Review Queue page loading', () => {
         success(pullRequestDetails('Second details', secondPullRequest))
       )
     );
-    const selectedFrame = await view.waitForFrame((frame) =>
+    const cursorFrame = await view.waitForFrame((frame) =>
       frame.includes('Second details')
     );
-    expect(selectedFrame).toContain('Second details');
+    expect(cursorFrame).toContain('Second details');
     expect(loadPullRequestDetails).toHaveBeenNthCalledWith(
       2,
       secondPullRequest.url,
       expect.any(AbortSignal)
     );
+    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+      configurable: true,
+      value: false,
+    });
+    view.renderer.destroy();
+  });
+
+  test('keeps the Cursor row when queue data is replaced', async () => {
+    const initialQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const reorderedQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const queueLoads = [initialQueue.promise, reorderedQueue.promise];
+    let queueLoadIndex = 0;
+    const pendingDetails = Promise.withResolvers<never>().promise;
+    const github = {
+      loadReviewQueue() {
+        const queueLoad = queueLoads[queueLoadIndex];
+        queueLoadIndex += 1;
+        return queueLoad;
+      },
+      loadPullRequestDetails() {
+        return pendingDetails;
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+
+    const view = await testRender(<ReviewQueuePage github={github} />, {
+      width: 80,
+      height: 24,
+    });
+    await act(async () =>
+      initialQueue.resolve(success([pullRequest, secondPullRequest]))
+    );
+    await view.waitForFrame((frame) => frame.includes(secondPullRequest.title));
+
+    await act(async () => view.mockInput.pressArrow('down'));
+    await view.waitForFrame((frame) =>
+      frame.includes(`› ${secondPullRequest.repository}#8`)
+    );
+
+    await act(async () => view.mockInput.pressKey('r'));
+    await act(async () =>
+      reorderedQueue.resolve(success([secondPullRequest, pullRequest]))
+    );
+    const sameRowFrame = await view.waitForFrame(
+      (frame) =>
+        frame.includes(`  ${secondPullRequest.repository}#8`) &&
+        frame.includes(`› ${pullRequest.repository}#7`)
+    );
+    expect(sameRowFrame).toContain(`› ${pullRequest.repository}#7`);
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
       value: false,
@@ -235,7 +286,7 @@ describe('Review Queue page loading', () => {
         return queueLoad.promise;
       },
       async loadPullRequestDetails() {
-        throw new Error('No pull request is selected');
+        throw new Error('No pull request is highlighted');
       },
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
