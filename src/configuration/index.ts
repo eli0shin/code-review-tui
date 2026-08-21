@@ -462,10 +462,18 @@ function isKeyDescriptor(descriptor: string): boolean {
 
 function normalizeKeyDescriptor(descriptor: string): string {
   if (/^[A-Z]$/.test(descriptor)) return `shift+${descriptor.toLowerCase()}`;
-  if (descriptor === 'ctrl+h') return 'backspace';
-  if (descriptor === 'ctrl+i') return 'tab';
-  if (descriptor === 'ctrl+j' || descriptor === 'ctrl+m') return 'enter';
-  return descriptor;
+
+  let event = descriptor;
+  if (/^ctrl\+shift\+[a-z]$/.test(event)) {
+    event = event.replace('ctrl+shift+', 'ctrl+');
+  } else if (/^ctrl\+alt\+shift\+[a-z]$/.test(event)) {
+    event = event.replace('ctrl+alt+shift+', 'ctrl+alt+');
+  }
+
+  if (event === 'ctrl+h') return 'backspace';
+  if (event === 'ctrl+i') return 'tab';
+  if (event === 'ctrl+j' || event === 'ctrl+m') return 'enter';
+  return event;
 }
 
 function validateRequiredString(value: unknown): string | undefined {

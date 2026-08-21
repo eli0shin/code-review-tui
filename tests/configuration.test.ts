@@ -124,7 +124,7 @@ describe('Review configuration contract', () => {
         reviewCommand,
         keyBindings: {
           selectPrevious: ['k', 'up'],
-          selectNext: ['ctrl+alt+shift+j'],
+          selectNext: ['ctrl+alt+j'],
           openDiff: ['shift+a'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
@@ -328,6 +328,46 @@ describe('Review configuration contract', () => {
       /collision/i
     );
     expect(failure.problem).toContain('selectPrevious');
+    expect(failure.problem).toContain('quit');
+  });
+
+  test('reports shifted control-key aliases on conventional terminals', async () => {
+    const { file, environment } = await makeEnvironment();
+    await writeConfiguration(file, {
+      ...completeConfiguration,
+      keyBindings: {
+        selectPrevious: ['ctrl+r'],
+        refresh: ['ctrl+shift+r'],
+      },
+    });
+
+    const failure = expectFailure(
+      await loadReviewConfiguration(environment),
+      file,
+      'keyBindings.refresh',
+      /collision/i
+    );
+    expect(failure.problem).toContain('selectPrevious');
+    expect(failure.problem).toContain('refresh');
+  });
+
+  test('normalizes shifted control characters to named keys', async () => {
+    const { file, environment } = await makeEnvironment();
+    await writeConfiguration(file, {
+      ...completeConfiguration,
+      keyBindings: {
+        openDiff: ['backspace'],
+        quit: ['ctrl+shift+h'],
+      },
+    });
+
+    const failure = expectFailure(
+      await loadReviewConfiguration(environment),
+      file,
+      'keyBindings.quit',
+      /collision/i
+    );
+    expect(failure.problem).toContain('openDiff');
     expect(failure.problem).toContain('quit');
   });
 });
