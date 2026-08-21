@@ -10,7 +10,7 @@ The current application shell opens an OpenTUI React view for the **Review Queue
 curl -fsSL https://raw.githubusercontent.com/eli0shin/code-review-tui/main/install.sh | bash
 ```
 
-The installer supports x64 and arm64 Linux and macOS systems. It installs the `review` executable to `~/.local/bin`.
+The installer supports x64 and arm64 glibc Linux and macOS systems. It rejects musl Linux because the published Linux executables require glibc. It installs the `review` executable to `~/.local/bin`.
 
 Use `review update` to install the latest native release. The executable also checks for stable updates in a detached worker. Update settings use `$XDG_CONFIG_HOME/review/config.json` or `~/.config/review/config.json`:
 

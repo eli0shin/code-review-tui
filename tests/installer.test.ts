@@ -50,7 +50,13 @@ async function fixture(
     curlPath,
     `#!/bin/sh\nwhile [ "$#" -gt 0 ]; do\n  case "$1" in\n    -o) output="$2"; shift 2 ;;\n    *) url="$1"; shift ;;\n  esac\ndone\nprintf 'native review binary' > "$output"\nprintf '%s' "$url" > '${downloadedUrlPath}'\n`
   );
-  await Promise.all([chmod(join(bin, 'uname'), 0o755), chmod(curlPath, 0o755)]);
+  const lddPath = join(bin, 'ldd');
+  await Bun.write(lddPath, '#!/bin/sh\nprintf "%s\\n" "ldd (GNU libc) 2.39"\n');
+  await Promise.all([
+    chmod(join(bin, 'uname'), 0o755),
+    chmod(curlPath, 0o755),
+    chmod(lddPath, 0o755),
+  ]);
 
   return {
     home,
@@ -213,6 +219,37 @@ describe('binary installer', () => {
 
     expect(await runInstaller(home, path)).toEqual({
       stdout: 'Unsupported OS: windows_nt\n',
+      stderr: '',
+      exitCode: 1,
+    });
+    expect(await Bun.file(downloadedUrlPath).exists()).toBe(false);
+  });
+
+  test('rejects musl Linux before downloading', async () => {
+    const { home, path, downloadedUrlPath } = await fixture('Linux', 'x86_64');
+    const lddPath = join(path.split(':')[0] ?? '', 'ldd');
+    await writeFile(
+      lddPath,
+      '#!/bin/sh\nprintf "%s\\n" "musl libc (x86_64)" >&2\nexit 1\n'
+    );
+    await chmod(lddPath, 0o755);
+
+    expect(await runInstaller(home, path)).toEqual({
+      stdout: 'Unsupported Linux libc: musl\n',
+      stderr: '',
+      exitCode: 1,
+    });
+    expect(await Bun.file(downloadedUrlPath).exists()).toBe(false);
+  });
+
+  test('rejects Linux when libc detection is unavailable', async () => {
+    const { home, path, downloadedUrlPath } = await fixture('Linux', 'x86_64');
+    const lddPath = join(path.split(':')[0] ?? '', 'ldd');
+    await writeFile(lddPath, '#!/bin/sh\nexit 127\n');
+    await chmod(lddPath, 0o755);
+
+    expect(await runInstaller(home, path)).toEqual({
+      stdout: 'Unsupported Linux libc: unable to detect glibc\n',
       stderr: '',
       exitCode: 1,
     });

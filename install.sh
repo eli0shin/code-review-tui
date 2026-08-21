@@ -23,6 +23,19 @@ case "$OS" in
     ;;
 esac
 
+if [[ "$OS" == "linux" ]]; then
+  LIBC_INFO="$(ldd --version 2>&1 || true)"
+  LIBC_INFO_LOWER="$(printf '%s' "$LIBC_INFO" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$LIBC_INFO_LOWER" == *musl* ]]; then
+    echo "Unsupported Linux libc: musl"
+    exit 1
+  fi
+  if [[ "$LIBC_INFO_LOWER" != *glibc* && "$LIBC_INFO_LOWER" != *"gnu libc"* ]]; then
+    echo "Unsupported Linux libc: unable to detect glibc"
+    exit 1
+  fi
+fi
+
 ARCH="$(uname -m)"
 case "$ARCH" in
   x86_64) ARCH="x64" ;;
