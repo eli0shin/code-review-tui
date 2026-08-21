@@ -89,6 +89,19 @@ const modifiedDescriptorPattern = new RegExp(
   `^(?:ctrl\\+)?(?:alt\\+)?(?:shift\\+)?(?:[a-z0-9]|${namedKeyPattern})$`
 );
 
+const shiftedDigitAliases = new Map([
+  ['shift+1', '!'],
+  ['shift+2', '@'],
+  ['shift+3', '#'],
+  ['shift+4', '$'],
+  ['shift+5', '%'],
+  ['shift+6', '^'],
+  ['shift+7', '&'],
+  ['shift+8', '*'],
+  ['shift+9', '('],
+  ['shift+0', ')'],
+]);
+
 export function getReviewConfigPath(
   environment: ConfigurationEnvironment = process.env,
   fallbackHome: string = homedir()
@@ -473,6 +486,8 @@ function isKeyDescriptor(descriptor: string): boolean {
 
 function normalizeKeyDescriptor(descriptor: string): string {
   if (/^[A-Z]$/.test(descriptor)) return `shift+${descriptor.toLowerCase()}`;
+  const shiftedDigit = shiftedDigitAliases.get(descriptor);
+  if (shiftedDigit !== undefined) return shiftedDigit;
 
   let event = descriptor;
   if (/^ctrl\+shift\+[a-z]$/.test(event)) {

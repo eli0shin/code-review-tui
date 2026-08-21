@@ -391,6 +391,44 @@ describe('Review configuration contract', () => {
     expect(failure.problem).toContain('quit');
   });
 
+  test('reports shifted digit aliases on conventional terminals', async () => {
+    const aliases = [
+      ['!', 'shift+1'],
+      ['@', 'shift+2'],
+      ['#', 'shift+3'],
+      ['$', 'shift+4'],
+      ['%', 'shift+5'],
+      ['^', 'shift+6'],
+      ['&', 'shift+7'],
+      ['*', 'shift+8'],
+      ['(', 'shift+9'],
+      [')', 'shift+0'],
+    ];
+
+    for (const [printable, shifted] of aliases) {
+      const { file, environment } = await makeEnvironment();
+      await writeConfiguration(file, {
+        ...completeConfiguration,
+        keyBindings: {
+          selectPrevious: [printable],
+          quit: [shifted],
+        },
+      });
+
+      expectFailure(
+        await loadReviewConfiguration(environment),
+        file,
+        'keyBindings.quit',
+        /collision/i
+      );
+
+      const directory = testDirectory;
+      if (directory === undefined) throw new Error('Expected test directory');
+      await rm(directory, { recursive: true, force: true });
+      testDirectory = undefined;
+    }
+  });
+
   test('reports Alt control-character aliases on conventional terminals', async () => {
     const aliases = [
       ['alt+backspace', 'ctrl+alt+h'],
