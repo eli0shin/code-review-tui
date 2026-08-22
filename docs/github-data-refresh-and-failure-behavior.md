@@ -82,7 +82,7 @@ For each failure, show:
 
 If the process cannot start, identify `gh` as the executable and include the operating-system error. If GitHub CLI exits unsuccessfully with empty stderr, include its exit status and a fallback message. A parse failure must say that GitHub CLI returned malformed JSON. A validation failure must say that GitHub CLI returned unexpected or incompatible data and identify the missing or invalid required field when possible. Do not display the full response because it can be large or contain unexpected data.
 
-Keep short queue and detail diagnostics inline. Long diagnostics open a focused, bounded error surface. Arrow keys, Page Up, Page Down, Home, and End make the complete unchanged stderr reachable. Escape returns to the Review Queue. While this surface owns input, Review Queue actions do not run, except that the effective refresh binding retries the Review Queue load.
+Keep queue and detail diagnostics inline when they fit in the available rendered rows at the current terminal width. Diagnostics that do not fit open a focused, bounded error surface. Arrow keys, Page Up, Page Down, Home, and End make the complete unchanged stderr reachable. Escape returns to the Review Queue. While this surface owns input, Review Queue actions do not run, except that the effective refresh binding retries the Review Queue load.
 
 Keep each failure at its boundary:
 

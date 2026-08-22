@@ -8,7 +8,12 @@ import {
   type TerminalColors,
   type TextareaRenderable,
 } from '@opentui/core';
-import { createRoot, useKeyboard, useRenderer } from '@opentui/react';
+import {
+  createRoot,
+  useKeyboard,
+  useRenderer,
+  useTerminalDimensions,
+} from '@opentui/react';
 import {
   environmentManager,
   QueryClient,
@@ -111,6 +116,7 @@ function ReviewQueue({
   onQuit,
 }: ReviewQueuePageProps) {
   const theme = useSystemTheme();
+  const terminal = useTerminalDimensions();
   const [cursor, setCursor] = useState(0);
   const [draft, setDraft] = useState<SubmissionDraft>();
   const [showHelp, setShowHelp] = useState(false);
@@ -150,9 +156,32 @@ function ReviewQueue({
     },
   });
 
+  const queueStatusWidth = terminal.width - 5;
+  const occupiedQueueStatusRows =
+    (notice === undefined ? 0 : renderedRows(notice, queueStatusWidth)) +
+    (herdrActionFailure === undefined
+      ? 0
+      : renderedRows(
+          `Could not open ${herdrActionFailure.action}: ${herdrFailureMessage(
+            herdrActionFailure.failure
+          )}${
+            herdrActionFailure.failure.stderr
+              ? `\n${herdrActionFailure.failure.stderr}`
+              : ''
+          }`,
+          queueStatusWidth
+        ));
   const activeFailure =
     queueQuery.error !== null &&
-    requiresFailureOverlay(failureMessage(queueQuery.error)) &&
+    requiresFailureOverlay(
+      queue.length === 0
+        ? `${failureMessage(queueQuery.error)} · ${formatBindings(
+            keyBindings.refresh
+          )} retry`
+        : `Review Queue not refreshed: ${failureMessage(queueQuery.error)}`,
+      queue.length === 0 ? terminal.width : queueStatusWidth,
+      queue.length === 0 ? terminal.height - 2 : 3 - occupiedQueueStatusRows
+    ) &&
     githubFailureKey(queueQuery.error) !== dismissedFailureKey
       ? {
           key: githubFailureKey(queueQuery.error),
@@ -163,7 +192,13 @@ function ReviewQueue({
           message: failureMessage(queueQuery.error),
         }
       : detailsQuery.error !== null &&
-          requiresFailureOverlay(failureMessage(detailsQuery.error)) &&
+          requiresFailureOverlay(
+            `Could not load pull request details: ${failureMessage(
+              detailsQuery.error
+            )}`,
+            terminal.width - 5,
+            5
+          ) &&
           githubFailureKey(detailsQuery.error) !== dismissedFailureKey
         ? {
             key: githubFailureKey(detailsQuery.error),
@@ -445,24 +480,26 @@ function ReviewQueueContent({
           height={3}
           scrollY
           viewportCulling
-          contentOptions={{ flexDirection: 'column' }}
+          contentOptions={{ flexDirection: 'column', paddingRight: 1 }}
         >
           {notice !== undefined ? (
-            <text fg={theme?.success}>{notice}</text>
+            <text width="100%" wrapMode="char" fg={theme?.success}>
+              {notice}
+            </text>
           ) : null}
           {refreshFailure !== null ? (
-            <text fg={theme?.error}>
+            <text width="100%" wrapMode="char" fg={theme?.error}>
               Review Queue not refreshed: {failureMessage(refreshFailure)}
             </text>
           ) : null}
           {herdrActionFailure !== undefined ? (
             <>
-              <text fg={theme?.error}>
+              <text width="100%" wrapMode="char" fg={theme?.error}>
                 Could not open {herdrActionFailure.action}:{' '}
                 {herdrFailureMessage(herdrActionFailure.failure)}
               </text>
               {herdrActionFailure.failure.stderr ? (
-                <text fg={theme?.error}>
+                <text width="100%" wrapMode="char" fg={theme?.error}>
                   {herdrActionFailure.failure.stderr}
                 </text>
               ) : null}
@@ -582,7 +619,7 @@ function DetailsPane({
         <text fg={theme?.textMuted}>Loading pull request details…</text>
       ) : null}
       {status === 'error' && failure !== null ? (
-        <text fg={theme?.error}>
+        <text width="100%" wrapMode="char" fg={theme?.error}>
           Could not load pull request details: {failureMessage(failure)}
         </text>
       ) : null}
@@ -630,7 +667,9 @@ function StatusView({
       <text fg={error ? theme?.error : undefined}>
         <strong>{title}</strong>
       </text>
-      <text fg={theme?.textMuted}>{detail}</text>
+      <text width="100%" wrapMode="char" fg={theme?.textMuted}>
+        {detail}
+      </text>
     </box>
   );
 }
@@ -668,7 +707,7 @@ function FailureOverlay({
         flexGrow={1}
         scrollY
         viewportCulling
-        contentOptions={{ flexDirection: 'column' }}
+        contentOptions={{ flexDirection: 'column', paddingRight: 1 }}
       >
         {failureMessageLines(message).map((line) => (
           <text key={line.key} width="100%" wrapMode="char">
@@ -980,9 +1019,20 @@ function herdrFailureMessage(failure: HerdrFailure): string {
   return message;
 }
 
-function requiresFailureOverlay(message: string): boolean {
-  const lines = message.split('\n');
-  return lines.length > 3 || lines.some((line) => line.length > 70);
+function renderedRows(message: string, renderedWidth: number): number {
+  const width = Math.max(renderedWidth, 1);
+  return message.split('\n').reduce((total, line) => {
+    const opentuiWidth = Bun.stringWidth(line.replaceAll('\t', '  '));
+    return total + Math.max(Math.ceil(opentuiWidth / width), 1);
+  }, 0);
+}
+
+function requiresFailureOverlay(
+  message: string,
+  renderedWidth: number,
+  availableRows: number
+): boolean {
+  return renderedRows(message, renderedWidth) > Math.max(availableRows, 0);
 }
 
 function githubFailureKey(failure: GitHubFailure): string {

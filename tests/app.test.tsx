@@ -453,6 +453,47 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
+  test('focuses a single diagnostic line that wraps past narrow inline space', async () => {
+    let loadCount = 0;
+    const loadReviewQueue = jest.fn(async () => {
+      loadCount += 1;
+      if (loadCount === 1) return success([pullRequest]);
+      return {
+        ok: false,
+        failure: {
+          kind: 'exit',
+          operation: 'reviewQueue',
+          exitCode: 1,
+          stderr: `single-line-${'\t'.repeat(40)}-narrow-tail-END`,
+        },
+      } as const;
+    });
+    const github = {
+      loadReviewQueue,
+      async loadPullRequestDetails() {
+        return success(pullRequestDetails('Details #7'));
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 40,
+      height: 16,
+    });
+    await view.waitForFrame((frame) => frame.includes('Details #7'));
+
+    await act(async () => view.mockInput.pressKey('r'));
+    const failure = await view.waitForFrame((frame) =>
+      frame.includes('Review Queue not refreshed')
+    );
+    expect(failure).toContain('single-line');
+    await act(async () => view.mockInput.pressKey('END'));
+    await view.waitForFrame((frame) => frame.includes('tail-END'));
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
   test('uses effective keys only while the Review Queue owns input', async () => {
     const loadPullRequestDetails = jest.fn(async (url: string) =>
       success(
@@ -842,6 +883,95 @@ describe('Review Submission', () => {
       frame.includes('Commented on acme/widgets #7.')
     );
     expect(complete).not.toContain('Tab decision Ctrl+S submit Esc cancel');
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('focuses wrapped refresh diagnostics below a submission notice', async () => {
+    let loadCount = 0;
+    const loadReviewQueue = jest.fn(async () => {
+      loadCount += 1;
+      if (loadCount === 1) return success([pullRequest]);
+      return {
+        ok: false,
+        failure: {
+          kind: 'exit',
+          operation: 'reviewQueue',
+          exitCode: 1,
+          stderr: `refresh-${'x'.repeat(45)}-TAIL`,
+        },
+      } as const;
+    });
+    const github = {
+      loadReviewQueue,
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        return success(undefined);
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 40,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await view.waitForFrame((frame) =>
+      frame.includes('Review acme/widgets #7')
+    );
+    await act(async () => view.mockInput.pressArrow('down'));
+    await act(async () => view.mockInput.typeText('Looks good'));
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+
+    const failure = await view.waitForFrame((frame) =>
+      frame.includes('Review Queue not refreshed')
+    );
+    expect(failure).toContain('refresh-');
+    await act(async () => view.mockInput.pressKey('END'));
+    await view.waitForFrame((frame) => frame.includes('TAIL'));
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('keeps an exact-fit refresh diagnostic below a wrapped notice', async () => {
+    let loadCount = 0;
+    const loadReviewQueue = jest.fn(async () => {
+      loadCount += 1;
+      if (loadCount === 1) return success([pullRequest]);
+      return {
+        ok: false,
+        failure: {
+          kind: 'exit',
+          operation: 'reviewQueue',
+          exitCode: 1,
+          stderr: 'TAIL',
+        },
+      } as const;
+    });
+    const github = {
+      loadReviewQueue,
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        return success(undefined);
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 38,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await view.waitForFrame((frame) =>
+      frame.includes('Review acme/widgets #7')
+    );
+    await act(async () => view.mockInput.pressArrow('down'));
+    await act(async () => view.mockInput.typeText('Looks good'));
+    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+
+    const complete = await view.waitForFrame((frame) => frame.includes('TAIL'));
+    expect(complete).toContain('Commented on');
+    expect(complete).not.toContain('PgUp/PgDn');
     expect(loadReviewQueue).toHaveBeenCalledTimes(2);
     view.renderer.destroy();
   });
