@@ -32,3 +32,7 @@ Make the effective `pagePrevious` and `pageNext` actions scroll the details moda
 - OpenTUI coverage uses a long details document and proves both actions move by exactly the specified half-viewport distance.
 - Coverage includes an odd viewport height, minimum movement, repeated movement, and clamping at both boundaries.
 - Existing configurable-binding and full-screen details modal coverage continues to pass.
+
+## Resolution
+
+Implemented in PR #33 and squash-merged as `2ab72386d5a424fa5900d45f53fdf5e50eb5be61`.
