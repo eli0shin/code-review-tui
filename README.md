@@ -73,6 +73,8 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 
 Pull request details include reviewers, checks, the plain-text description, and the complete review conversation. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged Review Queue.
 
+Every application surface uses the terminal's normal background and foreground. Details, help, Review Submission, status, and diagnostic surfaces reuse the Review Queue accents for metadata, repositories, authors, success, failure, and warnings. Only the row under the Cursor uses the highlighted-row background.
+
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
 
 A Review Submission can comment, approve, or request changes. In the submission modal, use `Tab` and `Shift+Tab` to move between the message and decision, arrow keys to change the decision, `Ctrl+S` to submit, and `Esc` to cancel. Comments and change requests need a nonblank message. Approvals can have an empty message. Review submits one top-level GitHub review; inline comments are not supported.

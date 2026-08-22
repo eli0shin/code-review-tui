@@ -404,7 +404,12 @@ function ReviewQueue({
     activeFailure === undefined;
 
   return (
-    <box width="100%" height="100%" flexDirection="column">
+    <box
+      width="100%"
+      height="100%"
+      flexDirection="column"
+      backgroundColor={theme.background}
+    >
       <box
         focusable
         focused={queueOwnsInput}
@@ -548,11 +553,11 @@ function ReviewQueueContent({
           alignItems="center"
           justifyContent="space-between"
         >
-          <text>
+          <text fg={theme?.foreground}>
             <strong>Review requests</strong>{' '}
             <span attributes={TextAttributes.DIM}>{queue.length} open</span>
           </text>
-          <text attributes={TextAttributes.DIM}>
+          <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
             {refreshing ? 'refreshing…' : 'updated'}{' '}
             {formatBindings(keyBindings.refresh)} refresh
           </text>
@@ -609,7 +614,11 @@ function ReviewQueueContent({
           />
         ))}
       </scrollbox>
-      <text flexShrink={0} attributes={TextAttributes.DIM}>
+      <text
+        flexShrink={0}
+        fg={theme?.foreground}
+        attributes={TextAttributes.DIM}
+      >
         {' '}
         {footerText(keyBindings)}
       </text>
@@ -639,11 +648,11 @@ function ReviewQueueRow({
       justifyContent="center"
       backgroundColor={underCursor ? theme?.subtleSurface : undefined}
     >
-      <text>
+      <text fg={theme?.foreground}>
         <span fg={theme?.success}>● </span>
         <strong>{pullRequest.title}</strong>
       </text>
-      <text>
+      <text fg={theme?.foreground}>
         {'  '}
         <span fg={theme?.info}>{pullRequest.repository}</span>
         <span fg={theme?.textMuted}> #{pullRequest.number} opened by </span>
@@ -709,38 +718,46 @@ function PullRequestDetailsModal({
         paddingRight: 2,
       }}
     >
-      <text>
-        <strong>
-          Pull request details · {target.repository} #{target.number}
-        </strong>
+      <text fg={theme?.foreground}>
+        <strong>Pull request details · </strong>
+        <span fg={theme?.info}>
+          <strong>{target.repository}</strong>
+        </span>
+        <strong> #{target.number}</strong>
       </text>
       {loading ? <text fg={theme?.info}>Refreshing details…</text> : null}
       <box height={1} />
 
-      <text>
+      <text fg={theme?.foreground}>
         <strong>Pull request</strong>
       </text>
       {metadata === undefined ? (
         <text fg={theme?.textMuted}>Loading metadata…</text>
       ) : metadata.ok ? (
         <>
-          <text width="100%" wrapMode="char">
+          <text width="100%" wrapMode="char" fg={theme?.foreground}>
             <strong>{metadata.value.title}</strong>
           </text>
-          <text>
-            {metadata.value.author} · {metadata.value.state}
+          <text fg={theme?.foreground}>
+            <span fg={theme?.secondary}>{metadata.value.author}</span> ·{' '}
+            {metadata.value.state}
             {metadata.value.isDraft ? ' · draft' : ''}
           </text>
-          <text>
-            {metadata.value.baseRefName} ← {metadata.value.headRefName} ·{' '}
-            {fileSummary(metadata.value.changedFiles)} · +
-            {metadata.value.additions} -{metadata.value.deletions}
+          <text fg={theme?.foreground}>
+            <span fg={theme?.textMuted}>
+              {metadata.value.baseRefName} ← {metadata.value.headRefName} ·{' '}
+              {fileSummary(metadata.value.changedFiles)} ·{' '}
+            </span>
+            <span fg={theme?.success}>+{metadata.value.additions}</span>{' '}
+            <span fg={theme?.error}>-{metadata.value.deletions}</span>
           </text>
-          <text>
+          <text fg={theme?.foreground}>
             Labels:{' '}
-            {metadata.value.labels.length === 0
-              ? 'none'
-              : metadata.value.labels.join(', ')}
+            <span fg={theme?.warning}>
+              {metadata.value.labels.length === 0
+                ? 'none'
+                : metadata.value.labels.join(', ')}
+            </span>
           </text>
         </>
       ) : (
@@ -748,17 +765,32 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text>
+      <text fg={theme?.foreground}>
         <strong>Reviewers</strong>
       </text>
       {metadata?.ok ? (
         <>
-          <text>Decision: {metadata.value.reviewDecision || 'none'}</text>
-          <text>
+          <text fg={theme?.foreground}>
+            Decision:{' '}
+            <span
+              fg={reviewStateColor(
+                metadata.value.reviewDecision || 'none',
+                theme
+              )}
+            >
+              {metadata.value.reviewDecision || 'none'}
+            </span>
+          </text>
+          <text fg={theme?.foreground}>
             Requested:{' '}
             {metadata.value.reviewRequests.length === 0
               ? 'none'
-              : metadata.value.reviewRequests.join(', ')}
+              : metadata.value.reviewRequests.map((reviewer, index) => (
+                  <span key={reviewer} fg={theme?.secondary}>
+                    {index === 0 ? '' : ', '}
+                    {reviewer}
+                  </span>
+                ))}
           </text>
         </>
       ) : metadata === undefined ? (
@@ -770,13 +802,18 @@ function PullRequestDetailsModal({
         <text fg={theme?.textMuted}>Loading submitted reviewers…</text>
       ) : reviews.ok ? (
         reviews.value.length === 0 ? (
-          <text>Submitted: none</text>
+          <text fg={theme?.foreground}>Submitted: none</text>
         ) : (
           reviews.value.map((review) => (
             <text
               key={`${review.author}:${review.submittedAt}:${review.state}:${review.body}`}
+              fg={theme?.foreground}
             >
-              Submitted: {review.author} · {review.state}
+              Submitted: <span fg={theme?.secondary}>{review.author}</span>
+              <span fg={theme?.textMuted}> · </span>
+              <span fg={reviewStateColor(review.state, theme)}>
+                {review.state}
+              </span>
             </text>
           ))
         )
@@ -785,18 +822,21 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text>
+      <text fg={theme?.foreground}>
         <strong>Checks</strong>
       </text>
       {checks === undefined ? (
         <text fg={theme?.textMuted}>Loading checks…</text>
       ) : checks.ok ? (
         checks.value.length === 0 ? (
-          <text>None</text>
+          <text fg={theme?.foreground}>None</text>
         ) : (
           checks.value.map((check) => (
-            <text key={`${check.name}:${check.state}`}>
-              {check.name} · {check.state}
+            <text key={`${check.name}:${check.state}`} fg={theme?.foreground}>
+              {check.name} ·{' '}
+              <span fg={checkStateColor(check.state, theme)}>
+                {check.state}
+              </span>
             </text>
           ))
         )
@@ -805,7 +845,7 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text>
+      <text fg={theme?.foreground}>
         <strong>Description</strong>
       </text>
       {metadata === undefined ? (
@@ -813,13 +853,14 @@ function PullRequestDetailsModal({
       ) : metadata.ok ? (
         <PlainTextBody
           body={metadata.value.body || 'No description provided.'}
+          theme={theme}
         />
       ) : (
         <Unavailable label="Description" theme={theme} />
       )}
       <box height={1} />
 
-      <text>
+      <text fg={theme?.foreground}>
         <strong>Conversation</strong>
       </text>
       {reviews === undefined ||
@@ -838,21 +879,34 @@ function PullRequestDetailsModal({
       ) : null}
       {conversation.map((entry) => (
         <box key={entry.key} flexDirection="column" marginTop={1}>
-          <text>
-            <strong>{entry.heading}</strong>
+          <text fg={theme?.foreground}>
+            <strong>{entry.kind} · </strong>
+            <span fg={theme?.secondary}>
+              <strong>{entry.author}</strong>
+            </span>
+            <span fg={theme?.textMuted}>
+              <strong> · {entry.timestamp}</strong>
+            </span>
+            {entry.state === undefined ? null : (
+              <span fg={reviewStateColor(entry.state, theme)}>
+                <strong> · {entry.state}</strong>
+              </span>
+            )}
           </text>
-          {entry.context === undefined ? null : <text>{entry.context}</text>}
-          <PlainTextBody body={entry.body} />
+          {entry.context === undefined ? null : (
+            <text fg={theme?.textMuted}>{entry.context}</text>
+          )}
+          <PlainTextBody body={entry.body} theme={theme} />
         </box>
       ))}
       {conversation.length === 0 &&
       issueComments?.ok &&
       reviews?.ok &&
       inlineComments?.ok ? (
-        <text>None</text>
+        <text fg={theme?.foreground}>None</text>
       ) : null}
       <box height={1} />
-      <text attributes={TextAttributes.DIM}>
+      <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
         {formatBindings(keyBindings.selectPrevious)}/
         {formatBindings(keyBindings.selectNext)} line ·{' '}
         {formatBindings(keyBindings.pagePrevious)}/
@@ -868,9 +922,15 @@ function PullRequestDetailsModal({
   );
 }
 
-function PlainTextBody({ body }: { readonly body: string }) {
+function PlainTextBody({
+  body,
+  theme,
+}: {
+  readonly body: string;
+  readonly theme: SystemTheme | undefined;
+}) {
   return plainTextLines(body).map((line) => (
-    <text key={line.key} width="100%" wrapMode="char">
+    <text key={line.key} width="100%" wrapMode="char" fg={theme?.foreground}>
       {line.text}
     </text>
   ));
@@ -887,6 +947,37 @@ function plainTextLines(
   });
 }
 
+function reviewStateColor(
+  state: string,
+  theme: SystemTheme | undefined
+): RGBA | undefined {
+  if (theme === undefined) return undefined;
+  const normalizedState = state.toUpperCase();
+  if (normalizedState === 'APPROVED') return theme.success;
+  if (normalizedState === 'CHANGES_REQUESTED') return theme.error;
+  if (normalizedState === 'COMMENTED' || normalizedState === 'PENDING') {
+    return theme.info;
+  }
+  return theme.foreground;
+}
+
+function checkStateColor(
+  state: string,
+  theme: SystemTheme | undefined
+): RGBA | undefined {
+  if (theme === undefined) return undefined;
+  const normalizedState = state.toUpperCase();
+  if (normalizedState === 'SUCCESS') return theme.success;
+  if (
+    normalizedState === 'FAILURE' ||
+    normalizedState === 'ERROR' ||
+    normalizedState === 'CANCELLED'
+  ) {
+    return theme.error;
+  }
+  return theme.info;
+}
+
 function Unavailable({
   label,
   theme,
@@ -899,8 +990,10 @@ function Unavailable({
 
 type ConversationEntry = {
   readonly key: string;
+  readonly kind: 'Issue comment' | 'Submitted review' | 'Inline review comment';
+  readonly author: string;
   readonly timestamp: string;
-  readonly heading: string;
+  readonly state?: string;
   readonly context?: string;
   readonly body: string;
 };
@@ -915,7 +1008,8 @@ function collectConversation(
       ...sources.issueComments.value.map((comment) => ({
         key: `issue:${comment.id}`,
         timestamp: comment.createdAt,
-        heading: `Issue comment · ${comment.author} · ${comment.createdAt}`,
+        kind: 'Issue comment' as const,
+        author: comment.author,
         body: comment.body,
       }))
     );
@@ -925,7 +1019,9 @@ function collectConversation(
       ...sources.reviews.value.map((review) => ({
         key: `review:${review.author}:${review.submittedAt}:${review.state}:${review.body}`,
         timestamp: review.submittedAt,
-        heading: `Submitted review · ${review.author} · ${review.submittedAt} · ${review.state}`,
+        kind: 'Submitted review' as const,
+        author: review.author,
+        state: review.state,
         body: review.body,
       }))
     );
@@ -935,7 +1031,8 @@ function collectConversation(
       ...sources.inlineComments.value.map((comment) => ({
         key: `inline:${comment.id}`,
         timestamp: comment.createdAt,
-        heading: `Inline review comment · ${comment.author} · ${comment.createdAt}`,
+        kind: 'Inline review comment' as const,
+        author: comment.author,
         context: inlineCommentContext(comment),
         body: comment.body,
       }))
@@ -1001,10 +1098,10 @@ function StatusView({
       flexDirection="column"
       gap={1}
     >
-      <text fg={error ? theme?.error : undefined}>
+      <text fg={error ? theme?.error : theme?.foreground}>
         <strong>{title}</strong>
       </text>
-      <text width="100%" wrapMode="char" fg={theme?.textMuted}>
+      <text width="100%" wrapMode="char" fg={theme?.foreground}>
         {detail}
       </text>
     </box>
@@ -1036,7 +1133,7 @@ function FailureOverlay({
       padding={1}
       flexDirection="column"
     >
-      <text flexShrink={0}>
+      <text flexShrink={0} fg={theme?.foreground}>
         <strong>{title}</strong>
       </text>
       <scrollbox
@@ -1047,13 +1144,22 @@ function FailureOverlay({
         contentOptions={{ flexDirection: 'column', paddingRight: 1 }}
       >
         {failureMessageLines(message).map((line) => (
-          <text key={line.key} width="100%" wrapMode="char">
+          <text
+            key={line.key}
+            width="100%"
+            wrapMode="char"
+            fg={theme?.foreground}
+          >
             {line.text}
           </text>
         ))}
         <box height={1} />
       </scrollbox>
-      <text flexShrink={0} fg={theme?.textMuted}>
+      <text
+        flexShrink={0}
+        fg={theme?.foreground}
+        attributes={TextAttributes.DIM}
+      >
         ↑/↓ scroll PgUp/PgDn page Home/End Esc return
       </text>
     </box>
@@ -1078,25 +1184,29 @@ function HelpOverlay({
       height={14}
       zIndex={10}
       border
-      borderColor={theme?.info}
+      borderColor={theme?.foreground}
       backgroundColor={theme?.background}
       padding={1}
       flexDirection="column"
     >
-      <text>
+      <text fg={theme?.foreground}>
         <strong>Review Queue keys</strong>
       </text>
-      <text>{line('selectPrevious', 'previous')}</text>
-      <text>{line('selectNext', 'next')}</text>
-      <text>{line('openDetails', 'open details')}</text>
-      <text>{line('openDiff', 'open diff')}</text>
-      <text>{line('runReviewCommand', 'run Review Command')}</text>
-      <text>
+      <text fg={theme?.foreground}>{line('selectPrevious', 'previous')}</text>
+      <text fg={theme?.foreground}>{line('selectNext', 'next')}</text>
+      <text fg={theme?.foreground}>{line('openDetails', 'open details')}</text>
+      <text fg={theme?.foreground}>{line('openDiff', 'open diff')}</text>
+      <text fg={theme?.foreground}>
+        {line('runReviewCommand', 'run Review Command')}
+      </text>
+      <text fg={theme?.foreground}>
         {line('composeReviewSubmission', 'compose Review Submission')}
       </text>
-      <text>{line('refresh', 'refresh')}</text>
-      <text>{line('quit', 'quit')}</text>
-      <text fg={theme?.textMuted}>Esc close</text>
+      <text fg={theme?.foreground}>{line('refresh', 'refresh')}</text>
+      <text fg={theme?.foreground}>{line('quit', 'quit')}</text>
+      <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
+        Esc close
+      </text>
     </box>
   );
 }
@@ -1123,26 +1233,30 @@ function SubmissionModal({
       height={18}
       zIndex={20}
       border
-      borderColor={theme?.info}
+      borderColor={theme?.foreground}
       backgroundColor={theme?.background}
       padding={1}
       flexDirection="column"
     >
-      <text>
-        <strong>{`Review ${draft.target.repository} #${draft.target.number}`}</strong>
+      <text fg={theme?.foreground}>
+        <strong>Review </strong>
+        <span fg={theme?.info}>
+          <strong>{draft.target.repository}</strong>
+        </span>
+        <strong>{` #${draft.target.number}`}</strong>
       </text>
-      <text fg={theme?.textMuted}>{draft.target.title}</text>
+      <text fg={theme?.foreground}>{draft.target.title}</text>
       {draft.confirmation ? (
         <box flexGrow={1} flexDirection="column" justifyContent="center">
-          <text>
+          <text fg={theme?.foreground}>
             <strong>Discard this Review Submission?</strong>
           </text>
-          <text>
+          <text fg={theme?.foreground}>
             {draft.confirmationChoice === 'keepEditing' ? '[x]' : '[ ]'} Keep
             editing{'   '}
             {draft.confirmationChoice === 'discard' ? '[x]' : '[ ]'} Discard
           </text>
-          <text fg={theme?.textMuted}>
+          <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
             Left/Right choose Enter confirm Esc keep editing
           </text>
         </box>
@@ -1154,7 +1268,10 @@ function SubmissionModal({
             focused={draft.focus === 'editor' && !draft.inFlight}
             flexGrow={1}
             minHeight={5}
-            backgroundColor={theme?.subtleSurface}
+            textColor={theme?.foreground}
+            backgroundColor={theme?.background}
+            focusedTextColor={theme?.foreground}
+            focusedBackgroundColor={theme?.background}
             onContentChange={() => {
               const message = editorRef.current?.plainText ?? '';
               setDraft((current) =>
@@ -1170,7 +1287,7 @@ function SubmissionModal({
               cancelDraft(draft, setDraft);
             }}
           />
-          <text>
+          <text fg={theme?.foreground}>
             {draft.focus === 'decision' ? '› ' : '  '}
             {decisionMark(draft, 'comment')} Comment{'   '}
             {decisionMark(draft, 'approve')} Approve{'   '}
@@ -1185,7 +1302,7 @@ function SubmissionModal({
           {draft.inFlight ? (
             <text fg={theme?.info}>{submissionProgress(draft.decision)} …</text>
           ) : null}
-          <text fg={theme?.textMuted}>
+          <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
             Tab decision Ctrl+S submit Esc cancel
           </text>
         </>

@@ -1,4 +1,10 @@
 import { afterEach, describe, expect, jest, test } from 'bun:test';
+import {
+  RGBA,
+  type CapturedFrame,
+  type CapturedSpan,
+  type TerminalColors,
+} from '@opentui/core';
 import { createTestRenderer } from '@opentui/core/testing';
 import { createRoot } from '@opentui/react';
 import { testRender } from '@opentui/react/test-utils';
@@ -150,6 +156,96 @@ function detailSources(metadata: PullRequestDetails): PullRequestDetailSources {
 
 function pendingDetails(): Promise<PullRequestDetailSources> {
   return new Promise(() => undefined);
+}
+
+const terminalPalettes: {
+  name: string;
+  colors: TerminalColors;
+  highlightedBackground: string;
+}[] = [
+  {
+    name: 'dark',
+    colors: terminalColors('#e8eef2', '#101820'),
+    highlightedBackground: '#2e363d',
+  },
+  {
+    name: 'light',
+    colors: terminalColors('#1c252c', '#f5f1e8'),
+    highlightedBackground: '#dfddd5',
+  },
+];
+
+function terminalColors(
+  foreground: string,
+  background: string
+): TerminalColors {
+  return {
+    palette: [
+      '#111111',
+      '#a51010',
+      '#168216',
+      '#8a6900',
+      '#1e5aa8',
+      '#8a328a',
+      '#087f8c',
+      '#d0d0d0',
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ],
+    defaultForeground: foreground,
+    defaultBackground: background,
+    cursorColor: null,
+    mouseForeground: null,
+    mouseBackground: null,
+    tekForeground: null,
+    tekBackground: null,
+    highlightBackground: null,
+    highlightForeground: null,
+  };
+}
+
+function allSpans(frame: CapturedFrame): readonly CapturedSpan[] {
+  return frame.lines.flatMap((line) => line.spans);
+}
+
+function spanContaining(frame: CapturedFrame, text: string): CapturedSpan {
+  const span = allSpans(frame).find((candidate) =>
+    candidate.text.includes(text)
+  );
+  if (span === undefined) throw new Error(`No rendered span contains ${text}`);
+  return span;
+}
+
+function expectColor(actual: RGBA, expected: string): void {
+  expect(actual.toInts()).toEqual(RGBA.fromHex(expected).toInts());
+}
+
+async function renderWithPalette(
+  github: GitHub,
+  colors: TerminalColors,
+  herdr: Herdr = unusedHerdr
+) {
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+    configurable: true,
+    value: true,
+  });
+  const view = await createTestRenderer({
+    width: 100,
+    height: 30,
+    kittyKeyboard: true,
+  });
+  jest.spyOn(view.renderer, 'getPalette').mockResolvedValue(colors);
+  const root = createRoot(view.renderer);
+  act(() => {
+    root.render(reviewQueuePage(github, herdr));
+  });
+  return view;
 }
 
 function firstDescriptionLine(frame: string): number {
@@ -1044,3 +1140,356 @@ describe('Review Submission', () => {
     view.renderer.destroy();
   });
 });
+
+describe.each(terminalPalettes)(
+  'application colors with a $name terminal palette',
+  ({ colors, highlightedBackground }) => {
+    test('keeps loading, empty, and unavailable states on the Review Queue baseline', async () => {
+      const initialLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+      const failedRefresh = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+      const loads = [initialLoad.promise, failedRefresh.promise];
+      let loadIndex = 0;
+      const github = {
+        async loadReviewQueue() {
+          const result = loads[loadIndex];
+          loadIndex += 1;
+          return result;
+        },
+        loadPullRequestDetails: pendingDetails,
+        async submitReview() {
+          throw new Error('Review Submission is not part of this page test');
+        },
+      } satisfies GitHub;
+      const view = await renderWithPalette(github, colors);
+      const foreground = colors.defaultForeground ?? '';
+      const background = colors.defaultBackground ?? '';
+
+      await view.waitFor(() =>
+        spanContaining(view.captureSpans(), 'Loading review').fg.equals(
+          RGBA.fromHex(foreground)
+        )
+      );
+      let frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Loading review').fg, foreground);
+      expectColor(spanContaining(frame, 'Loading review').bg, background);
+      expectColor(
+        spanContaining(frame, 'Running the configured').fg,
+        foreground
+      );
+
+      await act(async () => initialLoad.resolve(success([])));
+      await view.waitForFrame((characters) =>
+        characters.includes('No reviews waiting')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'No reviews waiting').fg, foreground);
+      expectColor(spanContaining(frame, 'No reviews waiting').bg, background);
+      expectColor(spanContaining(frame, 'Press r to refresh').fg, foreground);
+
+      await act(async () => view.mockInput.pressKey('r'));
+      await act(async () =>
+        failedRefresh.resolve({
+          ok: false,
+          failure: {
+            kind: 'exit',
+            operation: 'reviewQueue',
+            exitCode: 1,
+            stderr: 'search unavailable',
+          },
+        })
+      );
+      await view.waitForFrame((characters) =>
+        characters.includes('Review Queue unavailable')
+      );
+      frame = view.captureSpans();
+      expectColor(
+        spanContaining(frame, 'Review Queue unavailable').fg,
+        '#a51010'
+      );
+      expectColor(
+        spanContaining(frame, 'Review Queue unavailable').bg,
+        background
+      );
+      expectColor(spanContaining(frame, 'search unavailable').fg, foreground);
+      view.renderer.destroy();
+    });
+
+    test('uses the queue baseline and accents on each interactive surface', async () => {
+      const detailsLoad = Promise.withResolvers<PullRequestDetailSources>();
+      const failedSubmission = Promise.withResolvers<GitHubResult<void>>();
+      const successfulSubmission = Promise.withResolvers<GitHubResult<void>>();
+      const submissions = [
+        failedSubmission.promise,
+        successfulSubmission.promise,
+      ];
+      let submissionIndex = 0;
+      const github = {
+        async loadReviewQueue() {
+          return success([pullRequest, secondPullRequest]);
+        },
+        async loadPullRequestDetails() {
+          return detailsLoad.promise;
+        },
+        async submitReview() {
+          const result = submissions[submissionIndex];
+          submissionIndex += 1;
+          return result;
+        },
+      } satisfies GitHub;
+      const herdr = {
+        async openLumen() {
+          return { ok: true } as const;
+        },
+        async openReviewCommand() {
+          return {
+            ok: false,
+            failure: {
+              operation: 'createTab',
+              message: 'Herdr CLI failed.',
+              stderr: 'action diagnostic',
+            },
+          } as const;
+        },
+      } satisfies Herdr;
+      const view = await renderWithPalette(github, colors, herdr);
+      const foreground = colors.defaultForeground ?? '';
+      const background = colors.defaultBackground ?? '';
+
+      await view.waitFor(() =>
+        spanContaining(view.captureSpans(), pullRequest.title).fg.equals(
+          RGBA.fromHex(foreground)
+        )
+      );
+      let frame = view.captureSpans();
+      expectColor(spanContaining(frame, pullRequest.title).fg, foreground);
+      expectColor(
+        spanContaining(frame, pullRequest.title).bg,
+        highlightedBackground
+      );
+      expectColor(
+        spanContaining(frame, secondPullRequest.title).bg,
+        background
+      );
+      expectColor(spanContaining(frame, pullRequest.repository).fg, '#087f8c');
+      expectColor(spanContaining(frame, pullRequest.author).fg, '#8a328a');
+      expectColor(spanContaining(frame, '+10').fg, '#168216');
+      expectColor(spanContaining(frame, '-2').fg, '#a51010');
+      expectColor(spanContaining(frame, 'review').fg, '#8a6900');
+      const mutedColor = spanContaining(frame, '#7 opened by').fg.toInts();
+      expectColor(spanContaining(frame, 'move  enter details').fg, foreground);
+
+      await act(async () => view.mockInput.pressKey('?'));
+      await view.waitForFrame((characters) =>
+        characters.includes('Review Queue keys')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Review Queue keys').fg, foreground);
+      expectColor(spanContaining(frame, 'Review Queue keys').bg, background);
+      expectColor(spanContaining(frame, 'open details').fg, foreground);
+      expectColor(spanContaining(frame, 'Esc close').fg, foreground);
+      await act(async () => view.mockInput.pressKey('?'));
+
+      act(view.mockInput.pressEnter);
+      await view.waitForFrame((characters) =>
+        characters.includes('Refreshing details')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Pull request details').fg, foreground);
+      expectColor(spanContaining(frame, 'Pull request details').bg, background);
+      expectColor(spanContaining(frame, 'acme/widgets').fg, '#087f8c');
+      expectColor(spanContaining(frame, 'Refreshing details').fg, '#087f8c');
+
+      await act(async () =>
+        detailsLoad.resolve({
+          metadata: success({
+            ...pullRequestDetails('Colored details'),
+            body: 'Ordinary description text',
+            labels: ['review'],
+            reviewDecision: 'CHANGES_REQUESTED',
+            reviewRequests: ['requested-reviewer'],
+          }),
+          reviews: success([
+            {
+              author: 'submitted-reviewer',
+              state: 'APPROVED',
+              submittedAt: '2026-08-21T11:00:00Z',
+              body: 'Review body',
+            },
+          ]),
+          checks: success([{ name: 'unit', state: 'SUCCESS' }]),
+          issueComments: {
+            ok: false,
+            failure: {
+              kind: 'exit',
+              operation: 'pullRequestIssueComments',
+              url: pullRequest.url,
+              exitCode: 1,
+              stderr: 'complete detail diagnostic',
+            },
+          },
+          inlineComments: success([
+            {
+              id: 'inline-color',
+              author: 'inline-reviewer',
+              createdAt: '2026-08-21T12:00:00Z',
+              body: 'Inline review body',
+              path: 'src/widget.ts',
+              startLine: 4,
+              line: 7,
+              inReplyToId: '88',
+              resolved: true,
+              outdated: true,
+            },
+          ]),
+        })
+      );
+      await view.waitForFrame((characters) =>
+        characters.includes('Issue comments unavailable')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Colored details').fg, foreground);
+      expectColor(spanContaining(frame, 'Ordinary description').fg, foreground);
+      expectColor(spanContaining(frame, pullRequest.author).fg, '#8a328a');
+      expectColor(spanContaining(frame, 'requested-reviewer').fg, '#8a328a');
+      expectColor(spanContaining(frame, 'submitted-reviewer').fg, '#8a328a');
+      expect(spanContaining(frame, 'main ← widgets').fg.toInts()).toEqual(
+        mutedColor
+      );
+      expect(spanContaining(frame, '2026-08-21T11:00:00Z').fg.toInts()).toEqual(
+        mutedColor
+      );
+      expectColor(spanContaining(frame, 'CHANGES_REQUESTED').fg, '#a51010');
+      expectColor(spanContaining(frame, 'APPROVED').fg, '#168216');
+      expectColor(spanContaining(frame, '+10').fg, '#168216');
+      expectColor(spanContaining(frame, '-2').fg, '#a51010');
+      expectColor(spanContaining(frame, 'SUCCESS').fg, '#168216');
+      expectColor(
+        spanContaining(frame, 'Issue comments unavailable').fg,
+        '#a51010'
+      );
+      await act(async () => view.mockInput.pressKey('END'));
+      await view.waitForFrame((characters) =>
+        characters.includes('src/widget.ts:4-7')
+      );
+      frame = view.captureSpans();
+      expect(spanContaining(frame, 'src/widget.ts:4-7').fg.toInts()).toEqual(
+        mutedColor
+      );
+
+      await act(async () => view.mockInput.pressKey('e'));
+      await view.waitForFrame((characters) =>
+        characters.includes('complete detail diagnostic')
+      );
+      frame = view.captureSpans();
+      expectColor(
+        spanContaining(frame, 'Pull request detail errors').fg,
+        foreground
+      );
+      expectColor(
+        spanContaining(frame, 'Pull request detail errors').bg,
+        background
+      );
+      expectColor(
+        spanContaining(frame, 'complete detail diagnostic').fg,
+        foreground
+      );
+      expectColor(spanContaining(frame, 'Esc return').fg, foreground);
+      await act(view.mockInput.pressEscape);
+      await view.waitForFrame(
+        (characters) => !characters.includes('complete detail diagnostic')
+      );
+      await act(async () => view.mockInput.pressKey('q'));
+      await view.waitForFrame((characters) =>
+        characters.includes('Review requests 2 open')
+      );
+
+      await act(async () => view.mockInput.pressKey('s'));
+      await view.waitForFrame((characters) =>
+        characters.includes('Review acme/widgets #7')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Improve widgets').fg, foreground);
+      expectColor(spanContaining(frame, 'acme/widgets').fg, '#087f8c');
+      expectColor(spanContaining(frame, 'Comment').bg, background);
+      expectColor(spanContaining(frame, 'Ctrl+S submit').fg, foreground);
+
+      await act(view.mockInput.pressTab);
+      await act(async () => view.mockInput.pressKey('END'));
+      await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+      await view.waitForFrame((characters) =>
+        characters.includes('A message is required')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'A message is required').fg, '#a51010');
+      expectColor(
+        spanContaining(frame, 'A message is required').bg,
+        background
+      );
+
+      await act(async () => view.mockInput.typeText('Draft message'));
+      await view.waitForFrame((characters) =>
+        characters.includes('Draft message')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Draft').fg, foreground);
+      expectColor(spanContaining(frame, 'Draft').bg, background);
+      await act(view.mockInput.pressEscape);
+      await view.waitForFrame((characters) =>
+        characters.includes('Discard this Review Submission?')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Discard this').fg, foreground);
+      expectColor(spanContaining(frame, 'Keep editing').fg, foreground);
+      expectColor(spanContaining(frame, 'Left/Right choose').bg, background);
+      await act(view.mockInput.pressEnter);
+
+      await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+      await view.waitForFrame((characters) =>
+        characters.includes('Submitting request for changes')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Submitting request').fg, '#087f8c');
+      expectColor(spanContaining(frame, 'Submitting request').bg, background);
+      await act(async () =>
+        failedSubmission.resolve({
+          ok: false,
+          failure: {
+            kind: 'exit',
+            operation: 'reviewSubmission',
+            url: pullRequest.url,
+            exitCode: 1,
+            stderr: 'permission denied',
+          },
+        })
+      );
+      await view.waitForFrame((characters) =>
+        characters.includes('permission denied')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'permission denied').fg, '#a51010');
+      expectColor(spanContaining(frame, 'permission denied').bg, background);
+
+      await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+      await view.waitForFrame((characters) =>
+        characters.includes('Submitting request for changes')
+      );
+      await act(async () => successfulSubmission.resolve(success(undefined)));
+      await view.waitForFrame((characters) =>
+        characters.includes('Requested changes on acme/widgets #7')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Requested changes').fg, '#168216');
+      expectColor(spanContaining(frame, 'Requested changes').bg, background);
+
+      await act(async () => view.mockInput.pressKey('c'));
+      await view.waitForFrame((characters) =>
+        characters.includes('action diagnostic')
+      );
+      frame = view.captureSpans();
+      expectColor(spanContaining(frame, 'Could not open').fg, '#a51010');
+      expectColor(spanContaining(frame, 'action diagnostic').fg, '#a51010');
+      expectColor(spanContaining(frame, 'action diagnostic').bg, background);
+      view.renderer.destroy();
+    });
+  }
+);

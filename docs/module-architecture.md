@@ -141,6 +141,8 @@ Configure TanStack Query's public `environmentManager` for the long-lived non-br
 
 Queue bindings run only while the Review Queue owns input. The full-screen details modal owns all input and maps the effective line, page, start, end, refresh, error, and quit actions to its one scrolling buffer. The Review Submission modal blocks queue actions. Herdr tabs never send input through OpenTUI because Herdr owns their terminals and focus.
 
+Use one color language for all OpenTUI surfaces. The detected terminal background and foreground are the baseline for the Review Queue, details, help, Review Submission, status, and diagnostics. Reuse the Review Queue semantic accents on those surfaces. Keep the highlighted-row background exclusive to the row under the Cursor; do not derive another panel, modal, editor, or overlay surface color.
+
 Use OpenTUI's test renderer. Test queue loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; Cursor movement; captured modal targets; complete independent detail loading on every opening; configurable scrolling; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
 
 ### 5. Composition root and runtime lifecycle
