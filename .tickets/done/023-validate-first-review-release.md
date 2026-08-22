@@ -23,3 +23,7 @@ Validate the finished CLI and its documentation.
 ## Release authorization
 
 The user authorized completion and publication on 2026-08-22. Validate the finished CLI and generated release output before publishing.
+
+## Resolution
+
+Validated in PR #23, merged as commit `a4cfed7545c2bad575a89c4e006109d5a7762ad2`. Published [v0.2.0](https://github.com/eli0shin/code-review-tui/releases/tag/v0.2.0) with the four intended native binaries.
