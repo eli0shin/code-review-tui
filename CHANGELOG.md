@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.5
+
+### Patch Changes
+
+- [#35](https://github.com/eli0shin/code-review-tui/pull/35) [`9622da8`](https://github.com/eli0shin/code-review-tui/commit/9622da83706c77e5367bdd33d9cf9f9b25dd1a29) Thanks [@eli0shin](https://github.com/eli0shin)! - Use the Pull Request List terminal colors for details, help, Review Submission, status, and diagnostic surfaces.
+
 ## 0.2.4
 
 ### Patch Changes
