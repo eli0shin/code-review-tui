@@ -18,7 +18,7 @@ For each action, execute these installed CLI commands directly from `PATH` witho
 
 1. `herdr tab create --workspace … --cwd … --label … --no-focus` creates a shell-backed Herdr tab. Pass the child environment with explicit `--env KEY=VALUE` arguments.
 2. Parse only `.result.tab.tab_id` and `.result.root_pane.pane_id` from the JSON response.
-3. `herdr pane run PANE_ID COMMAND` runs the requested command followed by a best-effort `herdr tab focus REVIEW_QUEUE_TAB_ID` command in that tab's shell.
+3. `herdr pane run PANE_ID COMMAND` runs the requested command. It then runs best-effort `herdr tab focus REVIEW_QUEUE_TAB_ID` and `herdr tab close CREATED_TAB_ID` commands in that tab's shell.
 4. `herdr tab focus TAB_ID` focuses the new Herdr tab.
 
 Return success after these immediate CLI calls succeed. Return the first immediate startup, exit, or JSON compatibility failure to the Review Queue page. Never retry an action automatically. A failed call does not disable a later user call.
@@ -53,10 +53,12 @@ Use the startup working directory. Inherit the parent environment and replace th
 
 After the final `herdr tab focus`, Herdr owns all terminal input and rendering for the launched command. OpenTUI continues to render only the Review Queue. Switching tabs uses Herdr controls.
 
-The command sent by `herdr pane run` appends a shell-safe `herdr tab focus` command for the saved Review Queue Tab. The shell runs this command after Lumen or the Review Command exits. This focus operation is best effort: its later result is not reported to `review`, it is not retried, and it can race with a user focus choice.
+The command sent by `herdr pane run` appends shell-safe `herdr tab focus` and `herdr tab close` commands. It quotes the saved Review Queue Tab ID and the created tab ID as separate shell arguments. Semicolons separate the launched command, focus command, and close command. Thus, the tab shell attempts focus after the launched process returns, even after a nonzero exit. It then attempts to close only the created tab, even if focus fails.
+
+Both cleanup operations are best effort. `review` does not wait for or report their results, and it does not retry them. Review Queue focus can race with a user focus choice. The cleanup does not change the immediate adapter result boundary.
 
 Opening or leaving a command does not refresh or change the Review Queue or Cursor.
 
 ## Exit
 
-Quit, end-of-input, or a termination signal exits `review` immediately after normal presentation cleanup. There is no Herdr shutdown operation. Herdr tabs and their commands continue under Herdr ownership.
+Quit, end-of-input, or a termination signal exits `review` immediately after normal presentation cleanup. There is no Herdr shutdown operation. Active Herdr tabs and their commands continue under Herdr ownership. A created tab closes itself only after its launched command returns to the tab shell.

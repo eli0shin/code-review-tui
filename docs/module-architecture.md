@@ -13,7 +13,7 @@ This shape keeps these concerns separate:
 - GitHub CLI owns GitHub host, account, authentication, search, details, and Review Submission transport.
 - The configuration module owns the XDG path, strict JSON validation, search tokenization, and effective key bindings.
 - The OpenTUI Review Queue page owns temporary user-interface state and calls the configured ports directly.
-- The Herdr module owns Review Command child data, Lumen launch checks, exact Herdr CLI calls, response parsing, and the best-effort Review Queue focus command.
+- The Herdr module owns Review Command child data, Lumen launch checks, exact Herdr CLI calls, response parsing, and the best-effort Review Queue focus and created-tab close commands.
 - The release module owns update checks, executable replacement, installer rules, and release assets.
 
 ## Dependency direction
@@ -109,11 +109,11 @@ interface Herdr {
 
 Construct the adapter with the exact Review Command, startup working directory, inherited child environment, and Herdr CLI environment. Require Herdr workspace and Review Queue Tab IDs from that environment. There is no Herdr connection to start or stop.
 
-For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The pane command runs either `lumen diff PULL_REQUEST_URL` or `/bin/sh -c CONFIGURED_REVIEW_COMMAND`, then makes one best-effort CLI focus call for the saved Review Queue Tab.
+For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The pane command runs either `lumen diff PULL_REQUEST_URL` or `/bin/sh -c CONFIGURED_REVIEW_COMMAND`. After that process returns, the tab shell makes best-effort CLI calls to focus the saved Review Queue Tab and close the created tab. Semicolons keep each cleanup attempt independent of the prior command result.
 
 Add the specified `REVIEW_PR_*` values to the Review Command Herdr tab environment. Do not add a public tool ID or track a running phase. Return the first immediate CLI or JSON failure. A failure does not disable later calls.
 
-Test the adapter with a recording fake `herdr` executable. Prove exact calls, JSON parsing, immediate failure, later calls after failure, and the appended best-effort Review Queue focus command.
+Test the adapter with a recording fake `herdr` executable. Prove exact calls, JSON parsing, immediate failure, later calls after failure, and the appended best-effort Review Queue focus and created-tab close commands. Prove that the close attempt occurs when focus fails.
 
 ### 4. OpenTUI Review Queue page
 
@@ -179,7 +179,7 @@ Use a recording fake `gh` process. Prove exact arguments and environment, comple
 
 ### Herdr CLI adapter contract
 
-Use a recording fake `herdr` executable. Prove exact Lumen and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the appended best-effort Review Queue focus command.
+Use a recording fake `herdr` executable. Prove exact Lumen and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the appended best-effort Review Queue focus and created-tab close commands. Prove that semicolon sequencing attempts close after a focus failure.
 
 Do not model or review focus races or event-ordering races.
 
@@ -224,5 +224,5 @@ Add a seam only when its production and test adapters both exist. Do not add an 
 - GitHub and Herdr CLI output fields are compatibility seams. Report incompatibility; do not add fallback parsers or protocols.
 - Review Queue, Cursor, details, and Review Submission draft are memory-only page state.
 - Herdr owns Herdr tab terminals. OpenTUI owns only the Review Queue presentation.
-- Best-effort Review Queue focus restoration is one CLI command appended after the launched command.
+- Best-effort cleanup is an appended Review Queue focus command followed by a created-tab close command.
 - Release update state is the only application state in the XDG state area.
