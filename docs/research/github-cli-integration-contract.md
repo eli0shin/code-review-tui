@@ -81,24 +81,31 @@ Do not replace this with `gh pr list`: that command lists one repository. Do not
 
 ## Pull request details
 
-Load details by URL:
+Load these sources independently by the captured canonical pull request URL:
 
 ```text
-gh pr view <pull-request-url> \
-  --json number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests,latestReviews
+gh pr view <url> --json number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests
+gh pr view <url> --json reviews
+gh pr view <url> --json statusCheckRollup
+gh pr view <url> --json comments
+gh api graphql --hostname <url-host> <review-thread-query-and-url-variables>
 ```
 
-`gh pr view` accepts a full URL and supports these fields. It also supports fields such as `comments`, `reviews`, `files`, `commits`, `statusCheckRollup`, merge state, and repository metadata if a later UI contract needs them.[^gh-pr-view]
+`gh pr view` follows the `reviews` and `comments` GraphQL connections in pages of 100.[^gh-pr-pagination] The adapter follows `reviewThreads(first: 100, after: $threadsCursor)` until its page information reports no next page. Each thread response also includes comment page information. When one thread has more than 100 comments, the adapter follows that thread's `comments(first: 100, after: $commentsCursor)` connection until complete. It validates every page before it publishes the source. Each comment includes its file path, line or range, reply relationship, outdated state, and resolved thread state. For an outdated comment whose current line fields are null, use `originalLine` and `originalStartLine` so its original location remains visible.
 
-Passing the URL is important. GitHub CLI parses its host, owner, repository, and pull request number, then sends the detail query to that host.[^gh-pr-finder] No local checkout and no `--repo` value are necessary.
+Derive only the GraphQL hostname, owner, repository, and pull request number from the captured URL. Pass the hostname to `gh api`; do not select credentials or make HTTP requests directly. GitHub CLI continues to own host authentication and account selection.
 
-Request only fields that the details view displays:
+Treat metadata, reviews, checks, issue comments, and review threads as five independent results. One failed process or invalid response must not discard the other successful sources. Preserve complete diagnostics on that source. The presentation combines successful issue comments, reviews, and inline comments by timestamp.
 
-- `reviews` and `comments` make `gh pr view` follow their GraphQL connections until complete, in pages of 100.[^gh-pr-pagination]
-- Other nested collections are not uniformly unbounded. For example, the 2.97.0 query asks for at most 100 `reviewRequests`, `latestReviews`, or `files`.[^gh-pr-query-builder]
-- Scalar totals such as `changedFiles`, `additions`, and `deletions` do not have that collection truncation problem.
+The details fields have these uses:
 
-The proposed details field set uses `latestReviews` for a concise current-review summary. Add full `reviews` only if the interaction design later requires review history.
+- Metadata provides identity, refs, labels, change totals, description, review decision, and requested reviewers.
+- `reviews` provides all submitted reviewers and submitted-review conversation entries, including reviews with empty bodies.
+- `statusCheckRollup` provides only each check name and terminal state or current status.
+- `comments` provides all issue comments.
+- Review threads provide inline comments and their complete line, reply, resolved, and outdated context.
+
+All bodies remain exact plain text. Do not parse Markdown.
 
 ## Review Submission
 

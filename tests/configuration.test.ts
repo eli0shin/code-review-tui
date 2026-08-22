@@ -21,12 +21,18 @@ const generatedConfiguration = {
   keyBindings: {
     selectPrevious: ['k', 'up'],
     selectNext: ['j', 'down'],
-    openDiff: ['d', 'enter'],
+    openDetails: ['enter'],
+    openDiff: ['d'],
     runReviewCommand: ['c'],
     composeReviewSubmission: ['s'],
     refresh: ['r'],
+    pagePrevious: ['ctrl+u'],
+    pageNext: ['ctrl+d'],
+    scrollStart: ['g', 'home'],
+    scrollEnd: ['shift+g', 'end'],
+    showErrors: ['e'],
     showHelp: ['?'],
-    quit: ['q'],
+    quit: ['q', 'escape'],
   },
   config: { updateBehavior: 'auto', updateCheckIntervalHours: 24 },
 } as const;
@@ -86,12 +92,18 @@ describe('Review configuration contract', () => {
         keyBindings: {
           selectPrevious: ['k', 'up'],
           selectNext: ['j', 'down'],
-          openDiff: ['d', 'enter'],
+          openDetails: ['enter'],
+          openDiff: ['d'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
           refresh: ['r'],
+          pagePrevious: ['ctrl+u'],
+          pageNext: ['ctrl+d'],
+          scrollStart: ['g', 'home'],
+          scrollEnd: ['shift+g', 'end'],
+          showErrors: ['e'],
           showHelp: ['?'],
-          quit: ['q'],
+          quit: ['q', 'escape'],
         },
         update: { updateBehavior: 'auto', updateCheckIntervalHours: 24 },
       },
@@ -145,12 +157,18 @@ describe('Review configuration contract', () => {
         keyBindings: {
           selectPrevious: ['k', 'up'],
           selectNext: ['ctrl+alt+j'],
+          openDetails: ['enter'],
           openDiff: ['shift+a'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
           refresh: ['r'],
+          pagePrevious: ['ctrl+u'],
+          pageNext: ['ctrl+d'],
+          scrollStart: ['g', 'home'],
+          scrollEnd: ['shift+g', 'end'],
+          showErrors: ['e'],
           showHelp: ['?'],
-          quit: ['q'],
+          quit: ['q', 'escape'],
         },
         update: { updateBehavior: 'notify', updateCheckIntervalHours: 12 },
       },
@@ -370,7 +388,7 @@ describe('Review configuration contract', () => {
     const { file, environment } = await makeEnvironment();
     await writeConfiguration(file, {
       ...completeConfiguration,
-      keyBindings: { openDiff: ['enter', 'ctrl+m'] },
+      keyBindings: { openDetails: ['o'], openDiff: ['enter', 'ctrl+m'] },
     });
 
     expectFailure(
@@ -388,6 +406,7 @@ describe('Review configuration contract', () => {
       keyBindings: {
         selectPrevious: ['enter'],
         selectNext: ['ctrl+j'],
+        openDetails: ['o'],
         openDiff: ['alt+enter'],
         runReviewCommand: ['ctrl+alt+j'],
       },

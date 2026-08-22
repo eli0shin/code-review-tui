@@ -4,7 +4,7 @@
 
 Keep true external dependencies behind two deep ports: `GitHub` and `Herdr`. Use production CLI adapters for GitHub and Herdr. Keep configuration, OpenTUI presentation, composition, and release operations outside those adapters.
 
-The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local numeric Cursor. Its queue query loads on mount, polls every 60 seconds, and exposes `refetch()` for `r`.
+The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local numeric Cursor and one temporary full-screen detail modal target. Its queue query loads on mount and polls every 60 seconds. Its details query loads independent source results on every modal opening and explicit refresh.
 
 Do not add a session module, store, controller, event bus, state machine, scheduler service, queue, request-generation protocol, coalescing protocol, or presentation subscription interface. Add no coordination seam between the page and the external ports.
 
@@ -35,7 +35,7 @@ Production adapters can import domain types, but domain modules cannot import ad
 Put stable application values in `src/domain/`:
 
 - `PullRequestSummary`, identified by its canonical `url`, including row-level file, change, label, and comment metadata;
-- `PullRequestDetails`, also identified by `url`;
+- `PullRequestDetails`, checks, issue comments, reviews, and inline review comments, all immutable detail values;
 - `ReviewDecision`: `comment`, `approve`, or `requestChanges`;
 - `ReviewSubmission`, with a captured target, exact message, and decision.
 
@@ -84,7 +84,7 @@ interface GitHub {
   loadPullRequestDetails(
     url: string,
     signal: AbortSignal
-  ): Promise<GitHubResult<PullRequestDetails>>;
+  ): Promise<PullRequestDetailSources>;
   submitReview(
     submission: ReviewSubmission,
     signal: AbortSignal
@@ -92,7 +92,7 @@ interface GitHub {
 }
 ```
 
-The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSON validation, domain conversion, and operation-specific failures. It starts `gh` directly from `PATH` without a shell. It inherits the environment and does not set authentication values. It enriches each search result with `gh pr view` file and change counts at bounded concurrency before it publishes the complete Review Queue. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
+The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSON validation, domain conversion, and operation-specific failures. It loads pull request metadata, reviews, checks, issue comments, and review threads independently so each source keeps its own success or complete diagnostic. It starts `gh` directly from `PATH` without a shell. It inherits the environment and does not set authentication values. It enriches each search result with `gh pr view` file and change counts at bounded concurrency before it publishes the complete Review Queue. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
 
 Construct the adapter with tokenized GitHub search from configuration. Page tests use a small in-memory `GitHub` implementation. Adapter tests put a recording `gh` executable first in `PATH`.
 
@@ -135,13 +135,13 @@ TanStack React Query owns:
 - the fixed 60-second Review Queue refetch interval;
 - request cancellation through the query function's supplied `AbortSignal`.
 
-The page keeps one local numeric Cursor and clamps its rendered position to the current queue rows. The pull request under the Cursor supplies the details query URL. The Cursor has no pull request identity, and queue replacement does not preserve a URL. Queue refetch does not invalidate details for an unchanged URL under the Cursor.
+The page keeps one local numeric Cursor and clamps its rendered position to the current queue rows. `openDetails` captures the pull request URL under the Cursor as temporary modal state. The Cursor has no pull request identity, and queue replacement does not preserve a URL. The modal refetches all detail sources on each opening and explicit refresh. Closing it restores the unchanged Review Queue and Cursor.
 
 Configure TanStack Query's public `environmentManager` for the long-lived non-browser OpenTUI runtime before mounting queries. The queue query loads on mount, sets `refetchInterval: 60_000`, and uses `refetch()` for `r`. Do not add fetch effects, timer effects, pull request identity for the Cursor, request generations, or another remote-state layer.
 
-Queue bindings run only while the Review Queue owns input. The Review Submission modal blocks queue actions. Herdr tabs never send input through OpenTUI because Herdr owns their terminals and focus.
+Queue bindings run only while the Review Queue owns input. The full-screen details modal owns all input and maps the effective line, page, start, end, refresh, error, and quit actions to its one scrolling buffer. The Review Submission modal blocks queue actions. Herdr tabs never send input through OpenTUI because Herdr owns their terminals and focus.
 
-Use OpenTUI's test renderer. Test query loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; Cursor movement; detail loading for the highlighted row; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
+Use OpenTUI's test renderer. Test queue loading on mount, `r`, and the 60-second refetch interval; query cancellation on unmount; Cursor movement; captured modal targets; complete independent detail loading on every opening; configurable scrolling; key bindings; and visible query statuses through the page. Use in-memory port implementations. Do not create a separate page-state contract or orchestration object.
 
 ### 5. Composition root and runtime lifecycle
 
@@ -189,7 +189,8 @@ Render the page and send terminal input. Prove:
 
 - pull request loading on page open, `r`, and each 60-second query refetch;
 - query cancellation on unmount;
-- queue results, Cursor movement, and detail loading for the highlighted row;
+- queue results, Cursor movement, captured modal targets, and refetch on every opening;
+- complete detail content, independent failures, and configurable modal scrolling;
 - pending, error, success, empty, and detail surfaces;
 - effective key bindings and help text;
 - Review Submission behavior and modal input isolation;

@@ -19,6 +19,7 @@ import {
   QueryClient,
   QueryClientProvider,
   useQuery,
+  useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -29,13 +30,16 @@ import {
   type QueueAction,
 } from './configuration/index.ts';
 import type {
-  PullRequestDetails,
   PullRequestSummary,
   ReviewDecision,
   ReviewQueue,
 } from './domain/pull-request.ts';
 import { createGitHubCliAdapter } from './github/cli-adapter.ts';
-import type { GitHub, GitHubFailure } from './github/types.ts';
+import type {
+  GitHub,
+  GitHubFailure,
+  PullRequestDetailSources,
+} from './github/types.ts';
 import { runReviewRuntime } from './runtime.ts';
 import { createHerdrCliAdapter } from './tools/herdr-adapter.ts';
 import type { Herdr, HerdrFailure, HerdrResult } from './tools/types.ts';
@@ -121,8 +125,11 @@ function ReviewQueue({
 }: ReviewQueuePageProps) {
   const theme = useSystemTheme();
   const terminal = useTerminalDimensions();
+  const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
   const [draft, setDraft] = useState<SubmissionDraft>();
+  const [modalTarget, setModalTarget] = useState<PullRequestSummary>();
+  const [detailErrorsOpen, setDetailErrorsOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [dismissedFailureKey, setDismissedFailureKey] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -130,6 +137,7 @@ function ReviewQueue({
     useState<HerdrActionFailure>();
   const editorRef = useRef<TextareaRenderable>(null);
   const failureViewerRef = useRef<ScrollBoxRenderable>(null);
+  const detailsViewportRef = useRef<ScrollBoxRenderable>(null);
   const submissionActiveRef = useRef(false);
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
     queryKey: ['reviewQueue'],
@@ -145,20 +153,19 @@ function ReviewQueue({
   const cursorPosition = Math.min(cursor, lastCursorPosition);
   if (cursor !== cursorPosition) setCursor(cursorPosition);
   const highlightedPullRequest = queue.at(cursorPosition);
-  const detailsUrl = highlightedPullRequest?.url;
+  const detailsUrl = modalTarget?.url;
 
-  const detailsQuery = useQuery<PullRequestDetails, GitHubFailure>({
+  const detailsQuery = useQuery<PullRequestDetailSources>({
     queryKey: [...detailsQueryKey, detailsUrl],
     enabled: detailsUrl !== undefined,
-    async queryFn({ signal }) {
+    queryFn({ signal }) {
       if (detailsUrl === undefined) {
-        throw new Error('A highlighted pull request URL is required');
+        throw new Error('A pull request details target URL is required');
       }
-      const result = await github.loadPullRequestDetails(detailsUrl, signal);
-      if (!result.ok) throw result.failure;
-      return result.value;
+      return github.loadPullRequestDetails(detailsUrl, signal);
     },
   });
+  const detailFailures = collectDetailFailures(detailsQuery.data);
 
   const queueStatusWidth = terminal.width - 5;
   const occupiedQueueStatusRows =
@@ -176,6 +183,7 @@ function ReviewQueue({
           queueStatusWidth
         ));
   const activeFailure =
+    modalTarget === undefined &&
     queueQuery.error !== null &&
     requiresFailureOverlay(
       queue.length === 0
@@ -195,29 +203,11 @@ function ReviewQueue({
               : 'Review Queue not refreshed',
           message: failureMessage(queueQuery.error),
         }
-      : detailsQuery.error !== null &&
-          requiresFailureOverlay(
-            `Could not load pull request details: ${failureMessage(
-              detailsQuery.error
-            )}`,
-            terminal.width - 5,
-            5
-          ) &&
-          githubFailureKey(detailsQuery.error) !== dismissedFailureKey
-        ? {
-            key: githubFailureKey(detailsQuery.error),
-            title: `Pull request details unavailable${
-              highlightedPullRequest === undefined
-                ? ''
-                : ` · ${highlightedPullRequest.repository} #${highlightedPullRequest.number}`
-            }`,
-            message: failureMessage(detailsQuery.error),
-          }
-        : undefined;
+      : undefined;
 
   useEffect(() => {
     failureViewerRef.current?.scrollTo(0);
-  }, [activeFailure?.key]);
+  }, [activeFailure?.key, detailErrorsOpen]);
 
   const submitDraft = async (submission: SubmissionDraft): Promise<void> => {
     if (submission.decision !== 'approve' && !/\S/.test(submission.message)) {
@@ -292,6 +282,51 @@ function ReviewQueue({
       return;
     }
 
+    if (detailErrorsOpen) {
+      key.preventDefault();
+      key.stopPropagation();
+      const viewer = failureViewerRef.current;
+      if (key.name === 'escape') setDetailErrorsOpen(false);
+      else if (key.name === 'up') viewer?.scrollBy(-1, 'step');
+      else if (key.name === 'down') viewer?.scrollBy(1, 'step');
+      else if (key.name === 'pageup') viewer?.scrollBy(-1, 'viewport');
+      else if (key.name === 'pagedown') viewer?.scrollBy(1, 'viewport');
+      else if (key.name === 'home') viewer?.scrollTo(0);
+      else if (key.name === 'end') viewer?.scrollTo(viewer.scrollHeight);
+      return;
+    }
+
+    if (modalTarget !== undefined) {
+      key.preventDefault();
+      key.stopPropagation();
+      const action = queueActionForKey(key, keyBindings);
+      const viewport = detailsViewportRef.current;
+      if (action === 'quit') {
+        setModalTarget(undefined);
+      } else if (action === 'refresh') {
+        void queryClient.fetchQuery({
+          queryKey: [...detailsQueryKey, modalTarget.url],
+          queryFn: ({ signal }) =>
+            github.loadPullRequestDetails(modalTarget.url, signal),
+        });
+      } else if (action === 'showErrors' && detailFailures.length > 0) {
+        setDetailErrorsOpen(true);
+      } else if (action === 'selectPrevious') {
+        viewport?.scrollBy(-1, 'step');
+      } else if (action === 'selectNext') {
+        viewport?.scrollBy(1, 'step');
+      } else if (action === 'pagePrevious') {
+        viewport?.scrollBy(-1, 'viewport');
+      } else if (action === 'pageNext') {
+        viewport?.scrollBy(1, 'viewport');
+      } else if (action === 'scrollStart') {
+        viewport?.scrollTo(0);
+      } else if (action === 'scrollEnd') {
+        viewport?.scrollTo(viewport.scrollHeight);
+      }
+      return;
+    }
+
     if (showHelp) {
       key.preventDefault();
       key.stopPropagation();
@@ -323,6 +358,14 @@ function ReviewQueue({
     }
     if (highlightedPullRequest === undefined) return;
 
+    if (action === 'openDetails') {
+      void queryClient.invalidateQueries({
+        queryKey: [...detailsQueryKey, highlightedPullRequest.url],
+        exact: true,
+      });
+      setModalTarget(highlightedPullRequest);
+      return;
+    }
     if (action === 'openDiff') {
       void openHerdrTab('Lumen', () => herdr.openLumen(highlightedPullRequest));
       return;
@@ -339,6 +382,7 @@ function ReviewQueue({
       return;
     }
 
+    if (action !== 'selectPrevious' && action !== 'selectNext') return;
     const offset = action === 'selectNext' ? 1 : -1;
     const nextPosition = cursorPosition + offset;
     if (nextPosition >= 0 && nextPosition < queue.length) {
@@ -348,7 +392,10 @@ function ReviewQueue({
 
   const initialFailure = queueQuery.status === 'error' && queue.length === 0;
   const queueOwnsInput =
-    draft === undefined && !showHelp && activeFailure === undefined;
+    draft === undefined &&
+    modalTarget === undefined &&
+    !showHelp &&
+    activeFailure === undefined;
 
   return (
     <box width="100%" height="100%" flexDirection="column">
@@ -385,9 +432,6 @@ function ReviewQueue({
           <ReviewQueueContent
             queue={queue}
             cursorPosition={cursorPosition}
-            details={detailsQuery.data}
-            detailsStatus={detailsQuery.status}
-            detailsFailure={detailsQuery.error}
             refreshing={queueQuery.isFetching}
             refreshFailure={queueQuery.error}
             notice={notice}
@@ -397,6 +441,16 @@ function ReviewQueue({
           />
         )}
       </box>
+      {modalTarget !== undefined ? (
+        <PullRequestDetailsModal
+          ref={detailsViewportRef}
+          target={modalTarget}
+          sources={detailsQuery.data}
+          loading={detailsQuery.isPending || detailsQuery.isFetching}
+          keyBindings={keyBindings}
+          theme={theme}
+        />
+      ) : null}
       {showHelp ? (
         <HelpOverlay keyBindings={keyBindings} theme={theme} />
       ) : null}
@@ -405,6 +459,16 @@ function ReviewQueue({
           ref={failureViewerRef}
           title={activeFailure.title}
           message={activeFailure.message}
+          theme={theme}
+        />
+      ) : null}
+      {detailErrorsOpen && modalTarget !== undefined ? (
+        <FailureOverlay
+          ref={failureViewerRef}
+          title={`Pull request detail errors · ${modalTarget.repository} #${modalTarget.number}`}
+          message={detailFailures
+            .map(({ label, failure }) => `${label}: ${failureMessage(failure)}`)
+            .join('\n\n')}
           theme={theme}
         />
       ) : null}
@@ -423,9 +487,6 @@ function ReviewQueue({
 function ReviewQueueContent({
   queue,
   cursorPosition,
-  details,
-  detailsStatus,
-  detailsFailure,
   refreshing,
   refreshFailure,
   notice,
@@ -435,9 +496,6 @@ function ReviewQueueContent({
 }: {
   readonly queue: ReviewQueue;
   readonly cursorPosition: number;
-  readonly details: PullRequestDetails | undefined;
-  readonly detailsStatus: 'pending' | 'error' | 'success';
-  readonly detailsFailure: GitHubFailure | null;
   readonly refreshing: boolean;
   readonly refreshFailure: GitHubFailure | null;
   readonly notice: string | undefined;
@@ -545,12 +603,6 @@ function ReviewQueueContent({
           />
         ))}
       </scrollbox>
-      <DetailsPane
-        status={detailsStatus}
-        details={details}
-        failure={detailsFailure}
-        theme={theme}
-      />
       <text flexShrink={0} attributes={TextAttributes.DIM}>
         {' '}
         {footerText(keyBindings)}
@@ -611,56 +663,316 @@ function ReviewQueueRow({
   );
 }
 
-function DetailsPane({
-  status,
-  details,
-  failure,
+function PullRequestDetailsModal({
+  ref,
+  target,
+  sources,
+  loading,
+  keyBindings,
   theme,
 }: {
-  readonly status: 'pending' | 'error' | 'success';
-  readonly details: PullRequestDetails | undefined;
-  readonly failure: GitHubFailure | null;
+  readonly ref: React.Ref<ScrollBoxRenderable>;
+  readonly target: PullRequestSummary;
+  readonly sources: PullRequestDetailSources | undefined;
+  readonly loading: boolean;
+  readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
 }) {
+  const metadata = sources?.metadata;
+  const reviews = sources?.reviews;
+  const checks = sources?.checks;
+  const issueComments = sources?.issueComments;
+  const inlineComments = sources?.inlineComments;
+  const conversation = collectConversation(sources);
+
   return (
-    <box
-      height={6}
-      flexShrink={0}
-      overflow="hidden"
-      marginTop={1}
-      paddingLeft={1}
-      flexDirection="column"
+    <scrollbox
+      ref={ref}
+      position="absolute"
+      left={0}
+      top={0}
+      width="100%"
+      height="100%"
+      zIndex={10}
+      backgroundColor={theme?.background}
+      scrollY
+      viewportCulling
+      contentOptions={{
+        flexDirection: 'column',
+        paddingLeft: 2,
+        paddingRight: 2,
+      }}
     >
       <text>
-        <strong>Pull request details</strong>
+        <strong>
+          Pull request details · {target.repository} #{target.number}
+        </strong>
       </text>
-      {status === 'pending' ? (
-        <text fg={theme?.textMuted}>Loading pull request details…</text>
-      ) : null}
-      {status === 'error' && failure !== null ? (
-        <text width="100%" wrapMode="char" fg={theme?.error}>
-          Could not load pull request details: {failureMessage(failure)}
-        </text>
-      ) : null}
-      {details !== undefined ? (
+      {loading ? <text fg={theme?.info}>Refreshing details…</text> : null}
+      <box height={1} />
+
+      <text>
+        <strong>Pull request</strong>
+      </text>
+      {metadata === undefined ? (
+        <text fg={theme?.textMuted}>Loading metadata…</text>
+      ) : metadata.ok ? (
         <>
+          <text width="100%" wrapMode="char">
+            <strong>{metadata.value.title}</strong>
+          </text>
           <text>
-            <strong>{details.title}</strong>
+            {metadata.value.author} · {metadata.value.state}
+            {metadata.value.isDraft ? ' · draft' : ''}
           </text>
-          <text fg={theme?.textMuted}>
-            {details.baseRefName} ← {details.headRefName} ·{' '}
-            {fileSummary(details.changedFiles)}
-            {'  '}
-            <span fg={theme?.success}>+{details.additions}</span>{' '}
-            <span fg={theme?.error}>-{details.deletions}</span>
+          <text>
+            {metadata.value.baseRefName} ← {metadata.value.headRefName} ·{' '}
+            {fileSummary(metadata.value.changedFiles)} · +
+            {metadata.value.additions} -{metadata.value.deletions}
           </text>
-          {details.labels.length === 0 ? null : (
-            <text fg={theme?.warning}>{details.labels.join('  ')}</text>
-          )}
-          <text>{details.body || 'No description provided.'}</text>
+          <text>
+            Labels:{' '}
+            {metadata.value.labels.length === 0
+              ? 'none'
+              : metadata.value.labels.join(', ')}
+          </text>
         </>
+      ) : (
+        <Unavailable label="Pull request metadata" theme={theme} />
+      )}
+      <box height={1} />
+
+      <text>
+        <strong>Reviewers</strong>
+      </text>
+      {metadata?.ok ? (
+        <>
+          <text>Decision: {metadata.value.reviewDecision || 'none'}</text>
+          <text>
+            Requested:{' '}
+            {metadata.value.reviewRequests.length === 0
+              ? 'none'
+              : metadata.value.reviewRequests.join(', ')}
+          </text>
+        </>
+      ) : metadata === undefined ? (
+        <text fg={theme?.textMuted}>Loading requested reviewers…</text>
+      ) : (
+        <Unavailable label="Review decision and requests" theme={theme} />
+      )}
+      {reviews === undefined ? (
+        <text fg={theme?.textMuted}>Loading submitted reviewers…</text>
+      ) : reviews.ok ? (
+        reviews.value.length === 0 ? (
+          <text>Submitted: none</text>
+        ) : (
+          reviews.value.map((review) => (
+            <text
+              key={`${review.author}:${review.submittedAt}:${review.state}:${review.body}`}
+            >
+              Submitted: {review.author} · {review.state}
+            </text>
+          ))
+        )
+      ) : (
+        <Unavailable label="Submitted reviewers" theme={theme} />
+      )}
+      <box height={1} />
+
+      <text>
+        <strong>Checks</strong>
+      </text>
+      {checks === undefined ? (
+        <text fg={theme?.textMuted}>Loading checks…</text>
+      ) : checks.ok ? (
+        checks.value.length === 0 ? (
+          <text>None</text>
+        ) : (
+          checks.value.map((check) => (
+            <text key={`${check.name}:${check.state}`}>
+              {check.name} · {check.state}
+            </text>
+          ))
+        )
+      ) : (
+        <Unavailable label="Checks" theme={theme} />
+      )}
+      <box height={1} />
+
+      <text>
+        <strong>Description</strong>
+      </text>
+      {metadata === undefined ? (
+        <text fg={theme?.textMuted}>Loading description…</text>
+      ) : metadata.ok ? (
+        <PlainTextBody
+          body={metadata.value.body || 'No description provided.'}
+        />
+      ) : (
+        <Unavailable label="Description" theme={theme} />
+      )}
+      <box height={1} />
+
+      <text>
+        <strong>Conversation</strong>
+      </text>
+      {reviews === undefined ||
+      issueComments === undefined ||
+      inlineComments === undefined ? (
+        <text fg={theme?.textMuted}>Loading conversation…</text>
       ) : null}
-    </box>
+      {issueComments !== undefined && !issueComments.ok ? (
+        <Unavailable label="Issue comments" theme={theme} />
+      ) : null}
+      {reviews !== undefined && !reviews.ok ? (
+        <Unavailable label="Submitted reviews" theme={theme} />
+      ) : null}
+      {inlineComments !== undefined && !inlineComments.ok ? (
+        <Unavailable label="Inline review comments" theme={theme} />
+      ) : null}
+      {conversation.map((entry) => (
+        <box key={entry.key} flexDirection="column" marginTop={1}>
+          <text>
+            <strong>{entry.heading}</strong>
+          </text>
+          {entry.context === undefined ? null : <text>{entry.context}</text>}
+          <PlainTextBody body={entry.body} />
+        </box>
+      ))}
+      {conversation.length === 0 &&
+      issueComments?.ok &&
+      reviews?.ok &&
+      inlineComments?.ok ? (
+        <text>None</text>
+      ) : null}
+      <box height={1} />
+      <text attributes={TextAttributes.DIM}>
+        {formatBindings(keyBindings.selectPrevious)}/
+        {formatBindings(keyBindings.selectNext)} line ·{' '}
+        {formatBindings(keyBindings.pagePrevious)}/
+        {formatBindings(keyBindings.pageNext)} page ·{' '}
+        {formatBindings(keyBindings.scrollStart)}/
+        {formatBindings(keyBindings.scrollEnd)} start/end ·{' '}
+        {formatBindings(keyBindings.refresh)} refresh ·{' '}
+        {formatBindings(keyBindings.showErrors)} errors ·{' '}
+        {formatBindings(keyBindings.quit)} close
+      </text>
+      <box height={1} />
+    </scrollbox>
+  );
+}
+
+function PlainTextBody({ body }: { readonly body: string }) {
+  return plainTextLines(body).map((line) => (
+    <text key={line.key} width="100%" wrapMode="char">
+      {line.text}
+    </text>
+  ));
+}
+
+function plainTextLines(
+  body: string
+): readonly { readonly key: string; readonly text: string }[] {
+  let offset = 0;
+  return body.split('\n').map((text) => {
+    const line = { key: `${offset}:${text}`, text };
+    offset += text.length + 1;
+    return line;
+  });
+}
+
+function Unavailable({
+  label,
+  theme,
+}: {
+  readonly label: string;
+  readonly theme: SystemTheme | undefined;
+}) {
+  return <text fg={theme?.error}>{label} unavailable · show errors</text>;
+}
+
+type ConversationEntry = {
+  readonly key: string;
+  readonly timestamp: string;
+  readonly heading: string;
+  readonly context?: string;
+  readonly body: string;
+};
+
+function collectConversation(
+  sources: PullRequestDetailSources | undefined
+): readonly ConversationEntry[] {
+  if (sources === undefined) return [];
+  const entries: ConversationEntry[] = [];
+  if (sources.issueComments.ok) {
+    entries.push(
+      ...sources.issueComments.value.map((comment) => ({
+        key: `issue:${comment.id}`,
+        timestamp: comment.createdAt,
+        heading: `Issue comment · ${comment.author} · ${comment.createdAt}`,
+        body: comment.body,
+      }))
+    );
+  }
+  if (sources.reviews.ok) {
+    entries.push(
+      ...sources.reviews.value.map((review) => ({
+        key: `review:${review.author}:${review.submittedAt}:${review.state}:${review.body}`,
+        timestamp: review.submittedAt,
+        heading: `Submitted review · ${review.author} · ${review.submittedAt} · ${review.state}`,
+        body: review.body,
+      }))
+    );
+  }
+  if (sources.inlineComments.ok) {
+    entries.push(
+      ...sources.inlineComments.value.map((comment) => ({
+        key: `inline:${comment.id}`,
+        timestamp: comment.createdAt,
+        heading: `Inline review comment · ${comment.author} · ${comment.createdAt}`,
+        context: inlineCommentContext(comment),
+        body: comment.body,
+      }))
+    );
+  }
+  return entries.sort((left, right) =>
+    left.timestamp === right.timestamp
+      ? left.key.localeCompare(right.key)
+      : left.timestamp.localeCompare(right.timestamp)
+  );
+}
+
+function inlineCommentContext(comment: {
+  readonly path: string;
+  readonly line: number | null;
+  readonly startLine: number | null;
+  readonly inReplyToId: string | null;
+  readonly resolved: boolean;
+  readonly outdated: boolean;
+}): string {
+  const location =
+    comment.line === null
+      ? comment.path
+      : comment.startLine !== null && comment.startLine !== comment.line
+        ? `${comment.path}:${comment.startLine}-${comment.line}`
+        : `${comment.path}:${comment.line}`;
+  return `${location} · ${comment.inReplyToId === null ? 'thread start' : `reply to ${comment.inReplyToId}`} · ${comment.resolved ? 'resolved' : 'unresolved'} · ${comment.outdated ? 'outdated' : 'current'}`;
+}
+
+function collectDetailFailures(
+  sources: PullRequestDetailSources | undefined
+): readonly { readonly label: string; readonly failure: GitHubFailure }[] {
+  if (sources === undefined) return [];
+  return (
+    [
+      ['Pull request metadata', sources.metadata],
+      ['Submitted reviews', sources.reviews],
+      ['Checks', sources.checks],
+      ['Issue comments', sources.issueComments],
+      ['Inline review comments', sources.inlineComments],
+    ] as const
+  ).flatMap(([label, result]) =>
+    result.ok ? [] : [{ label, failure: result.failure }]
   );
 }
 
@@ -770,6 +1082,7 @@ function HelpOverlay({
       </text>
       <text>{line('selectPrevious', 'previous')}</text>
       <text>{line('selectNext', 'next')}</text>
+      <text>{line('openDetails', 'open details')}</text>
       <text>{line('openDiff', 'open diff')}</text>
       <text>{line('runReviewCommand', 'run Review Command')}</text>
       <text>
@@ -1141,7 +1454,7 @@ function formatBindings(bindings: readonly string[]): string {
 
 function footerText(keyBindings: EffectiveKeyBindings): string {
   const movement = `${keyBindings.selectNext[0]}/${keyBindings.selectPrevious[0]}`;
-  return `${movement} move  ${formatBindings(keyBindings.openDiff)} diff  ${formatBindings(
+  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${formatBindings(keyBindings.openDiff)} diff  ${formatBindings(
     keyBindings.runReviewCommand
   )} review command  ${formatBindings(
     keyBindings.composeReviewSubmission

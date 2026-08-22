@@ -23,12 +23,18 @@ A complete example is:
   "keyBindings": {
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],
-    "openDiff": ["d", "enter"],
+    "openDetails": ["enter"],
+    "openDiff": ["d"],
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
     "refresh": ["r"],
+    "pagePrevious": ["ctrl+u"],
+    "pageNext": ["ctrl+d"],
+    "scrollStart": ["g", "home"],
+    "scrollEnd": ["shift+g", "end"],
+    "showErrors": ["e"],
     "showHelp": ["?"],
-    "quit": ["q"]
+    "quit": ["q", "escape"]
   },
   "config": {
     "updateBehavior": "auto",
@@ -68,7 +74,7 @@ These rules preserve intentionally grouped GitHub search terms without evaluatin
 
 ## Key bindings
 
-The configurable bindings apply only while the Review Queue owns input. A Review Command, Lumen, and the Review Submission editor own their input while active; queue bindings must not intercept that input.
+The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. A Review Command, Lumen, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
 
 A descriptor is one of:
 
@@ -80,16 +86,22 @@ Modifier names and named keys are lowercase. Aliases such as `esc`, `return`, `c
 
 The actions have these meanings:
 
-| Action                    | Default      | Effect                                                                    |
-| ------------------------- | ------------ | ------------------------------------------------------------------------- |
-| `selectPrevious`          | `k`, `up`    | Move the Cursor to the previous Review Queue row.                         |
-| `selectNext`              | `j`, `down`  | Move the Cursor to the next Review Queue row.                             |
-| `openDiff`                | `d`, `enter` | Open the pull request under the Cursor in fixed `lumen diff`.             |
-| `runReviewCommand`        | `c`          | Start the Review Command for the pull request under the Cursor.           |
-| `composeReviewSubmission` | `s`          | Open Review Submission composition for the pull request under the Cursor. |
-| `refresh`                 | `r`          | Refresh the Review Queue.                                                 |
-| `showHelp`                | `?`          | Show the queue help, including effective bindings.                        |
-| `quit`                    | `q`          | Exit `review` after normal presentation cleanup.                          |
+| Action                    | Default          | Effect                                                                    |
+| ------------------------- | ---------------- | ------------------------------------------------------------------------- |
+| `selectPrevious`          | `k`, `up`        | Move the Cursor to the previous Review Queue row.                         |
+| `selectNext`              | `j`, `down`      | Move the Cursor to the next Review Queue row.                             |
+| `openDetails`             | `enter`          | Open full-screen details for the pull request under the Cursor.           |
+| `openDiff`                | `d`              | Open the pull request under the Cursor in fixed `lumen diff`.             |
+| `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
+| `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |
+| `refresh`                 | `r`              | Refresh the active Review Queue or details modal.                         |
+| `pagePrevious`            | `ctrl+u`         | Scroll details up by one page.                                            |
+| `pageNext`                | `ctrl+d`         | Scroll details down by one page.                                          |
+| `scrollStart`             | `g`, `home`      | Scroll details to the start.                                              |
+| `scrollEnd`               | `shift+g`, `end` | Scroll details to the end.                                                |
+| `showErrors`              | `e`              | Show complete diagnostics for failed detail sources.                      |
+| `showHelp`                | `?`              | Show the queue help, including effective bindings.                        |
+| `quit`                    | `q`, `escape`    | Close details, or exit from the Review Queue.                             |
 
 ## Opaque Review Command
 

@@ -56,12 +56,75 @@ const detailsJson = {
   ],
 };
 
+const completeDetailsJson = {
+  ...detailsJson,
+  reviews: [
+    ...detailsJson.latestReviews,
+    {
+      author: { login: 'pending-reviewer' },
+      state: 'PENDING',
+      submittedAt: null,
+      body: 'Unsubmitted draft',
+    },
+  ],
+  comments: [
+    {
+      id: 'IC_kwDO1',
+      author: { login: 'commenter' },
+      createdAt: '2026-08-21T09:00:00Z',
+      body: 'Issue comment body',
+    },
+  ],
+  statusCheckRollup: [
+    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+  ],
+};
+
+const reviewThreadsJson = {
+  data: {
+    repository: {
+      pullRequest: {
+        reviewThreads: {
+          nodes: [
+            {
+              id: 'PRRT_thread',
+              isResolved: true,
+              comments: {
+                nodes: [
+                  {
+                    databaseId: 91,
+                    author: { login: 'inline-reviewer' },
+                    createdAt: '2026-08-21T12:00:00Z',
+                    body: 'Inline body',
+                    path: 'src/widget.ts',
+                    startLine: null,
+                    line: null,
+                    originalStartLine: 3,
+                    originalLine: 5,
+                    outdated: true,
+                    replyTo: null,
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          ],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    },
+  },
+};
+
 let directory: string;
 let originalPath: string | undefined;
 let originalMode: string | undefined;
 let originalStdout: string | undefined;
 let originalStderr: string | undefined;
 let originalStatsStdout: string | undefined;
+let originalGraphqlStdout: string | undefined;
+let originalThreadPageStdout: string | undefined;
+let originalCommentPageStdout: string | undefined;
 let originalMarker: string | undefined;
 
 beforeEach(async () => {
@@ -71,6 +134,9 @@ beforeEach(async () => {
   originalStdout = process.env.FAKE_GH_STDOUT;
   originalStderr = process.env.FAKE_GH_STDERR;
   originalStatsStdout = process.env.FAKE_GH_STATS_STDOUT;
+  originalGraphqlStdout = process.env.FAKE_GH_GRAPHQL_STDOUT;
+  originalThreadPageStdout = process.env.FAKE_GH_THREAD_PAGE_STDOUT;
+  originalCommentPageStdout = process.env.FAKE_GH_COMMENT_PAGE_STDOUT;
   originalMarker = process.env.REVIEW_TEST_MARKER;
 
   const executable = join(directory, 'gh');
@@ -95,9 +161,15 @@ appendFileSync(record, JSON.stringify({
 }) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
-const stdout = argv[0] === 'pr' && argv[1] === 'view' && process.env.FAKE_GH_STATS_STDOUT
-  ? process.env.FAKE_GH_STATS_STDOUT
-  : process.env.FAKE_GH_STDOUT;
+const stdout = argv.some((value) => value.startsWith('threadId=')) && process.env.FAKE_GH_COMMENT_PAGE_STDOUT
+  ? process.env.FAKE_GH_COMMENT_PAGE_STDOUT
+  : argv.some((value) => value.startsWith('threadsCursor=')) && process.env.FAKE_GH_THREAD_PAGE_STDOUT
+    ? process.env.FAKE_GH_THREAD_PAGE_STDOUT
+    : argv[0] === 'api' && process.env.FAKE_GH_GRAPHQL_STDOUT
+      ? process.env.FAKE_GH_GRAPHQL_STDOUT
+  : argv[0] === 'pr' && argv[1] === 'view' && process.env.FAKE_GH_STATS_STDOUT
+    ? process.env.FAKE_GH_STATS_STDOUT
+    : process.env.FAKE_GH_STDOUT;
 if (stdout) await Bun.stdout.write(stdout);
 process.exit(process.env.FAKE_GH_MODE === 'close-input' ? 29 : Number(process.env.FAKE_GH_MODE || 0));
 `
@@ -114,6 +186,9 @@ afterEach(async () => {
   restoreEnvironment('FAKE_GH_STDOUT', originalStdout);
   restoreEnvironment('FAKE_GH_STDERR', originalStderr);
   restoreEnvironment('FAKE_GH_STATS_STDOUT', originalStatsStdout);
+  restoreEnvironment('FAKE_GH_GRAPHQL_STDOUT', originalGraphqlStdout);
+  restoreEnvironment('FAKE_GH_THREAD_PAGE_STDOUT', originalThreadPageStdout);
+  restoreEnvironment('FAKE_GH_COMMENT_PAGE_STDOUT', originalCommentPageStdout);
   restoreEnvironment('REVIEW_TEST_MARKER', originalMarker);
   delete process.env.FAKE_GH_RECORD;
   await rm(directory, { recursive: true, force: true });
@@ -181,8 +256,9 @@ describe('GitHub CLI adapter contract', () => {
     ]);
   });
 
-  test('loads complete pull request details by canonical URL', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(detailsJson);
+  test('loads independent complete pull request detail sources by canonical URL', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
+    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);
     const github = createGitHubCliAdapter([]);
 
     const result = await github.loadPullRequestDetails(
@@ -190,7 +266,7 @@ describe('GitHub CLI adapter contract', () => {
       new AbortController().signal
     );
 
-    expect(result).toEqual({
+    expect(result.metadata).toEqual({
       ok: true,
       value: {
         number: 42,
@@ -210,27 +286,168 @@ describe('GitHub CLI adapter contract', () => {
         labels: ['review'],
         reviewDecision: 'REVIEW_REQUIRED',
         reviewRequests: ['reviewer', 'maintainers'],
-        latestReviews: [
-          {
-            author: 'previous-reviewer',
-            state: 'COMMENTED',
-            submittedAt: '2026-08-21T10:30:00Z',
-            body: 'One concern',
-          },
-        ],
       },
     });
-    expect(await readRecord()).toEqual({
-      argv: [
-        'pr',
-        'view',
-        detailsJson.url,
-        '--json',
-        'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests,latestReviews',
+    expect(result.reviews).toEqual({
+      ok: true,
+      value: [
+        {
+          author: 'previous-reviewer',
+          state: 'COMMENTED',
+          submittedAt: '2026-08-21T10:30:00Z',
+          body: 'One concern',
+        },
       ],
-      stdin: '',
-      marker: 'inherited',
     });
+    expect(result.checks).toEqual({
+      ok: true,
+      value: [{ name: 'build', state: 'SUCCESS' }],
+    });
+    expect(result.issueComments).toEqual({
+      ok: true,
+      value: [
+        {
+          id: 'IC_kwDO1',
+          author: 'commenter',
+          createdAt: '2026-08-21T09:00:00Z',
+          body: 'Issue comment body',
+        },
+      ],
+    });
+    expect(result.inlineComments).toEqual({
+      ok: true,
+      value: [
+        {
+          id: '91',
+          author: 'inline-reviewer',
+          createdAt: '2026-08-21T12:00:00Z',
+          body: 'Inline body',
+          path: 'src/widget.ts',
+          startLine: 3,
+          line: 5,
+          inReplyToId: null,
+          resolved: true,
+          outdated: true,
+        },
+      ],
+    });
+
+    const records = await readRecords();
+    expect(records).toHaveLength(5);
+    expect(records.map((record) => record.argv.slice(0, 4))).toContainEqual([
+      'pr',
+      'view',
+      detailsJson.url,
+      '--json',
+    ]);
+    const graphql = records.find((record) => record.argv[0] === 'api');
+    expect(graphql?.argv).not.toContain('--paginate');
+    expect(graphql?.argv).not.toContain('--slurp');
+    expect(graphql?.argv).toContain('owner=acme');
+    expect(graphql?.argv).toContain('repository=widgets');
+    expect(graphql?.argv).toContain('number=42');
+    expect(graphql?.marker).toBe('inherited');
+  });
+
+  test('loads every review-thread and long-thread comment page', async () => {
+    const inlineComment = {
+      databaseId: 91,
+      author: { login: 'inline-reviewer' },
+      createdAt: '2026-08-21T12:00:00Z',
+      body: 'Inline body',
+      path: 'src/widget.ts',
+      startLine: 3,
+      line: 5,
+      originalStartLine: null,
+      originalLine: null,
+      outdated: false,
+      replyTo: null,
+    };
+    process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
+    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: 'PRRT_first',
+                  isResolved: false,
+                  comments: {
+                    nodes: [inlineComment],
+                    pageInfo: {
+                      hasNextPage: true,
+                      endCursor: 'comments-next',
+                    },
+                  },
+                },
+              ],
+              pageInfo: { hasNextPage: true, endCursor: 'threads-next' },
+            },
+          },
+        },
+      },
+    });
+    process.env.FAKE_GH_THREAD_PAGE_STDOUT = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                {
+                  id: 'PRRT_second',
+                  isResolved: true,
+                  comments: {
+                    nodes: [{ ...inlineComment, databaseId: 93 }],
+                    pageInfo: { hasNextPage: false, endCursor: null },
+                  },
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      },
+    });
+    process.env.FAKE_GH_COMMENT_PAGE_STDOUT = JSON.stringify({
+      data: {
+        node: {
+          isResolved: false,
+          comments: {
+            nodes: [{ ...inlineComment, databaseId: 92 }],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      },
+    });
+
+    const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal
+    );
+
+    expect(result.inlineComments).toEqual({
+      ok: true,
+      value: [
+        expect.objectContaining({ id: '91', resolved: false }),
+        expect.objectContaining({ id: '92', resolved: false }),
+        expect.objectContaining({ id: '93', resolved: true }),
+      ],
+    });
+    const graphqlRecords = (await readRecords()).filter(
+      (record) => record.argv[0] === 'api'
+    );
+    expect(graphqlRecords).toHaveLength(3);
+    expect(
+      graphqlRecords.some((record) =>
+        record.argv.includes('threadsCursor=threads-next')
+      )
+    ).toBe(true);
+    expect(
+      graphqlRecords.some((record) =>
+        record.argv.includes('commentsCursor=comments-next')
+      )
+    ).toBe(true);
   });
 
   for (const [decision, flag, message] of [
@@ -257,141 +474,92 @@ describe('GitHub CLI adapter contract', () => {
     });
   }
 
-  test('reports an operation-specific startup failure with the operating-system diagnostic', async () => {
+  test('keeps independent startup failures on every detail source', async () => {
     process.env.PATH = directory;
     await rm(join(directory, 'gh'));
-    const github = createGitHubCliAdapter([]);
-    const signal = new AbortController().signal;
+    const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal
+    );
 
-    const results = [
-      ['reviewQueue', await github.loadReviewQueue(signal)],
-      [
-        'pullRequestDetails',
-        await github.loadPullRequestDetails(detailsJson.url, signal),
-      ],
-      [
-        'reviewSubmission',
-        await github.submitReview(
-          { url: detailsJson.url, decision: 'approve', message: '' },
-          signal
-        ),
-      ],
-    ] as const;
-
-    for (const [operation, result] of results) {
-      const failure = failureOf(result);
-      expect(failure).toMatchObject({
-        kind: 'startup',
-        operation,
-        executable: 'gh',
-      });
+    const failures = Object.values(result).map(failureOf);
+    expect(failures.map((failure) => failure.operation).sort()).toEqual([
+      'pullRequestChecks',
+      'pullRequestIssueComments',
+      'pullRequestMetadata',
+      'pullRequestReviewThreads',
+      'pullRequestReviews',
+    ]);
+    for (const failure of failures) {
+      expect(failure).toMatchObject({ kind: 'startup', executable: 'gh' });
       expect(diagnosticOf(failure)).toContain('gh');
     }
   });
 
-  test('preserves unsuccessful exit status and stderr unchanged for each operation', async () => {
+  test('preserves unsuccessful detail-source diagnostics independently', async () => {
     process.env.FAKE_GH_MODE = '23';
     process.env.FAKE_GH_STDERR = 'authentication failed\ntry gh auth login\n';
-    const github = createGitHubCliAdapter([]);
-    const signal = new AbortController().signal;
+    const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal
+    );
 
-    const results = [
-      await github.loadReviewQueue(signal),
-      await github.loadPullRequestDetails(detailsJson.url, signal),
-      await github.submitReview(
-        { url: detailsJson.url, decision: 'approve', message: '' },
-        signal
-      ),
-    ];
-
-    for (const result of results) {
-      expect(failureOf(result)).toMatchObject({
+    for (const source of Object.values(result)) {
+      expect(failureOf(source)).toMatchObject({
         kind: 'exit',
         exitCode: 23,
         stderr: 'authentication failed\ntry gh auth login\n',
+        url: detailsJson.url,
       });
     }
   });
 
-  test('reports malformed JSON for each data operation without exposing the response', async () => {
+  test('reports malformed and incompatible detail-source data without hiding other results', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify({
+      ...completeDetailsJson,
+      labels: [{ color: 'ffffff' }],
+    });
+    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);
+    const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal
+    );
+
+    const metadataFailure = failureOf(result.metadata);
+    expect(metadataFailure).toMatchObject({
+      kind: 'incompatibleData',
+      operation: 'pullRequestMetadata',
+    });
+    expect(diagnosticOf(metadataFailure)).toContain('$.labels[0].name');
+    expect(result.reviews.ok).toBe(true);
+    expect(result.checks.ok).toBe(true);
+    expect(result.issueComments.ok).toBe(true);
+    expect(result.inlineComments.ok).toBe(true);
+  });
+
+  test('reports queue malformed data and Review Submission process signals', async () => {
     process.env.FAKE_GH_STDOUT = '{not-json';
     process.env.FAKE_GH_STDERR = 'compatibility warning\n';
     const github = createGitHubCliAdapter([]);
-    const signal = new AbortController().signal;
-
-    const results = [
-      ['reviewQueue', await github.loadReviewQueue(signal)],
-      [
-        'pullRequestDetails',
-        await github.loadPullRequestDetails(detailsJson.url, signal),
-      ],
-    ] as const;
-
-    for (const [operation, result] of results) {
-      const failure = failureOf(result);
-      expect(failure).toMatchObject({
-        kind: 'malformedData',
-        operation,
-        stderr: 'compatibility warning\n',
-      });
-      expect(diagnosticOf(failure)).not.toContain('{not-json');
-    }
-  });
-
-  for (const [operation, stdout] of [
-    ['reviewQueue', JSON.stringify([{ ...queueJson[0], isDraft: 'no' }])],
-    [
-      'pullRequestDetails',
-      JSON.stringify({ ...detailsJson, labels: [{ color: 'ffffff' }] }),
-    ],
-  ] as const) {
-    test(`reports incompatible data with the invalid field for ${operation}`, async () => {
-      process.env.FAKE_GH_STDOUT = stdout;
-      const github = createGitHubCliAdapter([]);
-      const signal = new AbortController().signal;
-      const result =
-        operation === 'reviewQueue'
-          ? await github.loadReviewQueue(signal)
-          : await github.loadPullRequestDetails(detailsJson.url, signal);
-
-      const failure = failureOf(result);
-      expect(failure).toMatchObject({
-        kind: 'incompatibleData',
-        operation,
-      });
-      expect(diagnosticOf(failure)).toContain(
-        operation === 'reviewQueue' ? '$[0].isDraft' : '$.labels[0].name'
-      );
+    const malformed = failureOf(
+      await github.loadReviewQueue(new AbortController().signal)
+    );
+    expect(malformed).toMatchObject({
+      kind: 'malformedData',
+      operation: 'reviewQueue',
+      stderr: 'compatibility warning\n',
     });
-  }
+    expect(diagnosticOf(malformed)).not.toContain('{not-json');
 
-  test('reports a process signal as an operation-specific interruption', async () => {
     process.env.FAKE_GH_MODE = 'signal';
     process.env.FAKE_GH_STDERR = 'terminated by host\n';
-    const github = createGitHubCliAdapter([]);
-    const signal = new AbortController().signal;
-
-    const results = [
-      await github.loadPullRequestDetails(detailsJson.url, signal),
+    const interrupted = failureOf(
       await github.submitReview(
-        {
-          url: detailsJson.url,
-          decision: 'comment',
-          message: 'A review',
-        },
-        signal
-      ),
-    ];
-
-    expect(failureOf(results[0])).toMatchObject({
-      kind: 'interrupted',
-      operation: 'pullRequestDetails',
-      reason: 'signal',
-      signal: 'SIGTERM',
-      stderr: 'terminated by host\n',
-      url: detailsJson.url,
-    });
-    expect(failureOf(results[1])).toMatchObject({
+        { url: detailsJson.url, decision: 'comment', message: 'A review' },
+        new AbortController().signal
+      )
+    );
+    expect(interrupted).toMatchObject({
       kind: 'interrupted',
       operation: 'reviewSubmission',
       reason: 'signal',
@@ -440,15 +608,36 @@ describe('GitHub CLI adapter contract', () => {
   });
 });
 
-async function readRecords(): Promise<readonly unknown[]> {
+type ProcessRecord = {
+  readonly argv: readonly string[];
+  readonly stdin: string;
+  readonly marker: string;
+};
+
+async function readRecords(): Promise<readonly ProcessRecord[]> {
   const lines = (await readFile(recordPath(), 'utf8')).trim().split('\n');
   return lines.map((line) => {
     const parsed: unknown = JSON.parse(line);
+    if (!isProcessRecord(parsed)) throw new Error('invalid fake gh record');
     return parsed;
   });
 }
 
-async function readRecord(): Promise<unknown> {
+function isProcessRecord(value: unknown): value is ProcessRecord {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'argv' in value &&
+    Array.isArray(value.argv) &&
+    value.argv.every((argument) => typeof argument === 'string') &&
+    'stdin' in value &&
+    typeof value.stdin === 'string' &&
+    'marker' in value &&
+    typeof value.marker === 'string'
+  );
+}
+
+async function readRecord(): Promise<ProcessRecord | undefined> {
   const records = await readRecords();
   return records.at(-1);
 }

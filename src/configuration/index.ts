@@ -6,10 +6,16 @@ import type { UpdateBehavior } from '../types.ts';
 export const queueActions = [
   'selectPrevious',
   'selectNext',
+  'openDetails',
   'openDiff',
   'runReviewCommand',
   'composeReviewSubmission',
   'refresh',
+  'pagePrevious',
+  'pageNext',
+  'scrollStart',
+  'scrollEnd',
+  'showErrors',
   'showHelp',
   'quit',
 ] as const;
@@ -50,12 +56,18 @@ export type ConfigurationEnvironment = {
 const defaultKeyBindings = {
   selectPrevious: ['k', 'up'],
   selectNext: ['j', 'down'],
-  openDiff: ['d', 'enter'],
+  openDetails: ['enter'],
+  openDiff: ['d'],
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
   refresh: ['r'],
+  pagePrevious: ['ctrl+u'],
+  pageNext: ['ctrl+d'],
+  scrollStart: ['g', 'home'],
+  scrollEnd: ['shift+g', 'end'],
+  showErrors: ['e'],
   showHelp: ['?'],
-  quit: ['q'],
+  quit: ['q', 'escape'],
 } satisfies EffectiveKeyBindings;
 
 const defaultReviewConfigurationDocument = {
@@ -393,6 +405,7 @@ function validateKeyBindings(
     value: {
       selectPrevious: getEffectiveBindings(effective, 'selectPrevious'),
       selectNext: getEffectiveBindings(effective, 'selectNext'),
+      openDetails: getEffectiveBindings(effective, 'openDetails'),
       openDiff: getEffectiveBindings(effective, 'openDiff'),
       runReviewCommand: getEffectiveBindings(effective, 'runReviewCommand'),
       composeReviewSubmission: getEffectiveBindings(
@@ -400,6 +413,11 @@ function validateKeyBindings(
         'composeReviewSubmission'
       ),
       refresh: getEffectiveBindings(effective, 'refresh'),
+      pagePrevious: getEffectiveBindings(effective, 'pagePrevious'),
+      pageNext: getEffectiveBindings(effective, 'pageNext'),
+      scrollStart: getEffectiveBindings(effective, 'scrollStart'),
+      scrollEnd: getEffectiveBindings(effective, 'scrollEnd'),
+      showErrors: getEffectiveBindings(effective, 'showErrors'),
       showHelp: getEffectiveBindings(effective, 'showHelp'),
       quit: getEffectiveBindings(effective, 'quit'),
     },
