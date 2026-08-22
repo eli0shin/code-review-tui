@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -182,20 +182,22 @@ describe('Review configuration contract', () => {
       github: { search: 'is:pr author:octocat' },
     };
     const concurrentText = JSON.stringify(concurrentConfiguration);
-    const concurrentWrite = writeFile(file, concurrentText, {
-      flag: 'wx',
-    }).catch((error: unknown) => {
-      expect(
-        typeof error === 'object' &&
-          error !== null &&
-          'code' in error &&
-          error.code
-      ).toBe('EEXIST');
-    });
+    const concurrentFile = join(dirname(file), 'concurrent-config.json');
+    await writeFile(concurrentFile, concurrentText);
+    const concurrentCreation = link(concurrentFile, file).catch(
+      (error: unknown) => {
+        expect(
+          typeof error === 'object' &&
+            error !== null &&
+            'code' in error &&
+            error.code
+        ).toBe('EEXIST');
+      }
+    );
 
     const [result] = await Promise.all([
       loadReviewConfiguration(environment),
-      concurrentWrite,
+      concurrentCreation,
     ]);
     const finalText = await Bun.file(file).text();
 
