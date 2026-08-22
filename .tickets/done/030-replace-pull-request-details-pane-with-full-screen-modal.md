@@ -76,3 +76,9 @@ Treat all GitHub bodies as plain text. Preserve their line structure and wrap li
 ## Local follow-through
 
 After this change lands, the orchestrator must update `/home/elioshinsky/.config/review/config.json` to the new explicit bindings. This is a one-time personal configuration edit, not application migration behavior. The implementation worker must not modify files outside its worktree.
+
+Completed after merge with the new explicit bindings.
+
+## Resolution
+
+Implemented in PR #32 and squash-merged as `3bd014fbc897784640d41d663b1ff2e63a3a7d01`.
