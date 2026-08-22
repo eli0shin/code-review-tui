@@ -47,3 +47,7 @@ Apply these rules:
 - Coverage proves semantic accents on non-queue surfaces use the same tokens as equivalent Review Queue accents.
 - Coverage runs against representative light and dark terminal palettes so no surface silently introduces a theme-specific alternate background or foreground.
 - Existing interaction and native executable tests continue to pass.
+
+## Resolution
+
+Implemented in PR #35 and squash-merged as `9622da83706c77e5367bdd33d9cf9f9b25dd1a29`.
