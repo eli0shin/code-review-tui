@@ -54,3 +54,7 @@ Do not create the file for commands that already work without it. Do not replace
 - Automated tests cover creation, continuation, silence, existing invalid files, and commands that do not require configuration.
 - User documentation describes the generated defaults.
 - A patch changeset records the fix.
+
+## Resolution
+
+Implemented in PR #24 and squash-merged as `6b8e27d35cf92552d8d7b986a1ec8bb70ebe7279`.
