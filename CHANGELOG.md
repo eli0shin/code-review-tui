@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.2
+
+### Patch Changes
+
+- [#27](https://github.com/eli0shin/code-review-tui/pull/27) [`687a8d1`](https://github.com/eli0shin/code-review-tui/commit/687a8d1b3ec7b52c98cdc4e05bf5563cb655c722) Thanks [@eli0shin](https://github.com/eli0shin)! - Generate a valid positional Pi Review Command in new configuration files.
+
 ## 0.2.1
 
 ### Patch Changes
