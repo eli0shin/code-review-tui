@@ -4,8 +4,7 @@ Tags:
   - task
   - afk
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 021-build-opentui-review-queue-and-submission
+Blocked-By: []
 ---
 
 ## Goal

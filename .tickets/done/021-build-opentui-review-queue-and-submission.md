@@ -21,3 +21,7 @@ Finish the visible Review Queue and Review Submission UI.
 - The existing Review Submission behavior is presented in the accepted compact modal. Do not redesign its behavior.
 - Renderer tests cover the visible states and key handling.
 - The user reviews the rendered PR-list screen before this ticket is complete.
+
+## Resolution
+
+Implemented and merged in PR #21 as commit `2c6264e123bea720f2417e749124062ac85e3644`. The user directed that later visual issues use follow-up tickets instead of extending this PR.

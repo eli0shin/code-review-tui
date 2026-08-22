@@ -51,7 +51,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Implement Review Submission behavior](../done/018-implement-review-submission-behavior.md).
 - ~~[Implement the Herdr socket adapter](../done/019-implement-herdr-adapter.md)~~ — Rejected; ticket 025 replaces it with CLI execution.
 - [Connect Review Queue Herdr actions](../done/020-connect-review-queue-herdr-actions.md).
-- [Build the OpenTUI Review Queue and submission](021-build-opentui-review-queue-and-submission.md).
+- [Build the OpenTUI Review Queue and submission](../done/021-build-opentui-review-queue-and-submission.md).
 - [Compose startup, shutdown, and smoke tests](022-compose-review-startup-shutdown-and-smoke-tests.md).
 - [Validate the first Review release](023-validate-first-review-release.md).
 
