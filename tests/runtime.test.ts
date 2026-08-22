@@ -78,7 +78,7 @@ describe('Review runtime lifecycle', () => {
     ]);
   });
 
-  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) {
     test(`${signal} exits with the same cleanup`, async () => {
       const runtime = runtimeFixture();
 

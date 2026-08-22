@@ -1,7 +1,7 @@
 import type { CliRenderer } from '@opentui/core';
 import type { Root } from '@opentui/react';
 
-const terminationSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const terminationSignals = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const;
 
 type RuntimeInput = {
   once(event: 'end', listener: () => void): unknown;
