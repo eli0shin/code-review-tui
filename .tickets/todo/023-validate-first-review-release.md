@@ -4,8 +4,7 @@ Tags:
   - task
   - hitl
 Parent: 001-build-the-review-cli
-Blocked-By:
-  - 022-compose-review-startup-shutdown-and-smoke-tests
+Blocked-By: []
 ---
 
 ## Goal
@@ -21,6 +20,6 @@ Validate the finished CLI and its documentation.
 - Generated files and binaries contain only intended changes.
 - The user accepts the finished CLI.
 
-## Release gate
+## Release authorization
 
-Do not inspect, update, publish, or merge a release pull request until the user accepts the finished CLI and explicitly authorizes release work.
+The user authorized completion and publication on 2026-08-22. Validate the finished CLI and generated release output before publishing.

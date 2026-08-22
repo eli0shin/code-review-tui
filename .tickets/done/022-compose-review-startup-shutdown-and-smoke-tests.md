@@ -19,3 +19,7 @@ Make the `review` executable start and stop correctly.
 - Exit stops input, unmounts the page, and destroys the renderer.
 - Exit does not close Herdr tabs that run Lumen or Review Commands.
 - Native smoke tests cover successful startup, startup failure, and exit.
+
+## Resolution
+
+Implemented and merged in PR #22 as commit `53cba2909ff580766b6fe3c474b430eba75c9c4d`.
