@@ -19,7 +19,7 @@ A complete example is:
   "github": {
     "search": "is:pr review-requested:@me state:open"
   },
-  "reviewCommand": "pi --prompt \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
+  "reviewCommand": "pi \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],
@@ -118,7 +118,7 @@ For example:
 ```json
 {
   "github": { "search": "review-requested:@me state:open" },
-  "reviewCommand": "pi --prompt \"Review $REVIEW_PR_REPOSITORY#$REVIEW_PR_NUMBER ($REVIEW_PR_TITLE): $REVIEW_PR_URL\""
+  "reviewCommand": "pi \"Review $REVIEW_PR_REPOSITORY#$REVIEW_PR_NUMBER ($REVIEW_PR_TITLE): $REVIEW_PR_URL\""
 }
 ```
 

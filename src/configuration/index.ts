@@ -61,7 +61,7 @@ const defaultKeyBindings = {
 const defaultReviewConfigurationDocument = {
   github: { search: 'is:pr review-requested:@me state:open' },
   reviewCommand:
-    'pi --prompt "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
+    'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
   keyBindings: defaultKeyBindings,
   config: {
     updateBehavior: 'auto',
