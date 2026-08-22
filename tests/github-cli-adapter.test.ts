@@ -17,8 +17,16 @@ const queueJson = [
     updatedAt: '2026-08-21T11:00:00Z',
     url: 'https://github.example/acme/widgets/pull/42',
     repository: { name: 'widgets', nameWithOwner: 'acme/widgets' },
+    labels: [{ name: 'review' }],
+    commentsCount: 4,
   },
 ];
+
+const queueStatsJson = {
+  additions: 12,
+  deletions: 3,
+  changedFiles: 2,
+};
 
 const detailsJson = {
   number: 42,
@@ -53,6 +61,7 @@ let originalPath: string | undefined;
 let originalMode: string | undefined;
 let originalStdout: string | undefined;
 let originalStderr: string | undefined;
+let originalStatsStdout: string | undefined;
 let originalMarker: string | undefined;
 
 beforeEach(async () => {
@@ -61,13 +70,14 @@ beforeEach(async () => {
   originalMode = process.env.FAKE_GH_MODE;
   originalStdout = process.env.FAKE_GH_STDOUT;
   originalStderr = process.env.FAKE_GH_STDERR;
+  originalStatsStdout = process.env.FAKE_GH_STATS_STDOUT;
   originalMarker = process.env.REVIEW_TEST_MARKER;
 
   const executable = join(directory, 'gh');
   await writeFile(
     executable,
     `#!/usr/bin/env bun
-import { closeSync } from 'node:fs';
+import { appendFileSync, closeSync } from 'node:fs';
 const record = process.env.FAKE_GH_RECORD;
 let stdin = '';
 if (process.env.FAKE_GH_MODE === 'close-input') {
@@ -77,14 +87,18 @@ if (process.env.FAKE_GH_MODE === 'close-input') {
   stdin = await Bun.stdin.text();
 }
 if (process.env.FAKE_GH_STDERR) await Bun.stderr.write(process.env.FAKE_GH_STDERR);
-await Bun.write(record, JSON.stringify({
-  argv: process.argv.slice(2),
+const argv = process.argv.slice(2);
+appendFileSync(record, JSON.stringify({
+  argv,
   stdin,
   marker: process.env.REVIEW_TEST_MARKER,
-}));
+}) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
-if (process.env.FAKE_GH_STDOUT) await Bun.stdout.write(process.env.FAKE_GH_STDOUT);
+const stdout = argv[0] === 'pr' && argv[1] === 'view' && process.env.FAKE_GH_STATS_STDOUT
+  ? process.env.FAKE_GH_STATS_STDOUT
+  : process.env.FAKE_GH_STDOUT;
+if (stdout) await Bun.stdout.write(stdout);
 process.exit(process.env.FAKE_GH_MODE === 'close-input' ? 29 : Number(process.env.FAKE_GH_MODE || 0));
 `
   );
@@ -99,6 +113,7 @@ afterEach(async () => {
   restoreEnvironment('FAKE_GH_MODE', originalMode);
   restoreEnvironment('FAKE_GH_STDOUT', originalStdout);
   restoreEnvironment('FAKE_GH_STDERR', originalStderr);
+  restoreEnvironment('FAKE_GH_STATS_STDOUT', originalStatsStdout);
   restoreEnvironment('REVIEW_TEST_MARKER', originalMarker);
   delete process.env.FAKE_GH_RECORD;
   await rm(directory, { recursive: true, force: true });
@@ -107,6 +122,7 @@ afterEach(async () => {
 describe('GitHub CLI adapter contract', () => {
   test('loads the Review Queue with exact argv, inherited environment, and domain conversion', async () => {
     process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
     const github = createGitHubCliAdapter([
       'review-requested:@me',
       'team:platform reviewers',
@@ -127,24 +143,42 @@ describe('GitHub CLI adapter contract', () => {
           updatedAt: '2026-08-21T11:00:00Z',
           url: 'https://github.example/acme/widgets/pull/42',
           repository: 'acme/widgets',
+          additions: 12,
+          deletions: 3,
+          changedFiles: 2,
+          labels: ['review'],
+          commentsCount: 4,
         },
       ],
     });
-    expect(await readRecord()).toEqual({
-      argv: [
-        'search',
-        'prs',
-        '--json',
-        'number,title,author,isDraft,state,createdAt,updatedAt,url,repository',
-        '--limit',
-        '1000',
-        '--',
-        'review-requested:@me',
-        'team:platform reviewers',
-      ],
-      stdin: '',
-      marker: 'inherited',
-    });
+    expect(await readRecords()).toEqual([
+      {
+        argv: [
+          'search',
+          'prs',
+          '--json',
+          'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount',
+          '--limit',
+          '1000',
+          '--',
+          'review-requested:@me',
+          'team:platform reviewers',
+        ],
+        stdin: '',
+        marker: 'inherited',
+      },
+      {
+        argv: [
+          'pr',
+          'view',
+          'https://github.example/acme/widgets/pull/42',
+          '--json',
+          'additions,deletions,changedFiles',
+        ],
+        stdin: '',
+        marker: 'inherited',
+      },
+    ]);
   });
 
   test('loads complete pull request details by canonical URL', async () => {
@@ -406,9 +440,17 @@ describe('GitHub CLI adapter contract', () => {
   });
 });
 
+async function readRecords(): Promise<readonly unknown[]> {
+  const lines = (await readFile(recordPath(), 'utf8')).trim().split('\n');
+  return lines.map((line) => {
+    const parsed: unknown = JSON.parse(line);
+    return parsed;
+  });
+}
+
 async function readRecord(): Promise<unknown> {
-  const value: unknown = JSON.parse(await readFile(recordPath(), 'utf8'));
-  return value;
+  const records = await readRecords();
+  return records.at(-1);
 }
 
 async function waitForRecord(): Promise<void> {

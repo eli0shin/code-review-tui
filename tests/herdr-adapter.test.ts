@@ -22,6 +22,11 @@ const pullRequest = {
   state: 'open',
   createdAt: '2026-08-20T10:00:00Z',
   updatedAt: '2026-08-21T11:00:00Z',
+  additions: 12,
+  deletions: 3,
+  changedFiles: 2,
+  labels: ['review'],
+  commentsCount: 4,
 } satisfies PullRequestSummary;
 
 let directory: string;

@@ -24,7 +24,7 @@ TanStack React Query owns request deduplication, polling, status, caching, and c
 A load is atomic:
 
 - Keep the current Review Queue visible while a refresh is active.
-- Replace it only after GitHub CLI exits successfully and the complete JSON array passes validation.
+- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation.
 - Treat malformed JSON, a non-array result, or any item without a required field as a failed load. Do not display a partial result.
 - An empty valid array is a successful load and an empty Review Queue.
 
@@ -81,6 +81,8 @@ For each failure, show:
 4. a direct retry action when the operation is retryable.
 
 If the process cannot start, identify `gh` as the executable and include the operating-system error. If GitHub CLI exits unsuccessfully with empty stderr, include its exit status and a fallback message. A parse failure must say that GitHub CLI returned malformed JSON. A validation failure must say that GitHub CLI returned unexpected or incompatible data and identify the missing or invalid required field when possible. Do not display the full response because it can be large or contain unexpected data.
+
+Keep queue and detail diagnostics inline when they fit in the available rendered rows at the current terminal width. Diagnostics that do not fit open a focused, bounded error surface. Arrow keys, Page Up, Page Down, Home, and End make the complete unchanged stderr reachable. Escape returns to the Review Queue. While this surface owns input, Review Queue actions do not run, except that the effective refresh binding retries the Review Queue load.
 
 Keep each failure at its boundary:
 

@@ -8,6 +8,11 @@ export type PullRequestSummary = {
   readonly state: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changedFiles: number;
+  readonly labels: readonly string[];
+  readonly commentsCount: number;
 };
 
 export type PullRequestReview = {
