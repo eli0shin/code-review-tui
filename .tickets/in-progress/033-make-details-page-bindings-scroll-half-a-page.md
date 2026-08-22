@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@033-make-details-page-bindings-scroll-half-a-page
 Tags:
   - bug
   - ui

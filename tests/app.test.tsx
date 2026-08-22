@@ -152,6 +152,14 @@ function pendingDetails(): Promise<PullRequestDetailSources> {
   return new Promise(() => undefined);
 }
 
+function firstDescriptionLine(frame: string): number {
+  const match = /description line (\d+)/.exec(frame);
+  if (match?.[1] === undefined) {
+    throw new Error('A visible description line is required');
+  }
+  return Number(match[1]);
+}
+
 describe('Review Queue page loading', () => {
   test('loads on mount, r, and 60 seconds and cancels on unmount', async () => {
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
@@ -378,6 +386,99 @@ describe('Review Queue page loading', () => {
     expect(descriptionFrame).toContain('# literal **Markdown**');
     await act(async () => view.mockInput.pressKey('u'));
     view.renderer.destroy();
+  });
+
+  test('moves details page actions by the current half viewport and clamps at both ends', async () => {
+    const details = {
+      ...pullRequestDetails('Half-page details'),
+      body: Array.from(
+        { length: 60 },
+        (_, index) => `description line ${index}`
+      ).join('\n'),
+    };
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(details);
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 9,
+    });
+
+    const press = async (
+      key: string,
+      modifiers?: { readonly ctrl?: boolean }
+    ) => {
+      await act(async () => {
+        view.mockInput.pressKey(key, modifiers);
+        await view.renderOnce();
+      });
+    };
+
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    const startFrame = await view.waitForFrame((frame) =>
+      frame.includes('Half-page details')
+    );
+
+    await press('d', { ctrl: true });
+    const firstDownFrame = view.captureCharFrame();
+    expect(firstDownFrame.split('\n')[0]?.trimStart()).toStartWith(
+      'octocat · open'
+    );
+
+    await press('d', { ctrl: true });
+    expect(view.captureCharFrame().split('\n')[0]?.trimStart()).toStartWith(
+      'Reviewers'
+    );
+
+    await press('u', { ctrl: true });
+    expect(view.captureCharFrame()).toBe(firstDownFrame);
+    await press('u', { ctrl: true });
+    expect(view.captureCharFrame()).toBe(startFrame);
+    await press('u', { ctrl: true });
+    expect(view.captureCharFrame()).toBe(startFrame);
+
+    await press('END');
+    const endFrame = view.captureCharFrame();
+    const endDescriptionLine = firstDescriptionLine(endFrame);
+    await press('d', { ctrl: true });
+    expect(view.captureCharFrame()).toBe(endFrame);
+    await press('u', { ctrl: true });
+    expect(firstDescriptionLine(view.captureCharFrame())).toBe(
+      endDescriptionLine - 4
+    );
+
+    for (let index = 0; index < 30; index += 1) {
+      await press('u', { ctrl: true });
+    }
+    expect(view.captureCharFrame()).toBe(startFrame);
+
+    await act(async () => {
+      view.resize(100, 1);
+      await view.renderOnce();
+    });
+    expect(view.captureCharFrame()).toContain('Pull request details');
+    await press('d', { ctrl: true });
+    expect(view.captureCharFrame()).not.toContain('Pull request details');
+    await press('d', { ctrl: true });
+    expect(view.captureCharFrame()).toContain('Pull request');
+    await press('u', { ctrl: true });
+    expect(view.captureCharFrame()).not.toContain('Pull request');
+    await press('u', { ctrl: true });
+    expect(view.captureCharFrame()).toContain('Pull request details');
+    act(() => {
+      view.renderer.destroy();
+    });
   });
 
   test('keeps successful sources visible and exposes unchanged failed-source diagnostics', async () => {
