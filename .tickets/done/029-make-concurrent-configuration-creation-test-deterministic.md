@@ -23,3 +23,7 @@ The product contract requires exclusive creation and no overwrite. It does not r
 - Existing coverage still proves that a complete concurrently created configuration can be loaded.
 - The full suite is stable across repeated runs.
 - No product lifecycle machinery, retries, scheduler, or changeset is added.
+
+## Resolution
+
+Implemented in PR #28 and squash-merged as `383d54e5b2637cf54e6ab844f6b09f6c409fe8de`.
