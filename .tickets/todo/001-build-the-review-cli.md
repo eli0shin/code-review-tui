@@ -53,7 +53,7 @@ Build the complete `review` CLI as scoped: a personal OpenTUI React application 
 - [Connect Review Queue Herdr actions](../done/020-connect-review-queue-herdr-actions.md).
 - [Build the OpenTUI Review Queue and submission](../done/021-build-opentui-review-queue-and-submission.md).
 - [Compose startup, shutdown, and smoke tests](../done/022-compose-review-startup-shutdown-and-smoke-tests.md).
-- [Validate the first Review release](023-validate-first-review-release.md).
+- [Validate the first Review release](../in-progress/023-validate-first-review-release.md).
 
 ## Out of scope
 

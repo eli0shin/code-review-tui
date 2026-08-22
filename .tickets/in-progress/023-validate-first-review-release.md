@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@023-validate-first-review-release
 Tags:
   - task
   - hitl

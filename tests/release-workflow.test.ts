@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 
 const workflowPath = join(import.meta.dir, '../.github/workflows/version.yml');
+const ciWorkflowPath = join(import.meta.dir, '../.github/workflows/ci.yml');
 const releaseCondition = "steps.check-release.outputs.needs_binaries == 'true'";
 const artifacts = [
   'review-linux-x64',
@@ -24,14 +25,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function workflowSteps(source: string): WorkflowStep[] {
+function workflowJob(source: string, name: string): Record<string, unknown> {
   const workflow: unknown = parse(source);
-  if (!isRecord(workflow)) throw new Error('Invalid release workflow');
+  if (!isRecord(workflow)) throw new Error('Invalid workflow');
   const jobs = workflow['jobs'];
   if (!isRecord(jobs)) throw new Error('Missing workflow jobs');
-  const version = jobs['version'];
-  if (!isRecord(version)) throw new Error('Missing version job');
-  const steps = version['steps'];
+  const job = jobs[name];
+  if (!isRecord(job)) throw new Error(`Missing ${name} job`);
+  return job;
+}
+
+function workflowSteps(source: string): WorkflowStep[] {
+  const steps = workflowJob(source, 'version')['steps'];
   if (!Array.isArray(steps)) throw new Error('Missing version workflow steps');
 
   return steps.map((value) => {
@@ -62,6 +67,52 @@ function listedArtifacts(run: string | undefined): string[] {
 }
 
 describe('release workflow', () => {
+  test('builds and starts every artifact on its native runner', async () => {
+    const source = await readFile(ciWorkflowPath, 'utf8');
+    const job = workflowJob(source, 'native-artifacts');
+    const strategy = job['strategy'];
+    if (!isRecord(strategy)) throw new Error('Missing native strategy');
+    const matrix = strategy['matrix'];
+    if (!isRecord(matrix) || !Array.isArray(matrix['include'])) {
+      throw new Error('Missing native matrix');
+    }
+
+    expect(matrix['include']).toEqual([
+      {
+        runner: 'ubuntu-24.04',
+        target: 'bun-linux-x64',
+        artifact: 'review-linux-x64',
+      },
+      {
+        runner: 'ubuntu-24.04-arm',
+        target: 'bun-linux-arm64',
+        artifact: 'review-linux-arm64',
+      },
+      {
+        runner: 'macos-15-intel',
+        target: 'bun-darwin-x64',
+        artifact: 'review-darwin-x64',
+      },
+      {
+        runner: 'macos-15',
+        target: 'bun-darwin-arm64',
+        artifact: 'review-darwin-arm64',
+      },
+    ]);
+    expect(job['runs-on']).toBe('${{ matrix.runner }}');
+
+    const steps = job['steps'];
+    if (!Array.isArray(steps)) throw new Error('Missing native steps');
+    const commands = steps.flatMap((step) =>
+      isRecord(step) && typeof step['run'] === 'string' ? [step['run']] : []
+    );
+    expect(commands).toContain('bun install --frozen-lockfile');
+    expect(commands).toContain(
+      'bun build src/cli.tsx --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }}'
+    );
+    expect(commands).toContain('./${{ matrix.artifact }} --version');
+  });
+
   test('repairs every native artifact from the exact release tag', async () => {
     const source = await readFile(workflowPath, 'utf8');
     const steps = workflowSteps(source);

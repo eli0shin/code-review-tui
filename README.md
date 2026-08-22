@@ -4,22 +4,42 @@ A personal terminal interface for reviewing GitHub pull requests.
 
 Run `review` inside a Herdr pane. The application loads the configured GitHub pull request search into the **Review Queue**. From the queue, you can inspect pull request details, open Lumen, run a Review Command, and submit a review.
 
+## Requirements
+
+- x64 or arm64 macOS, or glibc Linux. musl Linux is not supported.
+- [GitHub CLI](https://cli.github.com/) installed and authenticated with `gh auth login`.
+- [Herdr](https://herdr.dev/) and [Lumen](https://github.com/jnsahaj/lumen) installed and available on `PATH`.
+
+Run `review` inside a Herdr pane. Start it in a Git or Jujutsu repository if you want to open Lumen.
+
 ## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/eli0shin/code-review-tui/main/install.sh | bash
 ```
 
-The installer supports x64 and arm64 glibc Linux and macOS systems. It rejects musl Linux because the published Linux executables require glibc. It installs the `review` executable to `~/.local/bin`.
+The installer puts `review` in `~/.local/bin`. Add that directory to `PATH` when the installer asks you to do so.
 
-Create `$XDG_CONFIG_HOME/review/config.json` or `~/.config/review/config.json`:
+## Configure
+
+Create `$XDG_CONFIG_HOME/review/config.json`. When `XDG_CONFIG_HOME` is not an absolute path, use `~/.config/review/config.json`:
 
 ```json
 {
   "github": {
     "search": "review-requested:@me state:open"
   },
-  "reviewCommand": "pi --prompt 'Review $REVIEW_PR_URL'",
+  "reviewCommand": "pi --prompt \"Review $REVIEW_PR_URL\"",
+  "keyBindings": {
+    "selectPrevious": ["k", "up"],
+    "selectNext": ["j", "down"],
+    "openDiff": ["d", "enter"],
+    "runReviewCommand": ["c"],
+    "composeReviewSubmission": ["s"],
+    "refresh": ["r"],
+    "showHelp": ["?"],
+    "quit": ["q"]
+  },
   "config": {
     "updateBehavior": "notify",
     "updateCheckIntervalHours": 12
@@ -27,9 +47,36 @@ Create `$XDG_CONFIG_HOME/review/config.json` or `~/.config/review/config.json`:
 }
 ```
 
-Use `review update` to install the latest native release. The executable also checks for stable updates in a detached worker.
+`github.search` contains GitHub pull request search terms, not extra `gh` flags. `keyBindings` and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
-`updateBehavior` can be `auto`, `notify`, or `off`. Update state uses `$XDG_STATE_HOME/review-update-state` or `~/.review-update-state`.
+See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
+
+## Use the Review Queue
+
+| Default key | Action                                                |
+| ----------- | ----------------------------------------------------- |
+| `j`/`down`  | Move the Cursor to the next pull request.             |
+| `k`/`up`    | Move the Cursor to the previous pull request.         |
+| `d`/`enter` | Open the pull request in `lumen diff` in a Herdr tab. |
+| `c`         | Run the configured Review Command in a Herdr tab.     |
+| `s`         | Compose a Review Submission.                          |
+| `r`         | Refresh the Review Queue.                             |
+| `?`         | Show the effective Review Queue keys.                 |
+| `q`         | Quit.                                                 |
+
+The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
+
+A Review Submission can comment, approve, or request changes. In the submission modal, use `Tab` and `Shift+Tab` to move between the message and decision, arrow keys to change the decision, `Ctrl+S` to submit, and `Esc` to cancel. Comments and change requests need a nonblank message. Approvals can have an empty message. Review submits one top-level GitHub review; inline comments are not supported.
+
+## Update
+
+Run `review update` to install the latest stable native release. The configured update behavior is:
+
+- `auto` (default): check in a detached worker and install a newer stable release.
+- `notify`: check in a detached worker and print an available-version notice on a later command.
+- `off`: do not check automatically. Manual `review update` still works.
+
+`updateCheckIntervalHours` defaults to `24`. Update state uses `$XDG_STATE_HOME/review-update-state` when `XDG_STATE_HOME` is set, or `~/.review-update-state` otherwise.
 
 ## Development
 
