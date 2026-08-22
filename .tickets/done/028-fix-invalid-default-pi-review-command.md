@@ -29,3 +29,7 @@ The Review Command remains an opaque configured shell command after generation.
 - User documentation shows the valid command.
 - Existing user configuration is never rewritten.
 - A patch changeset records the fix.
+
+## Resolution
+
+Implemented in PR #27 and squash-merged as `687a8d1b3ec7b52c98cdc4e05bf5563cb655c722`.
