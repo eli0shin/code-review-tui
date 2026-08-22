@@ -20,7 +20,7 @@ import {
   QueryClientProvider,
   useQuery,
 } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   normalizeKeyDescriptor,
   queueActions,
@@ -442,19 +442,33 @@ function ReviewQueueContent({
   readonly theme: SystemTheme | undefined;
 }) {
   const queueViewportRef = useRef<ScrollBoxRenderable>(null);
+  const terminal = useTerminalDimensions();
+  const keepCursorVisible = useCallback(
+    (viewport: ScrollBoxRenderable | null = queueViewportRef.current) => {
+      if (viewport === null) return;
+      const rowHeight = 4;
+      const rowTop = cursorPosition * rowHeight;
+      const rowBottom = rowTop + rowHeight;
+      const viewportTop = viewport.scrollTop;
+      const viewportBottom = viewportTop + viewport.viewport.height;
+      if (rowTop < viewportTop) viewport.scrollTop = rowTop;
+      else if (rowBottom > viewportBottom) {
+        viewport.scrollTop = rowBottom - viewport.viewport.height;
+      }
+    },
+    [cursorPosition]
+  );
+  const handleViewportSizeChange = useCallback(
+    function (this: ScrollBoxRenderable) {
+      keepCursorVisible(this);
+    },
+    [keepCursorVisible]
+  );
+  useEffect(keepCursorVisible, [keepCursorVisible, queue.length]);
   useEffect(() => {
-    const viewport = queueViewportRef.current;
-    if (viewport === null) return;
-    const rowHeight = 4;
-    const rowTop = cursorPosition * rowHeight;
-    const rowBottom = rowTop + rowHeight;
-    const viewportTop = viewport.scrollTop;
-    const viewportBottom = viewportTop + viewport.viewport.height;
-    if (rowTop < viewportTop) viewport.scrollTop = rowTop;
-    else if (rowBottom > viewportBottom) {
-      viewport.scrollTop = rowBottom - viewport.viewport.height;
-    }
-  }, [cursorPosition, queue.length]);
+    const correction = setTimeout(keepCursorVisible, 0);
+    return () => clearTimeout(correction);
+  }, [keepCursorVisible, terminal.height, terminal.width]);
 
   return (
     <box flexGrow={1} flexDirection="column" paddingLeft={2} paddingRight={2}>
@@ -509,6 +523,7 @@ function ReviewQueueContent({
       </box>
       <scrollbox
         ref={queueViewportRef}
+        onSizeChange={handleViewportSizeChange}
         flexGrow={1}
         flexShrink={1}
         minHeight={4}

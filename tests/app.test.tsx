@@ -362,7 +362,7 @@ describe('Review Queue page loading', () => {
     } satisfies GitHub;
     const view = await testRender(reviewQueuePage(github), {
       width: 100,
-      height: 16,
+      height: 30,
     });
     await view.waitForFrame((frame) => frame.includes('Details #7'));
 
@@ -376,6 +376,17 @@ describe('Review Queue page loading', () => {
     expect(finalFrame).not.toContain('Queue item 7');
     expect(finalFrame).toContain('Pull request details');
     expect(finalFrame).toContain('j/k move');
+
+    await act(async () => {
+      view.resize(100, 16);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await view.renderOnce();
+    });
+    const resizedFrame = await view.waitForFrame(
+      (frame) =>
+        frame.includes('Details #12') && frame.includes('Queue item 12')
+    );
+    expect(resizedFrame).not.toContain('Queue item 7');
     view.renderer.destroy();
   });
 
