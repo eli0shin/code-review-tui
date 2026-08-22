@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.4
+
+### Patch Changes
+
+- [#33](https://github.com/eli0shin/code-review-tui/pull/33) [`2ab7238`](https://github.com/eli0shin/code-review-tui/commit/2ab72386d5a424fa5900d45f53fdf5e50eb5be61) Thanks [@eli0shin](https://github.com/eli0shin)! - Make the configurable details page actions scroll by half of the current visible viewport.
+
 ## 0.2.3
 
 ### Patch Changes
