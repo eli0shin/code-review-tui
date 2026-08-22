@@ -92,7 +92,7 @@ async function openHerdrTab(
       'pane',
       'run',
       created.value.paneId,
-      `${command}; herdr tab focus ${shellQuote(context.reviewQueueTabId)}`,
+      `${command}; herdr tab focus ${shellQuote(context.reviewQueueTabId)}; herdr tab close ${shellQuote(created.value.tabId)}`,
     ],
     herdrEnvironment,
     'runCommand'

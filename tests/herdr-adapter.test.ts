@@ -50,7 +50,14 @@ if (process.env.FAKE_HERDR_FAIL_ONCE) {
 }
 if (process.argv[2] === 'tab' && process.argv[3] === 'create') {
   if (process.env.FAKE_HERDR_MALFORMED) await Bun.stdout.write('{bad-json');
-  else await Bun.stdout.write(JSON.stringify({ result: { tab: { tab_id: 'w1:t9', ignored: true }, root_pane: { pane_id: 'w1:p9', ignored: true } }, ignored: true }));
+  else await Bun.stdout.write(JSON.stringify({ result: { tab: { tab_id: process.env.FAKE_HERDR_CREATED_TAB_ID ?? 'w1:t9', ignored: true }, root_pane: { pane_id: 'w1:p9', ignored: true } }, ignored: true }));
+}
+if (process.env.FAKE_HERDR_FAIL_CLEANUP_FOCUS && process.argv[2] === 'tab' && process.argv[3] === 'focus' && process.argv[4] === process.env.HERDR_TAB_ID) {
+  process.exit(24);
+}
+if (process.env.FAKE_HERDR_EXECUTE_PANE && process.argv[2] === 'pane' && process.argv[3] === 'run') {
+  const result = Bun.spawnSync(['/bin/sh', '-c', process.argv[5]], { env: process.env });
+  process.exit(result.exitCode);
 }
 `
   );
@@ -85,7 +92,7 @@ describe('Herdr CLI adapter contract', () => {
         'pane',
         'run',
         'w1:p9',
-        "lumen diff 'https://github.example/acme/widgets/pull/42'; herdr tab focus 'w1:t1'",
+        "lumen diff 'https://github.example/acme/widgets/pull/42'; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'",
       ],
       ['tab', 'focus', 'w1:t9'],
     ]);
@@ -132,7 +139,7 @@ describe('Herdr CLI adapter contract', () => {
         'pane',
         'run',
         'w1:p9',
-        `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr tab focus 'w1:t1'`,
+        `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'`,
       ],
       ['tab', 'focus', 'w1:t9'],
     ]);
@@ -167,8 +174,12 @@ describe('Herdr CLI adapter contract', () => {
     expect(await calls()).toHaveLength(4);
   });
 
-  test('quotes the best-effort Review Queue focus command after the launched command', async () => {
-    const herdr = createAdapter({}, undefined, "queue'tab");
+  test('quotes both cleanup tab IDs after the launched command', async () => {
+    const herdr = createAdapter(
+      {},
+      { FAKE_HERDR_CREATED_TAB_ID: "created'tab" },
+      "queue'tab"
+    );
 
     expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
 
@@ -176,7 +187,27 @@ describe('Herdr CLI adapter contract', () => {
       'pane',
       'run',
       'w1:p9',
-      `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr tab focus 'queue'"'"'tab'`,
+      `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr tab focus 'queue'"'"'tab'; herdr tab close 'created'"'"'tab'`,
+    ]);
+  });
+
+  test('attempts tab close when best-effort Review Queue focus fails', async () => {
+    const herdr = createAdapter(
+      {},
+      {
+        FAKE_HERDR_EXECUTE_PANE: '1',
+        FAKE_HERDR_FAIL_CLEANUP_FOCUS: '1',
+      },
+      'w1:t1',
+      'true'
+    );
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    expect((await calls()).slice(2)).toEqual([
+      ['tab', 'focus', 'w1:t1'],
+      ['tab', 'close', 'w1:t9'],
+      ['tab', 'focus', 'w1:t9'],
     ]);
   });
 });
@@ -184,10 +215,11 @@ describe('Herdr CLI adapter contract', () => {
 function createAdapter(
   environment: NodeJS.ProcessEnv,
   extraHerdrEnvironment: NodeJS.ProcessEnv = {},
-  reviewQueueTabId = 'w1:t1'
+  reviewQueueTabId = 'w1:t1',
+  reviewCommand = 'pi --prompt "Review $REVIEW_PR_URL"'
 ) {
   return createHerdrCliAdapter({
-    reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
+    reviewCommand,
     workingDirectory: directory,
     environment,
     herdrEnvironment: {
