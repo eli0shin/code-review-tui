@@ -4,7 +4,7 @@
 
 `review` reads one user configuration file at `$XDG_CONFIG_HOME/review/config.json`. If `XDG_CONFIG_HOME` is unset, empty, or not an absolute path, it uses `$HOME/.config/review/config.json`. It does not merge files from `XDG_CONFIG_DIRS`.
 
-The TUI requires a readable, valid file with `github.search` and `reviewCommand`. Commands that do not start the TUI, such as `review update`, can use their defaults without those fields. A missing file, malformed JSON, unknown field, wrong type, blank required string, invalid search quotation, invalid key descriptor, or key collision must stop TUI startup and identify the file, field, and problem. The application must not silently replace an invalid value with a default.
+The TUI requires a readable, valid file with `github.search` and `reviewCommand`. When the file does not exist, TUI startup silently creates the parent directories and the complete example below, then continues with that configuration. File creation uses exclusive create semantics so that it cannot overwrite a file created concurrently. Commands that do not start the TUI, such as `review update`, do not create the file and can use their updater defaults without it. An existing empty, malformed, unreadable, or invalid file must stop TUI startup and identify the file, field, and problem. The application does not replace or repair an existing file.
 
 This path follows the XDG rule that `XDG_CONFIG_HOME` is the user-specific configuration base, defaults to `$HOME/.config`, and must be absolute.[^xdg]
 
@@ -17,9 +17,9 @@ A complete example is:
 ```json
 {
   "github": {
-    "search": "review-requested:@me state:open"
+    "search": "is:pr review-requested:@me state:open"
   },
-  "reviewCommand": "pi --prompt \"Review $REVIEW_PR_URL\"",
+  "reviewCommand": "pi --prompt \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],

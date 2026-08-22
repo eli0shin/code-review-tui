@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   loadReviewConfiguration,
   readUpdateConfiguration,
@@ -13,6 +13,23 @@ const completeConfiguration = {
   github: { search: 'review-requested:@me state:open' },
   reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
 };
+
+const generatedConfiguration = {
+  github: { search: 'is:pr review-requested:@me state:open' },
+  reviewCommand:
+    'pi --prompt "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
+  keyBindings: {
+    selectPrevious: ['k', 'up'],
+    selectNext: ['j', 'down'],
+    openDiff: ['d', 'enter'],
+    runReviewCommand: ['c'],
+    composeReviewSubmission: ['s'],
+    refresh: ['r'],
+    showHelp: ['?'],
+    quit: ['q'],
+  },
+  config: { updateBehavior: 'auto', updateCheckIntervalHours: 24 },
+} as const;
 
 async function makeEnvironment(useXdg = true) {
   testDirectory = await mkdtemp(join(tmpdir(), 'review-configuration-'));
@@ -137,18 +154,62 @@ describe('Review configuration contract', () => {
     });
   });
 
-  test('reports a missing file', async () => {
+  test('creates and loads complete formatted defaults when the file and parent directories are missing', async () => {
     const { file, environment } = await makeEnvironment();
+    await rm(dirname(file), { recursive: true });
 
-    expectFailure(
-      await loadReviewConfiguration(environment),
-      file,
-      undefined,
-      /read|required|exist/i
+    expect(await loadReviewConfiguration(environment)).toEqual({
+      ok: true,
+      value: {
+        githubSearch: ['is:pr', 'review-requested:@me', 'state:open'],
+        reviewCommand: generatedConfiguration.reviewCommand,
+        keyBindings: generatedConfiguration.keyBindings,
+        update: generatedConfiguration.config,
+      },
+    });
+    expect(await Bun.file(file).text()).toBe(
+      `${JSON.stringify(generatedConfiguration, null, 2)}\n`
     );
   });
 
-  test('reports malformed JSON', async () => {
+  test('does not overwrite a configuration created concurrently', async () => {
+    const { file, environment } = await makeEnvironment();
+    const concurrentConfiguration = {
+      ...completeConfiguration,
+      github: { search: 'is:pr author:octocat' },
+    };
+    const concurrentText = JSON.stringify(concurrentConfiguration);
+    const concurrentWrite = writeFile(file, concurrentText, {
+      flag: 'wx',
+    }).catch((error: unknown) => {
+      expect(
+        typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code
+      ).toBe('EEXIST');
+    });
+
+    const [result] = await Promise.all([
+      loadReviewConfiguration(environment),
+      concurrentWrite,
+    ]);
+    const finalText = await Bun.file(file).text();
+
+    expect([
+      concurrentText,
+      `${JSON.stringify(generatedConfiguration, null, 2)}\n`,
+    ]).toContain(finalText);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('Expected valid configuration');
+    expect(result.value.githubSearch).toEqual(
+      finalText === concurrentText
+        ? ['is:pr', 'author:octocat']
+        : ['is:pr', 'review-requested:@me', 'state:open']
+    );
+  });
+
+  test('reports malformed JSON without replacing it', async () => {
     const { file, environment } = await makeEnvironment();
     await Bun.write(file, '{"github":');
 
@@ -158,6 +219,7 @@ describe('Review configuration contract', () => {
       undefined,
       /JSON/i
     );
+    expect(await Bun.file(file).text()).toBe('{"github":');
   });
 
   const invalidFields: readonly {

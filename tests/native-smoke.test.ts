@@ -23,8 +23,10 @@ beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), 'review-native-smoke-'));
   const bin = join(directory, 'bin');
   const configDirectory = join(directory, 'config', 'review');
+  const stateDirectory = join(directory, 'state');
   await mkdir(bin, { recursive: true });
   await mkdir(configDirectory, { recursive: true });
+  await mkdir(stateDirectory, { recursive: true });
   ghRecord = join(directory, 'gh-calls');
   herdrRecord = join(directory, 'herdr-calls');
   await writeExecutable(
@@ -43,10 +45,15 @@ beforeAll(async () => {
       config: { updateBehavior: 'off' },
     })
   );
+  await Bun.write(
+    join(stateDirectory, 'review-update-state'),
+    JSON.stringify({ lastCheckedAt: Date.now() })
+  );
   environment = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH ?? ''}`,
     XDG_CONFIG_HOME: join(directory, 'config'),
+    XDG_STATE_HOME: stateDirectory,
     HERDR_ENV: '1',
     HERDR_WORKSPACE_ID: 'workspace-1',
     HERDR_TAB_ID: 'queue-tab-1',
@@ -85,6 +92,76 @@ describe('native review executable', () => {
       'search prs --json number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount --limit 1000 -- review-requested:@me state:open'
     );
     expect(await Bun.file(herdrRecord).exists()).toBe(false);
+  });
+
+  test('silently creates complete defaults and continues first startup', async () => {
+    const firstRunConfigHome = join(directory, 'first-run-config');
+    const firstRunGhRecord = join(directory, 'first-run-gh-calls');
+    const review = Bun.spawn(
+      ['script', '--quiet', '--return', '--command', executable, '/dev/null'],
+      {
+        env: {
+          ...environment,
+          XDG_CONFIG_HOME: firstRunConfigHome,
+          FAKE_GH_RECORD: firstRunGhRecord,
+        },
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: 'pipe',
+      }
+    );
+    const stdout = new Response(review.stdout).text();
+    const stderr = new Response(review.stderr).text();
+
+    await waitForFile(firstRunGhRecord);
+    await Bun.sleep(100);
+    review.stdin.write('q');
+    review.stdin.end();
+
+    expect(await exitWithin(review)).toBe(0);
+    expect(stripTerminalControls(await stdout)).toContain('No reviews waiting');
+    expect(await stderr).toBe('');
+    expect(
+      JSON.parse(
+        await Bun.file(join(firstRunConfigHome, 'review', 'config.json')).text()
+      )
+    ).toEqual({
+      github: { search: 'is:pr review-requested:@me state:open' },
+      reviewCommand:
+        'pi --prompt "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
+      keyBindings: {
+        selectPrevious: ['k', 'up'],
+        selectNext: ['j', 'down'],
+        openDiff: ['d', 'enter'],
+        runReviewCommand: ['c'],
+        composeReviewSubmission: ['s'],
+        refresh: ['r'],
+        showHelp: ['?'],
+        quit: ['q'],
+      },
+      config: { updateBehavior: 'auto', updateCheckIntervalHours: 24 },
+    });
+  });
+
+  test('does not create configuration for a command that does not need it', async () => {
+    const configHome = join(directory, 'version-config');
+    const review = Bun.spawn([executable, '--version'], {
+      env: { ...environment, XDG_CONFIG_HOME: configHome },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      review.exited,
+      new Response(review.stdout).text(),
+      new Response(review.stderr).text(),
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('0.2.0');
+    expect(stderr).toBe('');
+    expect(
+      await Bun.file(join(configHome, 'review', 'config.json')).exists()
+    ).toBe(false);
   });
 
   test('exits immediately when the active GitHub CLI process does not stop', async () => {
