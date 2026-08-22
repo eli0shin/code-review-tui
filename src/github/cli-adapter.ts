@@ -733,11 +733,14 @@ function parseInlineCommentNodes(
   return array(value, path).map((commentValue, index) => {
     const commentPath = `${path}[${index}]`;
     const comment = record(commentValue, commentPath);
-    const author = record(comment.author, `${commentPath}.author`);
+    const author = nullableRecord(comment.author, `${commentPath}.author`);
     const replyTo = nullableRecord(comment.replyTo, `${commentPath}.replyTo`);
     return {
       id: String(integer(comment.databaseId, `${commentPath}.databaseId`)),
-      author: string(author.login, `${commentPath}.author.login`),
+      author:
+        author === null
+          ? 'ghost'
+          : string(author.login, `${commentPath}.author.login`),
       createdAt: string(comment.createdAt, `${commentPath}.createdAt`),
       body: string(comment.body, `${commentPath}.body`),
       path: string(comment.path, `${commentPath}.path`),
