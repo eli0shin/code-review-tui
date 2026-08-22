@@ -17,7 +17,7 @@ const completeConfiguration = {
 const generatedConfiguration = {
   github: { search: 'is:pr review-requested:@me state:open' },
   reviewCommand:
-    'pi --prompt "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
+    'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
   keyBindings: {
     selectPrevious: ['k', 'up'],
     selectNext: ['j', 'down'],
@@ -96,6 +96,9 @@ describe('Review configuration contract', () => {
         update: { updateBehavior: 'auto', updateCheckIntervalHours: 24 },
       },
     });
+    expect(await Bun.file(file).text()).toBe(
+      JSON.stringify(completeConfiguration)
+    );
   });
 
   test('uses HOME when XDG_CONFIG_HOME is relative', async () => {

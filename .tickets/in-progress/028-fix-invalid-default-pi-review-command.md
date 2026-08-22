@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@028-fix-invalid-default-pi-review-command
 Tags:
   - bug
 Parent:
