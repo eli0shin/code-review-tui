@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@026-initialize-complete-default-review-configuration
 Tags:
   - bug
 Parent:

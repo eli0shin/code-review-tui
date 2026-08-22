@@ -22,14 +22,14 @@ The installer puts `review` in `~/.local/bin`. Add that directory to `PATH` when
 
 ## Configure
 
-Create `$XDG_CONFIG_HOME/review/config.json`. When `XDG_CONFIG_HOME` is not an absolute path, use `~/.config/review/config.json`:
+On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.json` with the editable defaults below. When `XDG_CONFIG_HOME` is not an absolute path, it creates `~/.config/review/config.json`. Existing files must pass strict validation and are never replaced or repaired automatically.
 
 ```json
 {
   "github": {
-    "search": "review-requested:@me state:open"
+    "search": "is:pr review-requested:@me state:open"
   },
-  "reviewCommand": "pi --prompt \"Review $REVIEW_PR_URL\"",
+  "reviewCommand": "pi --prompt \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],
@@ -41,8 +41,8 @@ Create `$XDG_CONFIG_HOME/review/config.json`. When `XDG_CONFIG_HOME` is not an a
     "quit": ["q"]
   },
   "config": {
-    "updateBehavior": "notify",
-    "updateCheckIntervalHours": 12
+    "updateBehavior": "auto",
+    "updateCheckIntervalHours": 24
   }
 }
 ```

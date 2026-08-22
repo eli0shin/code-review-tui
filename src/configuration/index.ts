@@ -1,5 +1,6 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { UpdateBehavior } from '../types.ts';
 
 export const queueActions = [
@@ -56,6 +57,19 @@ const defaultKeyBindings = {
   showHelp: ['?'],
   quit: ['q'],
 } satisfies EffectiveKeyBindings;
+
+const defaultReviewConfigurationDocument = {
+  github: { search: 'is:pr review-requested:@me state:open' },
+  reviewCommand:
+    'pi --prompt "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
+  keyBindings: defaultKeyBindings,
+  config: {
+    updateBehavior: 'auto',
+    updateCheckIntervalHours: 24,
+  },
+} as const;
+
+const formattedDefaultReviewConfiguration = `${JSON.stringify(defaultReviewConfigurationDocument, null, 2)}\n`;
 
 const defaultUpdateConfiguration = {
   updateBehavior: 'auto',
@@ -186,33 +200,46 @@ type JsonReadResult =
   | { readonly ok: false; readonly failure: ConfigurationFailure };
 
 async function readJson(file: string): Promise<JsonReadResult> {
-  const input = Bun.file(file);
-  if (!(await input.exists())) {
-    return failure(
-      file,
-      undefined,
-      'Required configuration file does not exist'
-    );
+  try {
+    return parseJson(await readFile(file, 'utf8'), file);
+  } catch (error) {
+    return hasErrorCode(error, 'ENOENT')
+      ? initializeReviewConfiguration(file)
+      : failure(file, undefined, 'Configuration file cannot be read');
   }
-
-  const text = await readFileText(input, file);
-  if (!text.ok) return text;
-  return parseJson(text.value, file);
 }
 
-type TextReadResult =
-  | { readonly ok: true; readonly value: string }
-  | { readonly ok: false; readonly failure: ConfigurationFailure };
-
-async function readFileText(
-  input: Bun.BunFile,
+async function initializeReviewConfiguration(
   file: string
-): Promise<TextReadResult> {
+): Promise<JsonReadResult> {
   try {
-    return { ok: true, value: await input.text() };
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, formattedDefaultReviewConfiguration, { flag: 'wx' });
+    return { ok: true, value: defaultReviewConfigurationDocument };
+  } catch (error) {
+    return hasErrorCode(error, 'EEXIST')
+      ? readConcurrentReviewConfiguration(file)
+      : failure(file, undefined, 'Configuration file cannot be created');
+  }
+}
+
+async function readConcurrentReviewConfiguration(
+  file: string
+): Promise<JsonReadResult> {
+  try {
+    return parseJson(await readFile(file, 'utf8'), file);
   } catch {
     return failure(file, undefined, 'Configuration file cannot be read');
   }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === code
+  );
 }
 
 function parseJson(text: string, file: string): JsonReadResult {
