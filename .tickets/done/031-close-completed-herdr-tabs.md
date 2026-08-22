@@ -45,3 +45,7 @@ LAUNCHED_COMMAND; herdr tab focus REVIEW_QUEUE_TAB_ID; herdr tab close CREATED_T
 - Exact-call tests prove the opaque Review Command receives the same cleanup tail without changing its command or environment.
 - Tests prove semicolon sequencing attempts close even if focus exits nonzero.
 - Existing tests continue to prove immediate failures are actionable and a later launch remains permitted.
+
+## Resolution
+
+Implemented in PR #30 and squash-merged as `f730db758ce751c8f733091b781fd984aff775a8`.
