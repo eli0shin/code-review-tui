@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { version } from '../package.json';
 
 const executable = resolve('review');
 let directory: string;
@@ -157,7 +158,7 @@ describe('native review executable', () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('0.2.0');
+    expect(stdout.trim()).toBe(version);
     expect(stderr).toBe('');
     expect(
       await Bun.file(join(configHome, 'review', 'config.json')).exists()

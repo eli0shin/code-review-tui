@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@027-make-native-version-smoke-assertion-release-independent
 Tags:
   - bug
 Parent:
