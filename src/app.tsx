@@ -404,12 +404,7 @@ function ReviewQueue({
     activeFailure === undefined;
 
   return (
-    <box
-      width="100%"
-      height="100%"
-      flexDirection="column"
-      backgroundColor={theme.background}
-    >
+    <box width="100%" height="100%" flexDirection="column">
       <box
         focusable
         focused={queueOwnsInput}
@@ -553,11 +548,11 @@ function ReviewQueueContent({
           alignItems="center"
           justifyContent="space-between"
         >
-          <text fg={theme?.foreground}>
+          <text>
             <strong>Review requests</strong>{' '}
             <span attributes={TextAttributes.DIM}>{queue.length} open</span>
           </text>
-          <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
+          <text attributes={TextAttributes.DIM}>
             {refreshing ? 'refreshing…' : 'updated'}{' '}
             {formatBindings(keyBindings.refresh)} refresh
           </text>
@@ -614,11 +609,7 @@ function ReviewQueueContent({
           />
         ))}
       </scrollbox>
-      <text
-        flexShrink={0}
-        fg={theme?.foreground}
-        attributes={TextAttributes.DIM}
-      >
+      <text flexShrink={0} attributes={TextAttributes.DIM}>
         {' '}
         {footerText(keyBindings)}
       </text>
@@ -648,11 +639,11 @@ function ReviewQueueRow({
       justifyContent="center"
       backgroundColor={underCursor ? theme?.subtleSurface : undefined}
     >
-      <text fg={theme?.foreground}>
+      <text>
         <span fg={theme?.success}>● </span>
         <strong>{pullRequest.title}</strong>
       </text>
-      <text fg={theme?.foreground}>
+      <text>
         {'  '}
         <span fg={theme?.info}>{pullRequest.repository}</span>
         <span fg={theme?.textMuted}> #{pullRequest.number} opened by </span>
@@ -1098,10 +1089,10 @@ function StatusView({
       flexDirection="column"
       gap={1}
     >
-      <text fg={error ? theme?.error : theme?.foreground}>
+      <text fg={error ? theme?.error : undefined}>
         <strong>{title}</strong>
       </text>
-      <text width="100%" wrapMode="char" fg={theme?.foreground}>
+      <text width="100%" wrapMode="char" fg={theme?.textMuted}>
         {detail}
       </text>
     </box>
@@ -1648,8 +1639,8 @@ function generateSystemTheme(colors: TerminalColors): SystemTheme | undefined {
     secondary: color(5, '#800080'),
     warning: color(3, '#808000'),
     textMuted: generateMutedTextColor(bg, isDark),
-    foreground: fg,
-    background: bg,
+    foreground: RGBA.defaultForeground(),
+    background: RGBA.defaultBackground(),
     subtleSurface: tint(bg, fg, isDark ? 0.14 : 0.1),
   };
 }
@@ -1666,8 +1657,8 @@ function createFallbackSystemTheme(): SystemTheme {
     secondary: colors.palette[5] ?? fg,
     warning: colors.palette[3] ?? fg,
     textMuted: generateMutedTextColor(bg, isDark),
-    foreground: fg,
-    background: bg,
+    foreground: RGBA.defaultForeground(),
+    background: RGBA.defaultBackground(),
     subtleSurface: tint(bg, fg, isDark ? 0.14 : 0.1),
   };
 }

@@ -162,16 +162,19 @@ const terminalPalettes: {
   name: string;
   colors: TerminalColors;
   highlightedBackground: string;
+  muted: string;
 }[] = [
   {
     name: 'dark',
     colors: terminalColors('#e8eef2', '#101820'),
     highlightedBackground: '#2e363d',
+    muted: '#a6a6a6',
   },
   {
     name: 'light',
     colors: terminalColors('#1c252c', '#f5f1e8'),
     highlightedBackground: '#dfddd5',
+    muted: '#616161',
   },
 ];
 
@@ -1141,9 +1144,44 @@ describe('Review Submission', () => {
   });
 });
 
+test('fallback surfaces use the unchanged Review Queue terminal defaults', async () => {
+  const github = {
+    async loadReviewQueue() {
+      return success([pullRequest, secondPullRequest]);
+    },
+    loadPullRequestDetails: pendingDetails,
+    async submitReview() {
+      throw new Error('Review Submission is not part of this page test');
+    },
+  } satisfies GitHub;
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+    configurable: true,
+    value: true,
+  });
+  const view = await createTestRenderer({ width: 100, height: 30 });
+  jest
+    .spyOn(view.renderer, 'getPalette')
+    .mockRejectedValue(new Error('palette unavailable'));
+  const root = createRoot(view.renderer);
+  act(() => root.render(reviewQueuePage(github)));
+
+  await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+  const queueFrame = view.captureSpans();
+  const queueForeground = spanContaining(queueFrame, pullRequest.title).fg;
+
+  await act(async () => view.mockInput.pressKey('?'));
+  await view.waitForFrame((frame) => frame.includes('Review Queue keys'));
+  const helpFrame = view.captureSpans();
+  const helpTitle = spanContaining(helpFrame, 'Review Queue keys');
+  expect(helpTitle.fg.toInts()).toEqual(queueForeground.toInts());
+  expect(helpTitle.fg.intent).toBe('default');
+  expect(helpTitle.bg.intent).toBe('default');
+  view.renderer.destroy();
+});
+
 describe.each(terminalPalettes)(
   'application colors with a $name terminal palette',
-  ({ colors, highlightedBackground }) => {
+  ({ colors, highlightedBackground, muted }) => {
     test('keeps loading, empty, and unavailable states on the Review Queue baseline', async () => {
       const initialLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
       const failedRefresh = Promise.withResolvers<GitHubResult<ReviewQueue>>();
@@ -1161,21 +1199,18 @@ describe.each(terminalPalettes)(
         },
       } satisfies GitHub;
       const view = await renderWithPalette(github, colors);
-      const foreground = colors.defaultForeground ?? '';
-      const background = colors.defaultBackground ?? '';
+      const foreground = '#ffffff';
+      const background = '#00000000';
 
       await view.waitFor(() =>
-        spanContaining(view.captureSpans(), 'Loading review').fg.equals(
-          RGBA.fromHex(foreground)
+        spanContaining(view.captureSpans(), 'Running the configured').fg.equals(
+          RGBA.fromHex(muted)
         )
       );
       let frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Loading review').fg, foreground);
       expectColor(spanContaining(frame, 'Loading review').bg, background);
-      expectColor(
-        spanContaining(frame, 'Running the configured').fg,
-        foreground
-      );
+      expectColor(spanContaining(frame, 'Running the configured').fg, muted);
 
       await act(async () => initialLoad.resolve(success([])));
       await view.waitForFrame((characters) =>
@@ -1184,7 +1219,7 @@ describe.each(terminalPalettes)(
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'No reviews waiting').fg, foreground);
       expectColor(spanContaining(frame, 'No reviews waiting').bg, background);
-      expectColor(spanContaining(frame, 'Press r to refresh').fg, foreground);
+      expectColor(spanContaining(frame, 'Press r to refresh').fg, muted);
 
       await act(async () => view.mockInput.pressKey('r'));
       await act(async () =>
@@ -1210,7 +1245,7 @@ describe.each(terminalPalettes)(
         spanContaining(frame, 'Review Queue unavailable').bg,
         background
       );
-      expectColor(spanContaining(frame, 'search unavailable').fg, foreground);
+      expectColor(spanContaining(frame, 'search unavailable').fg, muted);
       view.renderer.destroy();
     });
 
@@ -1252,14 +1287,11 @@ describe.each(terminalPalettes)(
         },
       } satisfies Herdr;
       const view = await renderWithPalette(github, colors, herdr);
-      const foreground = colors.defaultForeground ?? '';
-      const background = colors.defaultBackground ?? '';
+      const foreground = '#ffffff';
+      const queueBackground = '#00000000';
+      const surfaceBackground = '#000000';
 
-      await view.waitFor(() =>
-        spanContaining(view.captureSpans(), pullRequest.title).fg.equals(
-          RGBA.fromHex(foreground)
-        )
-      );
+      await view.waitForFrame((frame) => frame.includes(pullRequest.title));
       let frame = view.captureSpans();
       expectColor(spanContaining(frame, pullRequest.title).fg, foreground);
       expectColor(
@@ -1268,7 +1300,7 @@ describe.each(terminalPalettes)(
       );
       expectColor(
         spanContaining(frame, secondPullRequest.title).bg,
-        background
+        queueBackground
       );
       expectColor(spanContaining(frame, pullRequest.repository).fg, '#087f8c');
       expectColor(spanContaining(frame, pullRequest.author).fg, '#8a328a');
@@ -1284,7 +1316,10 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Review Queue keys').fg, foreground);
-      expectColor(spanContaining(frame, 'Review Queue keys').bg, background);
+      expectColor(
+        spanContaining(frame, 'Review Queue keys').bg,
+        surfaceBackground
+      );
       expectColor(spanContaining(frame, 'open details').fg, foreground);
       expectColor(spanContaining(frame, 'Esc close').fg, foreground);
       await act(async () => view.mockInput.pressKey('?'));
@@ -1295,7 +1330,10 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Pull request details').fg, foreground);
-      expectColor(spanContaining(frame, 'Pull request details').bg, background);
+      expectColor(
+        spanContaining(frame, 'Pull request details').bg,
+        surfaceBackground
+      );
       expectColor(spanContaining(frame, 'acme/widgets').fg, '#087f8c');
       expectColor(spanContaining(frame, 'Refreshing details').fg, '#087f8c');
 
@@ -1387,7 +1425,7 @@ describe.each(terminalPalettes)(
       );
       expectColor(
         spanContaining(frame, 'Pull request detail errors').bg,
-        background
+        surfaceBackground
       );
       expectColor(
         spanContaining(frame, 'complete detail diagnostic').fg,
@@ -1410,7 +1448,7 @@ describe.each(terminalPalettes)(
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Improve widgets').fg, foreground);
       expectColor(spanContaining(frame, 'acme/widgets').fg, '#087f8c');
-      expectColor(spanContaining(frame, 'Comment').bg, background);
+      expectColor(spanContaining(frame, 'Comment').bg, surfaceBackground);
       expectColor(spanContaining(frame, 'Ctrl+S submit').fg, foreground);
 
       await act(view.mockInput.pressTab);
@@ -1423,7 +1461,7 @@ describe.each(terminalPalettes)(
       expectColor(spanContaining(frame, 'A message is required').fg, '#a51010');
       expectColor(
         spanContaining(frame, 'A message is required').bg,
-        background
+        surfaceBackground
       );
 
       await act(async () => view.mockInput.typeText('Draft message'));
@@ -1432,7 +1470,7 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Draft').fg, foreground);
-      expectColor(spanContaining(frame, 'Draft').bg, background);
+      expectColor(spanContaining(frame, 'Draft').bg, surfaceBackground);
       await act(view.mockInput.pressEscape);
       await view.waitForFrame((characters) =>
         characters.includes('Discard this Review Submission?')
@@ -1440,7 +1478,10 @@ describe.each(terminalPalettes)(
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Discard this').fg, foreground);
       expectColor(spanContaining(frame, 'Keep editing').fg, foreground);
-      expectColor(spanContaining(frame, 'Left/Right choose').bg, background);
+      expectColor(
+        spanContaining(frame, 'Left/Right choose').bg,
+        surfaceBackground
+      );
       await act(view.mockInput.pressEnter);
 
       await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
@@ -1449,7 +1490,10 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Submitting request').fg, '#087f8c');
-      expectColor(spanContaining(frame, 'Submitting request').bg, background);
+      expectColor(
+        spanContaining(frame, 'Submitting request').bg,
+        surfaceBackground
+      );
       await act(async () =>
         failedSubmission.resolve({
           ok: false,
@@ -1467,7 +1511,10 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'permission denied').fg, '#a51010');
-      expectColor(spanContaining(frame, 'permission denied').bg, background);
+      expectColor(
+        spanContaining(frame, 'permission denied').bg,
+        surfaceBackground
+      );
 
       await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
       await view.waitForFrame((characters) =>
@@ -1479,7 +1526,10 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Requested changes').fg, '#168216');
-      expectColor(spanContaining(frame, 'Requested changes').bg, background);
+      expectColor(
+        spanContaining(frame, 'Requested changes').bg,
+        queueBackground
+      );
 
       await act(async () => view.mockInput.pressKey('c'));
       await view.waitForFrame((characters) =>
@@ -1488,7 +1538,10 @@ describe.each(terminalPalettes)(
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Could not open').fg, '#a51010');
       expectColor(spanContaining(frame, 'action diagnostic').fg, '#a51010');
-      expectColor(spanContaining(frame, 'action diagnostic').bg, background);
+      expectColor(
+        spanContaining(frame, 'action diagnostic').bg,
+        queueBackground
+      );
       view.renderer.destroy();
     });
   }
