@@ -25,6 +25,7 @@ import {
   normalizeKeyDescriptor,
   queueActions,
   type EffectiveKeyBindings,
+  type ReviewConfiguration,
   type QueueAction,
 } from './configuration/index.ts';
 import type {
@@ -33,7 +34,10 @@ import type {
   ReviewDecision,
   ReviewQueue,
 } from './domain/pull-request.ts';
+import { createGitHubCliAdapter } from './github/cli-adapter.ts';
 import type { GitHub, GitHubFailure } from './github/types.ts';
+import { runReviewRuntime } from './runtime.ts';
+import { createHerdrCliAdapter } from './tools/herdr-adapter.ts';
 import type { Herdr, HerdrFailure, HerdrResult } from './tools/types.ts';
 
 environmentManager.setIsServer(() => false);
@@ -953,9 +957,32 @@ export function App() {
   return <text>Review Queue</text>;
 }
 
-export async function launchApplication(): Promise<void> {
-  const renderer = await createCliRenderer();
-  createRoot(renderer).render(<App />);
+export async function launchApplication(
+  configuration: ReviewConfiguration
+): Promise<void> {
+  const { githubSearch, reviewCommand, keyBindings } = configuration;
+  const herdr = createHerdrCliAdapter({
+    reviewCommand,
+    workingDirectory: process.cwd(),
+    environment: process.env,
+  });
+  const github = createGitHubCliAdapter(githubSearch);
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: false,
+    exitSignals: [],
+  });
+  await runReviewRuntime(renderer, (onQuit) => {
+    const root = createRoot(renderer);
+    root.render(
+      <ReviewQueuePage
+        github={github}
+        herdr={herdr}
+        keyBindings={keyBindings}
+        onQuit={onQuit}
+      />
+    );
+    return root;
+  });
 }
 
 function createDraft(target: PullRequestSummary): SubmissionDraft {
