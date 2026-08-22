@@ -1,5 +1,13 @@
 # code-review-tui
 
+## 0.2.3
+
+### Patch Changes
+
+- [#32](https://github.com/eli0shin/code-review-tui/pull/32) [`3bd014f`](https://github.com/eli0shin/code-review-tui/commit/3bd014fbc897784640d41d663b1ff2e63a3a7d01) Thanks [@eli0shin](https://github.com/eli0shin)! - Replace the fixed pull request details pane with a full-screen, scrollable details modal that includes reviewers, checks, description, and the complete review conversation.
+
+- [#30](https://github.com/eli0shin/code-review-tui/pull/30) [`f730db7`](https://github.com/eli0shin/code-review-tui/commit/f730db758ce751c8f733091b781fd984aff775a8) Thanks [@eli0shin](https://github.com/eli0shin)! - Close each Lumen or Review Command Herdr tab after its command completes.
+
 ## 0.2.2
 
 ### Patch Changes
