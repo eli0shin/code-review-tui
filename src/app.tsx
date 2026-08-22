@@ -315,10 +315,16 @@ function ReviewQueue({
         viewport?.scrollBy(-1, 'step');
       } else if (action === 'selectNext') {
         viewport?.scrollBy(1, 'step');
-      } else if (action === 'pagePrevious') {
-        viewport?.scrollBy(-1, 'viewport');
-      } else if (action === 'pageNext') {
-        viewport?.scrollBy(1, 'viewport');
+      } else if (
+        viewport !== null &&
+        (action === 'pagePrevious' || action === 'pageNext')
+      ) {
+        const direction = action === 'pagePrevious' ? -1 : 1;
+        const halfViewport = Math.max(
+          1,
+          Math.floor(viewport.viewport.height / 2)
+        );
+        viewport.scrollBy(direction * halfViewport);
       } else if (action === 'scrollStart') {
         viewport?.scrollTo(0);
       } else if (action === 'scrollEnd') {
@@ -850,7 +856,7 @@ function PullRequestDetailsModal({
         {formatBindings(keyBindings.selectPrevious)}/
         {formatBindings(keyBindings.selectNext)} line ·{' '}
         {formatBindings(keyBindings.pagePrevious)}/
-        {formatBindings(keyBindings.pageNext)} page ·{' '}
+        {formatBindings(keyBindings.pageNext)} half-page ·{' '}
         {formatBindings(keyBindings.scrollStart)}/
         {formatBindings(keyBindings.scrollEnd)} start/end ·{' '}
         {formatBindings(keyBindings.refresh)} refresh ·{' '}

@@ -95,13 +95,15 @@ The actions have these meanings:
 | `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |
 | `refresh`                 | `r`              | Refresh the active Review Queue or details modal.                         |
-| `pagePrevious`            | `ctrl+u`         | Scroll details up by one page.                                            |
-| `pageNext`                | `ctrl+d`         | Scroll details down by one page.                                          |
+| `pagePrevious`            | `ctrl+u`         | Scroll details up by half of the current visible viewport.                |
+| `pageNext`                | `ctrl+d`         | Scroll details down by half of the current visible viewport.              |
 | `scrollStart`             | `g`, `home`      | Scroll details to the start.                                              |
 | `scrollEnd`               | `shift+g`, `end` | Scroll details to the end.                                                |
 | `showErrors`              | `e`              | Show complete diagnostics for failed detail sources.                      |
 | `showHelp`                | `?`              | Show the queue help, including effective bindings.                        |
 | `quit`                    | `q`, `escape`    | Close details, or exit from the Review Queue.                             |
+
+Details page movement uses half of the current visible scroll viewport, rounds odd viewport heights down, and moves at least one rendered line when scrolling is possible. Movement in both directions uses the same distance and clamps at the start and end.
 
 ## Opaque Review Command
 
