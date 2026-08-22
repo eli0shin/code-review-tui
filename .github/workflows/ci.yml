@@ -52,3 +52,36 @@ jobs:
         run: bun run test
         env:
           GIT_EDITOR: 'true'
+
+  native-artifacts:
+    name: Start ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: bun-linux-x64
+            artifact: review-linux-x64
+          - runner: ubuntu-24.04-arm
+            target: bun-linux-arm64
+            artifact: review-linux-arm64
+          - runner: macos-15-intel
+            target: bun-darwin-x64
+            artifact: review-darwin-x64
+          - runner: macos-15
+            target: bun-darwin-arm64
+            artifact: review-darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build native artifact
+        run: bun build src/cli.tsx --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }}
+
+      - name: Start native artifact
+        run: ./${{ matrix.artifact }} --version
