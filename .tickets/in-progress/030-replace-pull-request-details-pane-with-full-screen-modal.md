@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@030-replace-pull-request-details-pane-with-full-screen-modal
 Tags:
   - implementation
   - ui

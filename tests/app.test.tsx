@@ -11,7 +11,11 @@ import type {
   PullRequestSummary,
   ReviewQueue,
 } from '../src/domain/pull-request.ts';
-import type { GitHub, GitHubResult } from '../src/github/types.ts';
+import type {
+  GitHub,
+  GitHubResult,
+  PullRequestDetailSources,
+} from '../src/github/types.ts';
 import type { Herdr, HerdrResult } from '../src/tools/types.ts';
 
 notifyManager.setScheduler(queueMicrotask);
@@ -41,13 +45,6 @@ const secondPullRequest = {
   title: 'Add more widgets',
 } satisfies PullRequestSummary;
 
-const thirdPullRequest = {
-  ...pullRequest,
-  url: 'https://github.com/acme/widgets/pull/9',
-  number: 9,
-  title: 'Repair old widgets',
-} satisfies PullRequestSummary;
-
 function pullRequestDetails(
   title: string,
   request: PullRequestSummary = pullRequest
@@ -70,7 +67,6 @@ function pullRequestDetails(
     labels: [],
     reviewDecision: '',
     reviewRequests: [],
-    latestReviews: [],
   };
 }
 
@@ -90,12 +86,18 @@ const unusedHerdr = {
 const defaultKeyBindings = {
   selectPrevious: ['k', 'up'],
   selectNext: ['j', 'down'],
-  openDiff: ['d', 'enter'],
+  openDetails: ['enter'],
+  openDiff: ['d'],
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
   refresh: ['r'],
+  pagePrevious: ['ctrl+u'],
+  pageNext: ['ctrl+d'],
+  scrollStart: ['g', 'home'],
+  scrollEnd: ['shift+g', 'end'],
+  showErrors: ['e'],
   showHelp: ['?'],
-  quit: ['q'],
+  quit: ['q', 'escape'],
 } satisfies EffectiveKeyBindings;
 
 function reviewQueuePage(
@@ -136,7 +138,17 @@ describe('application shell', () => {
   });
 });
 
-function pendingDetails(): Promise<GitHubResult<PullRequestDetails>> {
+function detailSources(metadata: PullRequestDetails): PullRequestDetailSources {
+  return {
+    metadata: success(metadata),
+    reviews: success([]),
+    checks: success([]),
+    issueComments: success([]),
+    inlineComments: success([]),
+  };
+}
+
+function pendingDetails(): Promise<PullRequestDetailSources> {
   return new Promise(() => undefined);
 }
 
@@ -214,539 +226,293 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('moves the Cursor and loads details for its highlighted row', async () => {
-    const queueLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const firstDetails =
-      Promise.withResolvers<GitHubResult<PullRequestDetails>>();
-    const secondDetails =
-      Promise.withResolvers<GitHubResult<PullRequestDetails>>();
-    const detailLoads = [firstDetails.promise, secondDetails.promise];
-    let detailLoadIndex = 0;
-    const loadPullRequestDetails = jest.fn((_url: string) => {
-      const detailLoad = detailLoads[detailLoadIndex];
-      detailLoadIndex += 1;
-      return detailLoad;
-    });
-    const github = {
-      loadReviewQueue() {
-        return queueLoad.promise;
-      },
-      loadPullRequestDetails,
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-
-    const view = await testRender(reviewQueuePage(github), {
-      width: 80,
-      height: 24,
-    });
-    await act(async () =>
-      queueLoad.resolve(success([pullRequest, secondPullRequest]))
-    );
-    const detailsLoadingFrame = await view.waitForFrame((frame) =>
-      frame.includes('Loading pull request details…')
-    );
-    expect(detailsLoadingFrame).toContain('Loading pull request details…');
-    await act(async () =>
-      firstDetails.resolve(success(pullRequestDetails('First details')))
-    );
-    await view.waitForFrame((frame) => frame.includes('First details'));
-    expect(loadPullRequestDetails).toHaveBeenNthCalledWith(
-      1,
-      pullRequest.url,
-      expect.any(AbortSignal)
-    );
-
-    await act(async () => view.mockInput.pressArrow('down'));
-    await act(async () =>
-      secondDetails.resolve(
-        success(pullRequestDetails('Second details', secondPullRequest))
-      )
-    );
-    const cursorFrame = await view.waitForFrame((frame) =>
-      frame.includes('Second details')
-    );
-    expect(cursorFrame).toContain('Second details');
-    expect(loadPullRequestDetails).toHaveBeenNthCalledWith(
-      2,
-      secondPullRequest.url,
-      expect.any(AbortSignal)
-    );
-    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
-      configurable: true,
-      value: false,
-    });
-    view.renderer.destroy();
-  });
-
-  test('renders the accepted Review Queue hierarchy and Cursor details', async () => {
-    const github = {
-      async loadReviewQueue() {
-        return success([pullRequest, secondPullRequest]);
-      },
-      async loadPullRequestDetails(url: string) {
-        const request =
-          url === secondPullRequest.url ? secondPullRequest : pullRequest;
-        return success(
-          pullRequestDetails(
-            request === secondPullRequest
-              ? 'Second row details'
-              : 'Improve widgets',
-            request
-          )
-        );
-      },
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-    const view = await testRender(reviewQueuePage(github), {
-      width: 110,
-      height: 32,
-    });
-
-    const frame = await view.waitForFrame(
-      (renderedFrame) =>
-        renderedFrame.includes('Review requests 2 open') &&
-        renderedFrame.includes('Pull request details')
-    );
-    expect(frame).toContain('● Improve widgets');
-    expect(frame).toContain('acme/widgets #7 opened by octocat');
-    expect(frame).toContain('● Add more widgets');
-    const metadataRows = frame
-      .split('\n')
-      .filter((line) => line.includes('1 file +10 -2 · 3 comments · review'));
-    expect(metadataRows).toHaveLength(2);
-    expect(frame).toContain('main ← widgets');
-    expect(frame).toContain('1 file  +10 -2');
-    expect(frame).toContain('Pull request body');
-    expect(frame).toContain(
-      'j/k move  d/enter diff  c review command  s submit review  ? help'
-    );
-
-    await act(async () => view.mockInput.pressArrow('down'));
-    const movedFrame = await view.waitForFrame((renderedFrame) =>
-      renderedFrame.includes('Second row details')
-    );
-    expect(
-      movedFrame
-        .split('\n')
-        .filter((line) => line.includes('1 file +10 -2 · 3 comments · review'))
-    ).toHaveLength(2);
-
-    view.renderer.destroy();
-  });
-
-  test('keeps the Cursor visible in a bounded small-terminal viewport', async () => {
-    const queue = Array.from({ length: 6 }, (_, index) => ({
-      ...pullRequest,
-      url: `https://github.com/acme/widgets/pull/${index + 7}`,
-      number: index + 7,
-      title: `Queue item ${index + 7}`,
-    }));
-    const github = {
-      async loadReviewQueue() {
-        return success(queue);
-      },
-      async loadPullRequestDetails(url: string) {
-        const request = queue.find((item) => item.url === url);
-        if (request === undefined) throw new Error('Unknown pull request');
-        return success(
-          pullRequestDetails(`Details #${request.number}`, request)
-        );
-      },
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-    const view = await testRender(reviewQueuePage(github), {
-      width: 100,
-      height: 30,
-    });
-    await view.waitForFrame((frame) => frame.includes('Details #7'));
-
-    for (let index = 0; index < 5; index += 1) {
-      await act(async () => view.mockInput.pressKey('j'));
-    }
-    const finalFrame = await view.waitForFrame((frame) =>
-      frame.includes('Details #12')
-    );
-    expect(finalFrame).toContain('Queue item 12');
-    expect(finalFrame).not.toContain('Queue item 7');
-    expect(finalFrame).toContain('Pull request details');
-    expect(finalFrame).toContain('j/k move');
-
-    await act(async () => {
-      view.resize(100, 16);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      await view.renderOnce();
-    });
-    const resizedFrame = await view.waitForFrame(
-      (frame) =>
-        frame.includes('Details #12') && frame.includes('Queue item 12')
-    );
-    expect(resizedFrame).not.toContain('Queue item 7');
-    view.renderer.destroy();
-  });
-
-  test('keeps a long refresh failure focused while its binding can retry', async () => {
-    const queue = Array.from({ length: 6 }, (_, index) => ({
-      ...pullRequest,
-      url: `https://github.com/acme/widgets/pull/${index + 7}`,
-      number: index + 7,
-      title: `Queue item ${index + 7}`,
-    }));
-    let loadCount = 0;
-    const loadReviewQueue = jest.fn(async () => {
-      loadCount += 1;
-      if (loadCount === 1 || loadCount === 3) return success(queue);
-      return {
-        ok: false,
-        failure: {
-          kind: 'exit',
-          operation: 'reviewQueue',
-          exitCode: 1,
-          stderr: `stderr-one\nstderr-two\nstderr-three\nstderr-four\nstderr-five\nstderr-six\nstderr-seven\nstderr-eight-${'x'.repeat(100)}-queue-tail`,
-        },
-      } as const;
-    });
-    const github = {
-      loadReviewQueue,
-      loadPullRequestDetails: jest.fn(async (url: string) => {
-        const request = queue.find((item) => item.url === url);
-        if (request === undefined) throw new Error('Unknown pull request');
-        return success(
-          pullRequestDetails(`Details #${request.number}`, request)
-        );
-      }),
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-    const view = await testRender(
-      reviewQueuePage(github, unusedHerdr, {
-        ...defaultKeyBindings,
-        refresh: ['f5'],
-      }),
-      {
-        width: 100,
-        height: 16,
-        kittyKeyboard: true,
-      }
-    );
-    await view.waitForFrame((frame) => frame.includes('Details #7'));
-    for (let index = 0; index < 5; index += 1) {
-      await act(async () => view.mockInput.pressKey('j'));
-    }
-    await view.waitForFrame((frame) => frame.includes('Details #12'));
-
-    await act(async () => view.mockInput.pressKey('F5'));
-    const failedFrame = await view.waitForFrame((frame) =>
-      frame.includes('Review Queue not refreshed')
-    );
-    expect(failedFrame).toContain('stderr-one');
-    await act(async () => view.mockInput.pressKey('k'));
-    expect(github.loadPullRequestDetails).toHaveBeenLastCalledWith(
-      queue[5]?.url,
-      expect.any(AbortSignal)
-    );
-
-    await act(async () => view.mockInput.pressKey('END'));
-    await view.waitForFrame((frame) => frame.includes('queue-tail'));
-    await act(async () => view.mockInput.pressKey('F5'));
-    await view.waitForFrame(
-      (frame) => !frame.includes('PgUp/PgDn page Home/End Esc return')
-    );
-    expect(loadReviewQueue).toHaveBeenCalledTimes(3);
-    await act(async () => view.mockInput.pressKey('k'));
-    await view.waitForFrame((frame) => frame.includes('Details #11'));
-    view.renderer.destroy();
-  });
-
-  test('focuses a single diagnostic line that wraps past narrow inline space', async () => {
-    let loadCount = 0;
-    const loadReviewQueue = jest.fn(async () => {
-      loadCount += 1;
-      if (loadCount === 1) return success([pullRequest]);
-      return {
-        ok: false,
-        failure: {
-          kind: 'exit',
-          operation: 'reviewQueue',
-          exitCode: 1,
-          stderr: `single-line-${'\t'.repeat(40)}-narrow-tail-END`,
-        },
-      } as const;
-    });
-    const github = {
-      loadReviewQueue,
-      async loadPullRequestDetails() {
-        return success(pullRequestDetails('Details #7'));
-      },
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-    const view = await testRender(reviewQueuePage(github), {
-      width: 40,
-      height: 16,
-    });
-    await view.waitForFrame((frame) => frame.includes('Details #7'));
-
-    await act(async () => view.mockInput.pressKey('r'));
-    const failure = await view.waitForFrame((frame) =>
-      frame.includes('Review Queue not refreshed')
-    );
-    expect(failure).toContain('single-line');
-    await act(async () => view.mockInput.pressKey('END'));
-    await view.waitForFrame((frame) => frame.includes('tail-END'));
-    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
-    view.renderer.destroy();
-  });
-
-  test('uses effective keys only while the Review Queue owns input', async () => {
+  test('uses all queue rows until Enter opens captured full-screen details', async () => {
     const loadPullRequestDetails = jest.fn(async (url: string) =>
-      success(
+      detailSources(
         pullRequestDetails(
-          url === pullRequest.url ? 'First details' : 'Second details',
+          'Captured details',
           url === pullRequest.url ? pullRequest : secondPullRequest
         )
       )
     );
+    const thirdPullRequest = {
+      ...pullRequest,
+      url: 'https://github.com/acme/widgets/pull/9',
+      number: 9,
+      title: 'Repair old widgets',
+    } satisfies PullRequestSummary;
     const github = {
       async loadReviewQueue() {
-        return success([pullRequest, secondPullRequest]);
+        return success([pullRequest, secondPullRequest, thirdPullRequest]);
       },
       loadPullRequestDetails,
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
       },
     } satisfies GitHub;
-    const openReviewCommand = jest.fn(async () => ({ ok: true }) as const);
-    const herdr = {
-      async openLumen() {
-        return { ok: true } as const;
-      },
-      openReviewCommand,
-    } satisfies Herdr;
-    const bindings = {
-      selectPrevious: ['p'],
-      selectNext: ['n'],
-      openDiff: ['x'],
-      runReviewCommand: ['alt+shift+a'],
-      composeReviewSubmission: ['w'],
-      refresh: ['f'],
-      showHelp: ['h'],
-      quit: ['z'],
-    } satisfies EffectiveKeyBindings;
-    const onQuit = jest.fn();
-    const view = await testRender(
-      reviewQueuePage(github, herdr, bindings, onQuit),
-      {
-        width: 110,
-        height: 32,
-      }
-    );
-    await view.waitForFrame((frame) => frame.includes('First details'));
+    const view = await testRender(reviewQueuePage(github), {
+      width: 90,
+      height: 18,
+    });
 
-    await act(async () => view.mockInput.pressArrow('down'));
-    const unchangedByDefaultKey = await view.waitForFrame((frame) =>
-      frame.includes('First details')
+    const queueFrame = await view.waitForFrame((frame) =>
+      frame.includes('Repair old widgets')
     );
-    expect(unchangedByDefaultKey).not.toContain('Second details');
-    await act(async () => view.mockInput.pressKey('h'));
-    const help = await view.waitForFrame((frame) =>
-      frame.includes('Review Queue keys')
-    );
-    expect(help).toContain('x  open diff');
-    expect(help).toContain('alt+shift+a  run Review Command');
-    await act(async () => view.mockInput.pressKey('n'));
-    expect(view.captureCharFrame()).toContain('Review Queue keys');
-    expect(view.captureCharFrame()).not.toContain('Second details');
+    expect(queueFrame).not.toContain('Pull request details ·');
+    expect(loadPullRequestDetails).not.toHaveBeenCalled();
 
-    await act(async () => view.mockInput.pressKey('h'));
-    await act(async () => view.mockInput.pressKey('n'));
-    await view.waitForFrame((frame) => frame.includes('Second details'));
-    expect(loadPullRequestDetails).toHaveBeenLastCalledWith(
-      secondPullRequest.url,
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    const modal = await view.waitForFrame((frame) =>
+      frame.includes('Pull request details · acme/widgets #7')
+    );
+    expect(modal).not.toContain('Review requests 3 open');
+    expect(loadPullRequestDetails).toHaveBeenCalledWith(
+      pullRequest.url,
       expect.any(AbortSignal)
     );
-    await act(async () =>
-      view.mockInput.pressKey('A', { meta: true, shift: true })
+
+    await act(async () => view.mockInput.pressKey('q'));
+    const returned = await view.waitForFrame((frame) =>
+      frame.includes('Review requests 3 open')
     );
-    expect(openReviewCommand).toHaveBeenCalledWith(secondPullRequest);
-    await act(async () => view.mockInput.pressKey('z'));
-    expect(onQuit).toHaveBeenCalledTimes(1);
+    expect(returned).toContain('Improve widgets');
     view.renderer.destroy();
   });
 
-  test('clamps the Cursor state when the queue shrinks', async () => {
-    const initialQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const shorterQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const longerQueue = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    const queueLoads = [
-      initialQueue.promise,
-      shorterQueue.promise,
-      longerQueue.promise,
-    ];
-    let queueLoadIndex = 0;
-    const requests = [pullRequest, secondPullRequest, thirdPullRequest];
-    const github = {
-      loadReviewQueue() {
-        const queueLoad = queueLoads[queueLoadIndex];
-        queueLoadIndex += 1;
-        return queueLoad;
-      },
-      async loadPullRequestDetails(url: string) {
-        const request = requests.find((item) => item.url === url);
-        if (request === undefined) throw new Error('Unknown pull request');
-        return success(
-          pullRequestDetails(`Details #${request.number}`, request)
-        );
-      },
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-
-    const view = await testRender(reviewQueuePage(github), {
-      width: 80,
-      height: 24,
-    });
-    await act(async () =>
-      initialQueue.resolve(
-        success([pullRequest, secondPullRequest, thirdPullRequest])
-      )
-    );
-    await view.waitForFrame((frame) => frame.includes(thirdPullRequest.title));
-
-    await act(async () => view.mockInput.pressArrow('down'));
-    await act(async () => view.mockInput.pressArrow('down'));
-    await view.waitForFrame((frame) => frame.includes('Details #9'));
-
-    await act(async () => view.mockInput.pressKey('r'));
-    await act(async () =>
-      shorterQueue.resolve(success([pullRequest, secondPullRequest]))
-    );
-    await view.waitForFrame((frame) => frame.includes('Details #8'));
-
-    await act(async () => view.mockInput.pressKey('r'));
-    await act(async () =>
-      longerQueue.resolve(
-        success([pullRequest, secondPullRequest, thirdPullRequest])
-      )
-    );
-    const restoredQueueFrame = await view.waitForFrame(
-      (frame) =>
-        frame.includes('Details #8') && frame.includes(thirdPullRequest.title)
-    );
-    expect(restoredQueueFrame).not.toContain('Details #9');
-    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
-      configurable: true,
-      value: false,
-    });
-    view.renderer.destroy();
-  });
-
-  test('keeps short failures inline and lets the queue retry', async () => {
-    const queueLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
-    let loadCount = 0;
-    const loadReviewQueue = jest.fn(() => {
-      loadCount += 1;
-      return loadCount === 1
-        ? queueLoad.promise
-        : Promise.resolve(success([pullRequest]));
-    });
-    const github = {
-      loadReviewQueue,
-      async loadPullRequestDetails() {
-        return success(pullRequestDetails('Details #7'));
-      },
-      async submitReview() {
-        throw new Error('Review Submission is not part of this page test');
-      },
-    } satisfies GitHub;
-
-    const view = await testRender(reviewQueuePage(github), {
-      width: 80,
-      height: 24,
-    });
-    await act(async () =>
-      queueLoad.resolve({
-        ok: false,
-        failure: {
-          kind: 'malformedData',
-          operation: 'reviewQueue',
-          diagnostic: 'GitHub CLI returned malformed JSON',
-          stderr: 'gh warning: repair authentication',
+  test('renders complete review context as plain text and uses configurable scrolling', async () => {
+    const details = {
+      ...pullRequestDetails('Complete details'),
+      body: Array.from({ length: 20 }, (_, index) =>
+        index === 10 ? '# literal **Markdown**' : `description line ${index}`
+      ).join('\n'),
+    };
+    const sources = {
+      metadata: success(details),
+      reviews: success([
+        {
+          author: 'reviewer',
+          state: 'CHANGES_REQUESTED',
+          submittedAt: '2026-08-21T11:00:00Z',
+          body: '',
         },
-      })
-    );
-    const frame = await view.waitForFrame((renderedFrame) =>
-      renderedFrame.includes('gh warning: repair authentication')
-    );
-    expect(frame).toContain('GitHub CLI returned malformed JSON');
-    expect(frame).toContain('gh warning: repair authentication');
-    expect(frame).not.toContain('PgUp/PgDn page Home/End Esc return');
-    await act(async () => view.mockInput.pressKey('r'));
-    await view.waitForFrame((renderedFrame) =>
-      renderedFrame.includes('Details #7')
-    );
-    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
-    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
-      configurable: true,
-      value: false,
-    });
-    view.renderer.destroy();
-  });
-
-  test('makes long detail stderr reachable without running queue actions', async () => {
-    const submitReview = jest.fn(async () => success(undefined));
+      ]),
+      checks: success([{ name: 'build', state: 'SUCCESS' }]),
+      issueComments: success([
+        {
+          id: 'issue-1',
+          author: 'commenter',
+          createdAt: '2026-08-21T10:00:00Z',
+          body: 'issue body',
+        },
+      ]),
+      inlineComments: success([
+        {
+          id: '99',
+          author: 'inline-reviewer',
+          createdAt: '2026-08-21T12:00:00Z',
+          body: 'inline body',
+          path: 'src/widget.ts',
+          startLine: 4,
+          line: 7,
+          inReplyToId: '88',
+          resolved: true,
+          outdated: true,
+        },
+      ]),
+    };
     const github = {
       async loadReviewQueue() {
         return success([pullRequest]);
       },
       async loadPullRequestDetails() {
-        return {
-          ok: false,
-          failure: {
-            kind: 'exit',
-            operation: 'pullRequestDetails',
-            url: pullRequest.url,
-            exitCode: 1,
-            stderr: `detail-one\ndetail-two\ndetail-three\ndetail-four\ndetail-five\ndetail-six\ndetail-seven\ndetail-eight-${'x'.repeat(100)}-detail-tail`,
-          },
-        } as const;
+        return sources;
       },
-      submitReview,
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const bindings = {
+      ...defaultKeyBindings,
+      selectPrevious: ['i'],
+      selectNext: ['m'],
+      pagePrevious: ['u'],
+      pageNext: ['v'],
+      scrollStart: ['a'],
+      scrollEnd: ['b'],
+    } satisfies EffectiveKeyBindings;
+    const view = await testRender(
+      reviewQueuePage(github, unusedHerdr, bindings),
+      {
+        width: 100,
+        height: 20,
+      }
+    );
+
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    await view.waitForFrame((frame) => frame.includes('Reviewers'));
+    await act(async () => view.mockInput.pressKey('v'));
+    await act(async () => view.mockInput.pressKey('m'));
+    await act(async () => view.mockInput.pressKey('b'));
+    const endFrame = await view.waitForFrame(
+      (frame) => frame.includes('inline body') && frame.includes('i/m line')
+    );
+    expect(endFrame).toContain(
+      'src/widget.ts:4-7 · reply to 88 · resolved · outdated'
+    );
+    expect(endFrame).toContain('Submitted review · reviewer');
+
+    await act(async () => view.mockInput.pressKey('a'));
+    const startFrame = await view.waitForFrame((frame) =>
+      frame.includes('Pull request details · acme/widgets #7')
+    );
+    expect(startFrame).toContain('build · SUCCESS');
+    await act(async () => view.mockInput.pressKey('v'));
+    const descriptionFrame = await view.waitForFrame((frame) =>
+      frame.includes('# literal **Markdown**')
+    );
+    expect(descriptionFrame).toContain('# literal **Markdown**');
+    await act(async () => view.mockInput.pressKey('u'));
+    view.renderer.destroy();
+  });
+
+  test('keeps successful sources visible and exposes unchanged failed-source diagnostics', async () => {
+    const diagnostic = 'exact gh diagnostic\nsecond line';
+    const issueFailure = {
+      kind: 'exit',
+      operation: 'pullRequestIssueComments',
+      url: pullRequest.url,
+      exitCode: 1,
+      stderr: diagnostic,
+    } as const;
+    const loadPullRequestDetails = jest.fn(async () => ({
+      metadata: success(pullRequestDetails('Available metadata')),
+      reviews: success([]),
+      checks: success([{ name: 'unit', state: 'FAILURE' }]),
+      issueComments: { ok: false, failure: issueFailure } as const,
+      inlineComments: success([]),
+    }));
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails,
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
     } satisfies GitHub;
     const view = await testRender(reviewQueuePage(github), {
-      width: 80,
-      height: 16,
-      kittyKeyboard: true,
+      width: 90,
+      height: 28,
     });
-    const failure = await view.waitForFrame((frame) =>
-      frame.includes('Pull request details unavailable')
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    const modal = await view.waitForFrame((frame) =>
+      frame.includes('Issue comments unavailable')
     );
-    expect(failure).toContain('detail-one');
+    expect(modal).toContain('unit · FAILURE');
+    expect(modal).not.toContain(diagnostic);
 
-    await act(async () => view.mockInput.pressKey('s'));
-    expect(view.captureCharFrame()).not.toContain('Ctrl+S submit');
-    expect(submitReview).not.toHaveBeenCalled();
-    await act(async () => view.mockInput.pressKey('END'));
-    await view.waitForFrame((frame) => frame.includes('detail-tail'));
-
-    await act(async () => {
+    await act(async () => view.mockInput.pressKey('e'));
+    const errors = await view.waitForFrame((frame) =>
+      frame.includes('exact gh diagnostic')
+    );
+    expect(errors).toContain('second line');
+    act(() => {
       view.mockInput.pressEscape();
-      await Promise.resolve();
     });
-    await view.waitForFrame(
-      (frame) => !frame.includes('PgUp/PgDn page Home/End Esc return')
+    await view.waitForFrame((frame) => !frame.includes('exact gh diagnostic'));
+    await act(async () => {
+      view.mockInput.pressKey('r');
+      await Bun.sleep(20);
+    });
+    expect(loadPullRequestDetails).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('the modal captures its target, owns input, and refetches on every opening', async () => {
+    const loadPullRequestDetails = jest.fn(async (url: string) =>
+      detailSources(
+        pullRequestDetails(
+          url === pullRequest.url ? 'First target' : 'Second target'
+        )
+      )
     );
-    await act(async () => view.mockInput.pressKey('s'));
+    const openLumen = jest.fn(async () => ({ ok: true }) as const);
+    const openReviewCommand = jest.fn(async () => ({ ok: true }) as const);
+    const herdr = { openLumen, openReviewCommand } satisfies Herdr;
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest, secondPullRequest]);
+      },
+      loadPullRequestDetails,
+      async submitReview() {
+        throw new Error('Review Submission must stay closed');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github, herdr), {
+      width: 90,
+      height: 24,
+    });
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressKey('e');
+      view.mockInput.pressKey('d', { ctrl: true });
+    });
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    const firstTargetFrame = await view.waitForFrame((frame) =>
+      frame.includes('First target')
+    );
+    expect(firstTargetFrame).not.toContain('Review requests 2 open');
+    await act(async () => {
+      await view.mockInput.pressKey('j');
+      await view.mockInput.pressKey('d');
+      await view.mockInput.pressKey('c');
+      await view.mockInput.pressKey('s');
+    });
+    expect(openLumen).not.toHaveBeenCalled();
+    expect(openReviewCommand).not.toHaveBeenCalled();
+    expect(view.captureCharFrame()).toContain('First target');
+
+    act(() => {
+      view.mockInput.pressEscape();
+    });
     await view.waitForFrame((frame) =>
-      frame.includes('Review acme/widgets #7')
+      frame.includes('Review requests 2 open')
+    );
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(20);
+    });
+    await view.waitForFrame((frame) => frame.includes('First target'));
+    expect(loadPullRequestDetails).toHaveBeenCalledTimes(2);
+    expect(loadPullRequestDetails).toHaveBeenLastCalledWith(
+      pullRequest.url,
+      expect.any(AbortSignal)
+    );
+
+    act(() => {
+      view.mockInput.pressEscape();
+    });
+    await view.waitForFrame((frame) =>
+      frame.includes('Review requests 2 open')
+    );
+    await act(async () => view.mockInput.pressKey('j'));
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    await view.waitForFrame((frame) => frame.includes('Second target'));
+    expect(loadPullRequestDetails).toHaveBeenLastCalledWith(
+      secondPullRequest.url,
+      expect.any(AbortSignal)
     );
     view.renderer.destroy();
   });

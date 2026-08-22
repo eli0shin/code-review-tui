@@ -33,12 +33,18 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
   "keyBindings": {
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],
-    "openDiff": ["d", "enter"],
+    "openDetails": ["enter"],
+    "openDiff": ["d"],
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
     "refresh": ["r"],
+    "pagePrevious": ["ctrl+u"],
+    "pageNext": ["ctrl+d"],
+    "scrollStart": ["g", "home"],
+    "scrollEnd": ["shift+g", "end"],
+    "showErrors": ["e"],
     "showHelp": ["?"],
-    "quit": ["q"]
+    "quit": ["q", "escape"]
   },
   "config": {
     "updateBehavior": "auto",
@@ -53,16 +59,19 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 
 ## Use the Review Queue
 
-| Default key | Action                                                |
-| ----------- | ----------------------------------------------------- |
-| `j`/`down`  | Move the Cursor to the next pull request.             |
-| `k`/`up`    | Move the Cursor to the previous pull request.         |
-| `d`/`enter` | Open the pull request in `lumen diff` in a Herdr tab. |
-| `c`         | Run the configured Review Command in a Herdr tab.     |
-| `s`         | Compose a Review Submission.                          |
-| `r`         | Refresh the Review Queue.                             |
-| `?`         | Show the effective Review Queue keys.                 |
-| `q`         | Quit.                                                 |
+| Default key  | Action                                                |
+| ------------ | ----------------------------------------------------- |
+| `j`/`down`   | Move the Cursor to the next pull request.             |
+| `k`/`up`     | Move the Cursor to the previous pull request.         |
+| `enter`      | Open full-screen pull request details.                |
+| `d`          | Open the pull request in `lumen diff` in a Herdr tab. |
+| `c`          | Run the configured Review Command in a Herdr tab.     |
+| `s`          | Compose a Review Submission.                          |
+| `r`          | Refresh the Review Queue.                             |
+| `?`          | Show the effective Review Queue keys.                 |
+| `q`/`escape` | Quit.                                                 |
+
+Pull request details include reviewers, checks, the plain-text description, and the complete review conversation. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by one page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged Review Queue.
 
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
 

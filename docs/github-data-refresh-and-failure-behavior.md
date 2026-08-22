@@ -43,11 +43,11 @@ A failed load does not change the last successful Review Queue. The Cursor is no
 
 ## Pull request details
 
-Use one details query keyed only by the URL under the Cursor. Moving the Cursor or replacing its row changes or disables that query, and TanStack React Query cancels inactive query work through its supplied `AbortSignal`.
+Details load only after `openDetails` captures the URL under the Cursor. Keep one React Query details query keyed by that captured URL while the full-screen modal is open. Refetch all independent detail sources on every opening and on the modal refresh action. Cached successful content can remain visible during the refetch. Closing the modal disables the query and returns to the unchanged Review Queue and Cursor.
 
-A Review Queue refresh does not invalidate details for an unchanged URL under the Cursor. Queue loading and detail loading remain independent.
+The adapter returns independent metadata, reviews, checks, issue-comment, and review-thread results. Publish each success or failure without making one failed source hide another. Merge every successful conversation source by timestamp. The modal shows concise unavailable markers. Its `showErrors` action opens the existing bounded error surface with complete unchanged diagnostics for all failed sources and returns to the same modal scroll position when closed.
 
-A detail failure affects only the detail pane. Keep the Review Queue and Cursor usable and show the query failure in that pane. Never remove a pull request because its details cannot load.
+A Review Queue refresh does not invalidate details. Queue and detail loading remain independent. Never remove a pull request because one of its detail sources cannot load.
 
 ## Successful Review Submissions
 
@@ -88,13 +88,13 @@ Keep each failure at its boundary:
 
 - An initial Review Queue failure shows an unavailable state with refresh as retry.
 - A refresh failure keeps the last successful Review Queue and marks it as not refreshed.
-- A detail failure stays in the detail pane.
+- A detail-source failure stays in the details modal as a concise marker; complete diagnostics stay in its error surface.
 - A Review Submission failure stays in the submission interaction and preserves the user's message. The submission controls do not change, and the application does not start another submission automatically.
 
 A successful retry clears the corresponding failure. Starting a retry can clear an old success notice, but it must not hide the last usable GitHub data.
 
 ## State boundary
 
-TanStack React Query keeps temporary Review Queue and detail data, status, and operation failures. The page keeps one local numeric Cursor and other local interaction values that do not represent remote data. None of this records review progress.
+TanStack React Query keeps temporary Review Queue and detail data, status, caching, cancellation, and operation failures. The page keeps one local numeric Cursor, one temporary modal target, its scroll position, and other local interaction values that do not represent remote data. None of this records review progress.
 
 Do not persist or derive application-owned states such as reviewed, ready, diff viewed, Review Command run, hidden, snoozed, or failed before. GitHub data and the configured search are the only source of Review Queue membership.

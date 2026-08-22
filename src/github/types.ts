@@ -1,11 +1,29 @@
 import type {
+  PullRequestCheck,
   PullRequestDetails,
+  PullRequestInlineComment,
+  PullRequestIssueComment,
+  PullRequestReview,
   ReviewQueue,
   ReviewSubmission,
 } from '../domain/pull-request.ts';
 
 export type GitHubOperation =
-  'reviewQueue' | 'pullRequestDetails' | 'reviewSubmission';
+  | 'reviewQueue'
+  | 'pullRequestMetadata'
+  | 'pullRequestReviews'
+  | 'pullRequestChecks'
+  | 'pullRequestIssueComments'
+  | 'pullRequestReviewThreads'
+  | 'reviewSubmission';
+
+export type PullRequestDetailSources = {
+  readonly metadata: GitHubResult<PullRequestDetails>;
+  readonly reviews: GitHubResult<readonly PullRequestReview[]>;
+  readonly checks: GitHubResult<readonly PullRequestCheck[]>;
+  readonly issueComments: GitHubResult<readonly PullRequestIssueComment[]>;
+  readonly inlineComments: GitHubResult<readonly PullRequestInlineComment[]>;
+};
 
 type FailureContext = {
   readonly operation: GitHubOperation;
@@ -50,7 +68,7 @@ export type GitHub = {
   loadPullRequestDetails(
     url: string,
     signal: AbortSignal
-  ): Promise<GitHubResult<PullRequestDetails>>;
+  ): Promise<PullRequestDetailSources>;
   submitReview(
     submission: ReviewSubmission,
     signal: AbortSignal

@@ -53,9 +53,13 @@
           "$ref": "#/$defs/bindingList",
           "default": ["j", "down"]
         },
+        "openDetails": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["enter"]
+        },
         "openDiff": {
           "$ref": "#/$defs/bindingList",
-          "default": ["d", "enter"]
+          "default": ["d"]
         },
         "runReviewCommand": {
           "$ref": "#/$defs/bindingList",
@@ -69,13 +73,33 @@
           "$ref": "#/$defs/bindingList",
           "default": ["r"]
         },
+        "pagePrevious": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["ctrl+u"]
+        },
+        "pageNext": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["ctrl+d"]
+        },
+        "scrollStart": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["g", "home"]
+        },
+        "scrollEnd": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["shift+g", "end"]
+        },
+        "showErrors": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["e"]
+        },
         "showHelp": {
           "$ref": "#/$defs/bindingList",
           "default": ["?"]
         },
         "quit": {
           "$ref": "#/$defs/bindingList",
-          "default": ["q"]
+          "default": ["q", "escape"]
         }
       }
     },

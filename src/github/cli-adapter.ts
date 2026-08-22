@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type {
+  PullRequestCheck,
   PullRequestDetails,
+  PullRequestInlineComment,
+  PullRequestIssueComment,
   PullRequestReview,
   PullRequestSummary,
   ReviewDecision,
@@ -19,7 +22,61 @@ const queueFields =
 const queueStatsFields = 'additions,deletions,changedFiles';
 const queueEnrichmentConcurrency = 8;
 const detailFields =
-  'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests,latestReviews';
+  'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests';
+const reviewThreadQuery = `
+query($owner:String!,$repository:String!,$number:Int!,$threadsCursor:String) {
+  repository(owner:$owner,name:$repository) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100,after:$threadsCursor) {
+        nodes {
+          id
+          isResolved
+          comments(first:100) {
+            nodes {
+              databaseId
+              author { login }
+              createdAt
+              body
+              path
+              line
+              startLine
+              originalLine
+              originalStartLine
+              outdated
+              replyTo { databaseId }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`;
+const reviewThreadCommentsQuery = `
+query($threadId:ID!,$commentsCursor:String) {
+  node(id:$threadId) {
+    ... on PullRequestReviewThread {
+      isResolved
+      comments(first:100,after:$commentsCursor) {
+        nodes {
+          databaseId
+          author { login }
+          createdAt
+          body
+          path
+          line
+          startLine
+          originalLine
+          originalStartLine
+          outdated
+          replyTo { databaseId }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`;
 
 export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   const searchArguments = [...search];
@@ -53,20 +110,39 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
     },
 
     async loadPullRequestDetails(url, signal) {
-      const processResult = await runGh(
-        ['pr', 'view', url, '--json', detailFields],
-        '',
-        'pullRequestDetails',
-        url,
-        signal
-      );
-      if (!processResult.ok) return processResult;
-      return parseOutput(
-        processResult.value,
-        'pullRequestDetails',
-        parsePullRequestDetails,
-        url
-      );
+      const [metadata, reviews, checks, issueComments, inlineComments] =
+        await Promise.all([
+          loadDetailSource(
+            ['pr', 'view', url, '--json', detailFields],
+            'pullRequestMetadata',
+            url,
+            signal,
+            parsePullRequestDetails
+          ),
+          loadDetailSource(
+            ['pr', 'view', url, '--json', 'reviews'],
+            'pullRequestReviews',
+            url,
+            signal,
+            parseReviews
+          ),
+          loadDetailSource(
+            ['pr', 'view', url, '--json', 'statusCheckRollup'],
+            'pullRequestChecks',
+            url,
+            signal,
+            parseChecks
+          ),
+          loadDetailSource(
+            ['pr', 'view', url, '--json', 'comments'],
+            'pullRequestIssueComments',
+            url,
+            signal,
+            parseIssueComments
+          ),
+          loadInlineComments(url, signal),
+        ]);
+      return { metadata, reviews, checks, issueComments, inlineComments };
     },
 
     async submitReview(submission, signal) {
@@ -87,6 +163,131 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         result.ok ? { ok: true, value: undefined } : result
       );
     },
+  };
+}
+
+async function loadDetailSource<Value>(
+  arguments_: readonly string[],
+  operation: GitHubOperation,
+  url: string,
+  signal: AbortSignal,
+  parse: (value: unknown) => Value
+): Promise<GitHubResult<Value>> {
+  const processResult = await runGh(arguments_, '', operation, url, signal);
+  if (!processResult.ok) return processResult;
+  return parseOutput(processResult.value, operation, parse, url);
+}
+
+async function loadInlineComments(
+  url: string,
+  signal: AbortSignal
+): Promise<GitHubResult<readonly PullRequestInlineComment[]>> {
+  const targetResult = parsePullRequestUrlResult(url);
+  if (!targetResult.ok) {
+    return failure({
+      kind: 'incompatibleData',
+      operation: 'pullRequestReviewThreads',
+      url,
+      diagnostic: targetResult.diagnostic,
+      stderr: '',
+    });
+  }
+  const target = targetResult.value;
+  const comments: PullRequestInlineComment[] = [];
+  let threadsCursor: string | null = null;
+  do {
+    const threadPage: GitHubResult<ReviewThreadPage> = await loadDetailSource(
+      [
+        'api',
+        'graphql',
+        '--hostname',
+        target.hostname,
+        '-f',
+        `query=${reviewThreadQuery}`,
+        '-F',
+        `owner=${target.owner}`,
+        '-F',
+        `repository=${target.repository}`,
+        '-F',
+        `number=${target.number}`,
+        ...(threadsCursor === null
+          ? []
+          : (['-f', `threadsCursor=${threadsCursor}`] as const)),
+      ],
+      'pullRequestReviewThreads',
+      url,
+      signal,
+      parseReviewThreadPage
+    );
+    if (!threadPage.ok) return threadPage;
+    comments.push(...threadPage.value.comments);
+    threadsCursor = threadPage.value.nextCursor;
+
+    for (const continuation of threadPage.value.continuations) {
+      let commentsCursor: string | null = continuation.nextCursor;
+      while (commentsCursor !== null) {
+        const commentPage: GitHubResult<{
+          readonly comments: readonly PullRequestInlineComment[];
+          readonly nextCursor: string | null;
+        }> = await loadDetailSource(
+          [
+            'api',
+            'graphql',
+            '--hostname',
+            target.hostname,
+            '-f',
+            `query=${reviewThreadCommentsQuery}`,
+            '-F',
+            `threadId=${continuation.threadId}`,
+            '-f',
+            `commentsCursor=${commentsCursor}`,
+          ],
+          'pullRequestReviewThreads',
+          url,
+          signal,
+          parseReviewThreadCommentPage
+        );
+        if (!commentPage.ok) return commentPage;
+        comments.push(...commentPage.value.comments);
+        commentsCursor = commentPage.value.nextCursor;
+      }
+    }
+  } while (threadsCursor !== null);
+
+  return { ok: true, value: comments };
+}
+
+function parsePullRequestUrlResult(url: string):
+  | {
+      readonly ok: true;
+      readonly value: ReturnType<typeof parsePullRequestUrl>;
+    }
+  | { readonly ok: false; readonly diagnostic: string } {
+  try {
+    return { ok: true, value: parsePullRequestUrl(url) };
+  } catch (error) {
+    return { ok: false, diagnostic: describeError(error) };
+  }
+}
+
+function parsePullRequestUrl(url: string): {
+  readonly hostname: string;
+  readonly owner: string;
+  readonly repository: string;
+  readonly number: number;
+} {
+  const target = new URL(url);
+  const match = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/.exec(target.pathname);
+  if (match === null) {
+    throw new CompatibilityError(
+      'Pull request URL must contain an owner, repository, and pull request number'
+    );
+  }
+  return {
+    hostname: target.hostname,
+    owner: decodeURIComponent(match[1]),
+    repository: decodeURIComponent(match[2]),
+    number: Number(match[3]),
   };
 }
 
@@ -400,10 +601,175 @@ function parsePullRequestDetails(value: unknown): PullRequestDetails {
     reviewRequests: array(item.reviewRequests, '$.reviewRequests').map(
       parseReviewRequest
     ),
-    latestReviews: array(item.latestReviews, '$.latestReviews').map(
-      parseReview
+  };
+}
+
+function parseReviews(value: unknown): readonly PullRequestReview[] {
+  const item = record(value, '$');
+  return array(item.reviews, '$.reviews').flatMap((reviewValue, index) => {
+    const path = `$.reviews[${index}]`;
+    const review = record(reviewValue, path);
+    if (string(review.state, `${path}.state`) === 'PENDING') return [];
+    return [parseReview(reviewValue, index, '$.reviews')];
+  });
+}
+
+function parseChecks(value: unknown): readonly PullRequestCheck[] {
+  const item = record(value, '$');
+  return array(item.statusCheckRollup, '$.statusCheckRollup').map(
+    (value, index) => {
+      const path = `$.statusCheckRollup[${index}]`;
+      const check = record(value, path);
+      const name =
+        typeof check.name === 'string'
+          ? check.name
+          : string(check.context, `${path}.context`);
+      const state =
+        typeof check.conclusion === 'string' && check.conclusion !== ''
+          ? check.conclusion
+          : typeof check.state === 'string'
+            ? check.state
+            : string(check.status, `${path}.status`);
+      return { name, state };
+    }
+  );
+}
+
+function parseIssueComments(
+  value: unknown
+): readonly PullRequestIssueComment[] {
+  const item = record(value, '$');
+  return array(item.comments, '$.comments').map((value, index) => {
+    const path = `$.comments[${index}]`;
+    const comment = record(value, path);
+    const author = record(comment.author, `${path}.author`);
+    return {
+      id: string(comment.id, `${path}.id`),
+      author: string(author.login, `${path}.author.login`),
+      createdAt: string(comment.createdAt, `${path}.createdAt`),
+      body: string(comment.body, `${path}.body`),
+    };
+  });
+}
+
+type ReviewThreadPage = {
+  readonly comments: readonly PullRequestInlineComment[];
+  readonly continuations: readonly {
+    readonly threadId: string;
+    readonly nextCursor: string;
+  }[];
+  readonly nextCursor: string | null;
+};
+
+function parseReviewThreadPage(value: unknown): ReviewThreadPage {
+  const data = record(record(value, '$').data, '$.data');
+  const repository = record(data.repository, '$.data.repository');
+  const pullRequest = record(
+    repository.pullRequest,
+    '$.data.repository.pullRequest'
+  );
+  const threadsPath = '$.data.repository.pullRequest.reviewThreads';
+  const threads = record(pullRequest.reviewThreads, threadsPath);
+  const comments: PullRequestInlineComment[] = [];
+  const continuations: { threadId: string; nextCursor: string }[] = [];
+  array(threads.nodes, `${threadsPath}.nodes`).forEach(
+    (threadValue, threadIndex) => {
+      const threadPath = `${threadsPath}.nodes[${threadIndex}]`;
+      const thread = record(threadValue, threadPath);
+      const resolved = boolean(thread.isResolved, `${threadPath}.isResolved`);
+      const threadComments = record(thread.comments, `${threadPath}.comments`);
+      comments.push(
+        ...parseInlineCommentNodes(
+          threadComments.nodes,
+          `${threadPath}.comments.nodes`,
+          resolved
+        )
+      );
+      const nextCommentsCursor = parseNextCursor(
+        threadComments.pageInfo,
+        `${threadPath}.comments.pageInfo`
+      );
+      if (nextCommentsCursor !== null) {
+        continuations.push({
+          threadId: string(thread.id, `${threadPath}.id`),
+          nextCursor: nextCommentsCursor,
+        });
+      }
+    }
+  );
+  return {
+    comments,
+    continuations,
+    nextCursor: parseNextCursor(threads.pageInfo, `${threadsPath}.pageInfo`),
+  };
+}
+
+function parseReviewThreadCommentPage(value: unknown): {
+  readonly comments: readonly PullRequestInlineComment[];
+  readonly nextCursor: string | null;
+} {
+  const data = record(record(value, '$').data, '$.data');
+  const node = record(data.node, '$.data.node');
+  const resolved = boolean(node.isResolved, '$.data.node.isResolved');
+  const comments = record(node.comments, '$.data.node.comments');
+  return {
+    comments: parseInlineCommentNodes(
+      comments.nodes,
+      '$.data.node.comments.nodes',
+      resolved
+    ),
+    nextCursor: parseNextCursor(
+      comments.pageInfo,
+      '$.data.node.comments.pageInfo'
     ),
   };
+}
+
+function parseInlineCommentNodes(
+  value: unknown,
+  path: string,
+  resolved: boolean
+): readonly PullRequestInlineComment[] {
+  return array(value, path).map((commentValue, index) => {
+    const commentPath = `${path}[${index}]`;
+    const comment = record(commentValue, commentPath);
+    const author = nullableRecord(comment.author, `${commentPath}.author`);
+    const replyTo = nullableRecord(comment.replyTo, `${commentPath}.replyTo`);
+    return {
+      id: String(integer(comment.databaseId, `${commentPath}.databaseId`)),
+      author:
+        author === null
+          ? 'ghost'
+          : string(author.login, `${commentPath}.author.login`),
+      createdAt: string(comment.createdAt, `${commentPath}.createdAt`),
+      body: string(comment.body, `${commentPath}.body`),
+      path: string(comment.path, `${commentPath}.path`),
+      line:
+        nullableInteger(comment.line, `${commentPath}.line`) ??
+        nullableInteger(comment.originalLine, `${commentPath}.originalLine`),
+      startLine:
+        nullableInteger(comment.startLine, `${commentPath}.startLine`) ??
+        nullableInteger(
+          comment.originalStartLine,
+          `${commentPath}.originalStartLine`
+        ),
+      inReplyToId:
+        replyTo === null
+          ? null
+          : String(
+              integer(replyTo.databaseId, `${commentPath}.replyTo.databaseId`)
+            ),
+      resolved,
+      outdated: boolean(comment.outdated, `${commentPath}.outdated`),
+    };
+  });
+}
+
+function parseNextCursor(value: unknown, path: string): string | null {
+  const pageInfo = record(value, path);
+  return boolean(pageInfo.hasNextPage, `${path}.hasNextPage`)
+    ? string(pageInfo.endCursor, `${path}.endCursor`)
+    : null;
 }
 
 function parseReviewRequest(value: unknown, index: number): string {
@@ -414,8 +780,12 @@ function parseReviewRequest(value: unknown, index: number): string {
   throw incompatible(`${path}.login`, 'a string login or name');
 }
 
-function parseReview(value: unknown, index: number): PullRequestReview {
-  const path = `$.latestReviews[${index}]`;
+function parseReview(
+  value: unknown,
+  index: number,
+  collectionPath: string
+): PullRequestReview {
+  const path = `${collectionPath}[${index}]`;
   const review = record(value, path);
   const author = record(review.author, `${path}.author`);
   return {
@@ -452,6 +822,17 @@ function array(value: unknown, path: string): readonly unknown[] {
 function string(value: unknown, path: string): string {
   if (typeof value !== 'string') throw incompatible(path, 'a string');
   return value;
+}
+
+function nullableRecord(
+  value: unknown,
+  path: string
+): Record<string, unknown> | null {
+  return value === null ? null : record(value, path);
+}
+
+function nullableInteger(value: unknown, path: string): number | null {
+  return value === null ? null : integer(value, path);
 }
 
 function boolean(value: unknown, path: string): boolean {

@@ -22,6 +22,31 @@ export type PullRequestReview = {
   readonly body: string;
 };
 
+export type PullRequestCheck = {
+  readonly name: string;
+  readonly state: string;
+};
+
+export type PullRequestIssueComment = {
+  readonly id: string;
+  readonly author: string;
+  readonly createdAt: string;
+  readonly body: string;
+};
+
+export type PullRequestInlineComment = {
+  readonly id: string;
+  readonly author: string;
+  readonly createdAt: string;
+  readonly body: string;
+  readonly path: string;
+  readonly line: number | null;
+  readonly startLine: number | null;
+  readonly inReplyToId: string | null;
+  readonly resolved: boolean;
+  readonly outdated: boolean;
+};
+
 export type PullRequestDetails = {
   readonly url: string;
   readonly number: number;
@@ -40,7 +65,6 @@ export type PullRequestDetails = {
   readonly labels: readonly string[];
   readonly reviewDecision: string;
   readonly reviewRequests: readonly string[];
-  readonly latestReviews: readonly PullRequestReview[];
 };
 
 export type ReviewQueue = readonly PullRequestSummary[];
