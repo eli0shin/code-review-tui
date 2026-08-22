@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.1
+
+### Patch Changes
+
+- [#24](https://github.com/eli0shin/code-review-tui/pull/24) [`6b8e27d`](https://github.com/eli0shin/code-review-tui/commit/6b8e27d35cf92552d8d7b986a1ec8bb70ebe7279) Thanks [@eli0shin](https://github.com/eli0shin)! - Create a complete editable Review configuration during the first TUI startup.
+
 ## 0.2.0
 
 ### Minor Changes
