@@ -100,13 +100,13 @@ Lumen's export contains useful file and line labels, but it is formatted for hum
 
 Lumen comments are input that the user can choose to load during a later, separate code-review session. They are not a Review Submission body, are not automatically injected into a Review Command, and are not parsed into GitHub inline comments.
 
-Capture Lumen stdout inside its existing Herdr tab. Write it first to a temporary file. When Lumen exits successfully with nonempty stdout, replace this deterministic file:
+Capture Lumen stdout inside its existing Herdr tab. Create the first file with the system `mktemp` command and redirect Lumen stdout to it. Lumen continues to draw through `/dev/tty`. When Lumen exits successfully with nonempty stdout, create the deterministic destination directory and move the temporary file over this deterministic file:
 
 ```text
 /tmp/review/lumen/<org>/<repo>/<pull-request-number>.txt
 ```
 
-The file contains exact Lumen stdout. A normal Lumen exit without send leaves the prior file unchanged. Keep the existing best-effort focus and close behavior. Add no return channel, application state, automatic Review Command handoff, or custom environment variable.
+The file contains exact Lumen stdout. A later successful nonempty send replaces the complete prior file. A normal Lumen exit without send or a nonzero exit removes the temporary file and leaves the prior destination unchanged. Keep the existing independent best-effort focus-then-close behavior after capture handling. Shell-quote the pull request URL and all generated paths. Add no return channel, application state, automatic Review Command handoff, or custom environment variable.
 
 Add `review skill install`. It always overwrites `~/.agents/skills/review-comments/SKILL.md` with a user-invoked `review-comments` skill. The skill only instructs the agent:
 

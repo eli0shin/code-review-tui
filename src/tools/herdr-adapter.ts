@@ -85,7 +85,7 @@ async function openHerdrTab(
 
   const command =
     kind === 'lumen'
-      ? `lumen diff ${shellQuote(pullRequest.url)}`
+      ? lumenCommand(pullRequest)
       : `/bin/sh -c ${shellQuote(options.reviewCommand)}`;
   const run = await runHerdr(
     [
@@ -270,6 +270,12 @@ function tabLabel(
 ): string {
   const name = kind === 'lumen' ? 'Lumen' : 'Review Command';
   return `${name} ${pullRequest.repository}#${pullRequest.number}`;
+}
+
+function lumenCommand(pullRequest: PullRequestSummary): string {
+  const destinationDirectory = `/tmp/review/lumen/${pullRequest.repository}`;
+  const destination = `${destinationDirectory}/${pullRequest.number}.txt`;
+  return `if comments=$(mktemp); then if lumen diff ${shellQuote(pullRequest.url)} >"$comments" && [ -s "$comments" ]; then mkdir -p ${shellQuote(destinationDirectory)} && mv "$comments" ${shellQuote(destination)} || rm -f "$comments"; else rm -f "$comments"; fi; fi`;
 }
 
 function shellQuote(value: string): string {
