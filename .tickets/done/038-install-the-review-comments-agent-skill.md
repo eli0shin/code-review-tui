@@ -64,3 +64,7 @@ Update installation and usage documentation. Add a patch changeset.
 - The command does not read or initialize Review TUI configuration and does not require external CLIs.
 - CLI help exposes `review skill install` and no unsupported skill-management operations.
 - Existing TUI startup, update, version, and native executable contracts continue to pass.
+
+## Resolution
+
+Implemented in PR #40 and squash-merged as `1e58d396c5574a871438d6b6ff2bd59a1a9d6658`.
