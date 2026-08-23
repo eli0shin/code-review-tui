@@ -83,17 +83,13 @@ async function openHerdrTab(
   const created = parseCreatedTab(create.value);
   if (!created.ok) return created;
 
+  const cleanup = `herdr tab focus ${shellQuote(context.reviewQueueTabId)}; herdr tab close ${shellQuote(created.value.tabId)}`;
   const command =
     kind === 'lumen'
-      ? lumenCommand(pullRequest)
-      : `/bin/sh -c ${shellQuote(options.reviewCommand)}`;
+      ? lumenCommand(pullRequest, cleanup)
+      : `/bin/sh -c ${shellQuote(options.reviewCommand)}; ${cleanup}`;
   const run = await runHerdr(
-    [
-      'pane',
-      'run',
-      created.value.paneId,
-      `${command}; herdr tab focus ${shellQuote(context.reviewQueueTabId)}; herdr tab close ${shellQuote(created.value.tabId)}`,
-    ],
+    ['pane', 'run', created.value.paneId, command],
     herdrEnvironment,
     'runCommand'
   );
@@ -272,10 +268,14 @@ function tabLabel(
   return `${name} ${pullRequest.repository}#${pullRequest.number}`;
 }
 
-function lumenCommand(pullRequest: PullRequestSummary): string {
+function lumenCommand(
+  pullRequest: PullRequestSummary,
+  cleanup: string
+): string {
   const destinationDirectory = `/tmp/review/lumen/${pullRequest.repository}`;
   const destination = `${destinationDirectory}/${pullRequest.number}.txt`;
-  return `if comments=$(mktemp); then if lumen diff ${shellQuote(pullRequest.url)} >"$comments" && [ -s "$comments" ]; then mkdir -p ${shellQuote(destinationDirectory)} && mv "$comments" ${shellQuote(destination)} || rm -f "$comments"; else rm -f "$comments"; fi; fi`;
+  const script = `if comments=$(mktemp); then if lumen diff ${shellQuote(pullRequest.url)} >"$comments" && [ -s "$comments" ]; then mkdir -p ${shellQuote(destinationDirectory)} && mv "$comments" ${shellQuote(destination)} || rm -f "$comments"; else rm -f "$comments"; fi; fi; ${cleanup}`;
+  return `/bin/sh -c ${shellQuote(script)}`;
 }
 
 function shellQuote(value: string): string {
