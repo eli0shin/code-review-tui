@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.8
+
+### Patch Changes
+
+- [#42](https://github.com/eli0shin/code-review-tui/pull/42) [`4824b84`](https://github.com/eli0shin/code-review-tui/commit/4824b84a2a726cb4789c80451ff6c69288fc6b60) Thanks [@eli0shin](https://github.com/eli0shin)! - Run the Lumen capture and cleanup script through POSIX sh so it works from fish-backed Herdr panes.
+
 ## 0.2.7
 
 ### Patch Changes
