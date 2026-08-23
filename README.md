@@ -77,7 +77,7 @@ Every application surface uses the terminal's normal background and foreground. 
 
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
 
-A Review Submission can comment, approve, or request changes. In the submission modal, use `Tab` and `Shift+Tab` to move between the message and decision, arrow keys to change the decision, `Ctrl+S` to submit, and `Esc` to cancel. Comments and change requests need a nonblank message. Approvals can have an empty message. Review submits one top-level GitHub review; inline comments are not supported.
+A Review Submission can comment, approve, or request changes. Write the message directly in the submission modal, then press `Ctrl+C` to comment, `Ctrl+A` to approve, or `Ctrl+R` to request changes immediately. Press `Esc` to close and discard without confirmation. Comments and change requests need a nonblank message. Approvals can have an empty message. Review submits one top-level GitHub review; inline comments are not supported.
 
 ## Update
 
