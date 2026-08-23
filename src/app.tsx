@@ -125,12 +125,17 @@ function ReviewQueue({
   const [detailErrorsOpen, setDetailErrorsOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [dismissedFailureKey, setDismissedFailureKey] = useState<string>();
-  const [notice, setNotice] = useState<string>();
+  const [notice, setNotice] = useState<{
+    readonly message: string;
+    readonly refreshFailure?: GitHubFailure;
+    readonly queueSuccessSequence?: number;
+  }>();
   const [herdrActionFailure, setHerdrActionFailure] =
     useState<HerdrActionFailure>();
   const editorRef = useRef<TextareaRenderable>(null);
   const failureViewerRef = useRef<ScrollBoxRenderable>(null);
   const detailsViewportRef = useRef<ScrollBoxRenderable>(null);
+  const queueSuccessSequenceRef = useRef(0);
   const draftOpenRef = useRef(false);
   const submissionActiveRef = useRef(false);
   const submissionIdRef = useRef(0);
@@ -142,11 +147,17 @@ function ReviewQueue({
     async queryFn({ signal }) {
       const result = await github.loadReviewQueue(signal);
       if (!result.ok) throw result.failure;
+      queueSuccessSequenceRef.current += 1;
       return result.value;
     },
     refetchInterval: refreshIntervalMs,
   });
   const queue = queueQuery.data ?? emptyReviewQueue;
+  const rememberedRefreshFailure =
+    notice?.queueSuccessSequence === queueSuccessSequenceRef.current
+      ? notice.refreshFailure
+      : undefined;
+  const queueFailure = queueQuery.error ?? rememberedRefreshFailure ?? null;
   const lastCursorPosition = Math.max(queue.length - 1, 0);
   const cursorPosition = Math.min(cursor, lastCursorPosition);
   if (cursor !== cursorPosition) setCursor(cursorPosition);
@@ -167,7 +178,9 @@ function ReviewQueue({
 
   const queueStatusWidth = terminal.width - 5;
   const occupiedQueueStatusRows =
-    (notice === undefined ? 0 : renderedRows(notice, queueStatusWidth)) +
+    (notice === undefined
+      ? 0
+      : renderedRows(notice.message, queueStatusWidth)) +
     (herdrActionFailure === undefined
       ? 0
       : renderedRows(
@@ -182,24 +195,24 @@ function ReviewQueue({
         ));
   const activeFailure =
     modalTarget === undefined &&
-    queueQuery.error !== null &&
+    queueFailure !== null &&
     requiresFailureOverlay(
       queue.length === 0
-        ? `${failureMessage(queueQuery.error)} · ${formatBindings(
+        ? `${failureMessage(queueFailure)} · ${formatBindings(
             keyBindings.refresh
           )} retry`
-        : `Review Queue not refreshed: ${failureMessage(queueQuery.error)}`,
+        : `Review Queue not refreshed: ${failureMessage(queueFailure)}`,
       queue.length === 0 ? terminal.width : queueStatusWidth,
       queue.length === 0 ? terminal.height - 2 : 3 - occupiedQueueStatusRows
     ) &&
-    githubFailureKey(queueQuery.error) !== dismissedFailureKey
+    githubFailureKey(queueFailure) !== dismissedFailureKey
       ? {
-          key: githubFailureKey(queueQuery.error),
+          key: githubFailureKey(queueFailure),
           title:
             queue.length === 0
               ? 'Review Queue unavailable'
               : 'Review Queue not refreshed',
-          message: failureMessage(queueQuery.error),
+          message: failureMessage(queueFailure),
         }
       : undefined;
 
@@ -257,10 +270,14 @@ function ReviewQueue({
     const successNotice = submissionSuccessNotice(attempt.target, action);
     draftOpenRef.current = false;
     setDraft(undefined);
-    setNotice(`${successNotice} Refreshing Review Queue…`);
+    setNotice({ message: `${successNotice} Refreshing Review Queue…` });
     const refresh = await queueQuery.refetch();
     if (refresh.isError) {
-      setNotice(`${successNotice} Review Queue could not be refreshed.`);
+      setNotice({
+        message: `${successNotice} Review Queue could not be refreshed.`,
+        refreshFailure: refresh.error,
+        queueSuccessSequence: queueSuccessSequenceRef.current,
+      });
     }
   };
 
@@ -290,6 +307,7 @@ function ReviewQueue({
       key.stopPropagation();
       const viewer = failureViewerRef.current;
       if (queueActionForKey(key, keyBindings) === 'refresh') {
+        setNotice(undefined);
         void queueQuery.refetch();
       } else if (key.name === 'escape') {
         setDismissedFailureKey(activeFailure.key);
@@ -379,6 +397,7 @@ function ReviewQueue({
       return;
     }
     if (action === 'refresh') {
+      setNotice(undefined);
       void queueQuery.refetch();
       return;
     }
@@ -460,8 +479,8 @@ function ReviewQueue({
             queue={queue}
             cursorPosition={cursorPosition}
             refreshing={queueQuery.isFetching}
-            refreshFailure={queueQuery.error}
-            notice={notice}
+            refreshFailure={queueFailure}
+            notice={notice?.message}
             herdrActionFailure={herdrActionFailure}
             keyBindings={keyBindings}
             theme={theme}
@@ -587,14 +606,17 @@ function ReviewQueueContent({
           viewportCulling
           contentOptions={{ flexDirection: 'column', paddingRight: 1 }}
         >
-          {notice !== undefined ? (
-            <text width="100%" wrapMode="char" fg={theme?.success}>
-              {notice}
-            </text>
-          ) : null}
-          {refreshFailure !== null ? (
-            <text width="100%" wrapMode="char" fg={theme?.error}>
-              Review Queue not refreshed: {failureMessage(refreshFailure)}
+          {notice !== undefined || refreshFailure !== null ? (
+            <text width="100%" wrapMode="char">
+              {notice !== undefined ? (
+                <span fg={theme?.success}>{notice}</span>
+              ) : null}
+              {notice !== undefined && refreshFailure !== null ? '\n' : null}
+              {refreshFailure !== null ? (
+                <span fg={theme?.error}>
+                  Review Queue not refreshed: {failureMessage(refreshFailure)}
+                </span>
+              ) : null}
             </text>
           ) : null}
           {herdrActionFailure !== undefined ? (

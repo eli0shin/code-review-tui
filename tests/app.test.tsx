@@ -895,7 +895,7 @@ describe('Review Submission', () => {
     let loadCount = 0;
     const loadReviewQueue = jest.fn(async () => {
       loadCount += 1;
-      if (loadCount === 1) return success([pullRequest]);
+      if (loadCount === 1 || loadCount === 3) return success([pullRequest]);
       return {
         ok: false,
         failure: {
@@ -931,7 +931,14 @@ describe('Review Submission', () => {
     expect(failure).toContain('refresh-');
     await act(async () => view.mockInput.pressKey('END'));
     await view.waitForFrame((frame) => frame.includes('TAIL'));
-    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    await act(async () => view.mockInput.pressKey('r'));
+    const refreshed = await view.waitForFrame(
+      (frame) =>
+        !frame.includes('Review Queue not refreshed') &&
+        !frame.includes('could not be refreshed')
+    );
+    expect(refreshed).toContain(pullRequest.title);
+    expect(loadReviewQueue).toHaveBeenCalledTimes(3);
     view.renderer.destroy();
   });
 
