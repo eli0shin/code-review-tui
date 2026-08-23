@@ -49,18 +49,11 @@ environmentManager.setIsServer(() => false);
 const refreshIntervalMs = 60_000;
 const detailsQueryKey = ['pullRequestDetails'] as const;
 const emptyReviewQueue: ReviewQueue = [];
-const decisions = ['comment', 'approve', 'requestChanges'] as const;
-
-type SubmissionFocus = 'editor' | 'decision';
-type ConfirmationChoice = 'keepEditing' | 'discard';
 
 type SubmissionDraft = {
   readonly target: PullRequestSummary;
   readonly message: string;
-  readonly decision: ReviewDecision;
-  readonly focus: SubmissionFocus;
-  readonly confirmation: boolean;
-  readonly confirmationChoice: ConfirmationChoice;
+  readonly action?: ReviewDecision;
   readonly validation?: string;
   readonly failure?: GitHubFailure;
   readonly inFlight: boolean;
@@ -138,7 +131,12 @@ function ReviewQueue({
   const editorRef = useRef<TextareaRenderable>(null);
   const failureViewerRef = useRef<ScrollBoxRenderable>(null);
   const detailsViewportRef = useRef<ScrollBoxRenderable>(null);
+  const draftOpenRef = useRef(false);
   const submissionActiveRef = useRef(false);
+  const submissionIdRef = useRef(0);
+  const submissionControllerRef = useRef<AbortController | undefined>(
+    undefined
+  );
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
     queryKey: ['reviewQueue'],
     async queryFn({ signal }) {
@@ -209,39 +207,55 @@ function ReviewQueue({
     failureViewerRef.current?.scrollTo(0);
   }, [activeFailure?.key, detailErrorsOpen]);
 
-  const submitDraft = async (submission: SubmissionDraft): Promise<void> => {
-    if (submission.decision !== 'approve' && !/\S/.test(submission.message)) {
+  const closeDraft = (): void => {
+    draftOpenRef.current = false;
+    submissionIdRef.current += 1;
+    submissionControllerRef.current?.abort();
+    submissionControllerRef.current = undefined;
+    submissionActiveRef.current = false;
+    setDraft(undefined);
+  };
+
+  const submitDraft = async (
+    submission: SubmissionDraft,
+    action: ReviewDecision,
+    message: string
+  ): Promise<void> => {
+    if (!draftOpenRef.current || submissionActiveRef.current) return;
+    const attempt = { ...submission, message, action };
+    if (action !== 'approve' && !/\S/.test(message)) {
       setDraft({
-        ...submission,
-        focus: 'editor',
-        validation: 'A message is required for this decision.',
+        ...attempt,
+        validation: `${reviewActionLabel(action)} requires a nonblank message.`,
       });
       return;
     }
-    if (submissionActiveRef.current) return;
     submissionActiveRef.current = true;
+    const submissionId = submissionIdRef.current + 1;
+    submissionIdRef.current = submissionId;
+    const controller = new AbortController();
+    submissionControllerRef.current = controller;
 
     setDraft({
-      ...submission,
+      ...attempt,
       failure: undefined,
       validation: undefined,
       inFlight: true,
     });
     const result = await github.submitReview(
-      {
-        url: submission.target.url,
-        message: submission.message,
-        decision: submission.decision,
-      },
-      new AbortController().signal
+      { url: attempt.target.url, message, decision: action },
+      controller.signal
     );
+    if (submissionIdRef.current !== submissionId) return;
     submissionActiveRef.current = false;
+    submissionControllerRef.current = undefined;
     if (!result.ok) {
-      setDraft({ ...submission, failure: result.failure, inFlight: false });
+      setDraft({ ...attempt, failure: result.failure, inFlight: false });
       return;
     }
 
-    const successNotice = submissionSuccessNotice(submission);
+    const successNotice = submissionSuccessNotice(attempt.target, action);
+    draftOpenRef.current = false;
     setDraft(undefined);
     setNotice(`${successNotice} Refreshing Review Queue…`);
     const refresh = await queueQuery.refetch();
@@ -261,7 +275,13 @@ function ReviewQueue({
 
   useKeyboard((key) => {
     if (draft !== undefined) {
-      handleSubmissionKey(key, draft, setDraft, submitDraft);
+      handleSubmissionKey(
+        key,
+        draft,
+        editorRef.current?.plainText ?? draft.message,
+        submitDraft,
+        closeDraft
+      );
       return;
     }
 
@@ -384,6 +404,7 @@ function ReviewQueue({
     }
     if (action === 'composeReviewSubmission') {
       setNotice(undefined);
+      draftOpenRef.current = true;
       setDraft(createDraft(highlightedPullRequest));
       return;
     }
@@ -483,6 +504,8 @@ function ReviewQueue({
           draft={draft}
           editorRef={editorRef}
           setDraft={setDraft}
+          onClose={closeDraft}
+          terminal={terminal}
           theme={theme}
         />
       ) : null}
@@ -1206,6 +1229,8 @@ function SubmissionModal({
   draft,
   editorRef,
   setDraft,
+  onClose,
+  terminal,
   theme,
 }: {
   readonly draft: SubmissionDraft;
@@ -1213,91 +1238,108 @@ function SubmissionModal({
   readonly setDraft: React.Dispatch<
     React.SetStateAction<SubmissionDraft | undefined>
   >;
+  readonly onClose: () => void;
+  readonly terminal: { readonly width: number; readonly height: number };
   readonly theme: SystemTheme | undefined;
 }) {
+  const width = Math.max(1, Math.min(78, terminal.width - 2));
+  const height = Math.max(1, Math.min(18, terminal.height));
+  const status = submissionStatus(draft, theme);
   return (
     <box
       position="absolute"
-      left="15%"
-      top="10%"
-      width="70%"
-      height={18}
+      left={Math.max(0, Math.floor((terminal.width - width) / 2))}
+      top={Math.max(0, Math.floor((terminal.height - height) / 2))}
+      width={width}
+      height={height}
       zIndex={20}
       border
       borderColor={theme?.foreground}
       backgroundColor={theme?.background}
-      padding={1}
+      paddingTop={0}
+      paddingBottom={0}
+      paddingLeft={1}
+      paddingRight={1}
       flexDirection="column"
     >
       <text fg={theme?.foreground}>
-        <strong>Review </strong>
         <span fg={theme?.info}>
           <strong>{draft.target.repository}</strong>
         </span>
         <strong>{` #${draft.target.number}`}</strong>
       </text>
       <text fg={theme?.foreground}>{draft.target.title}</text>
-      {draft.confirmation ? (
-        <box flexGrow={1} flexDirection="column" justifyContent="center">
-          <text fg={theme?.foreground}>
-            <strong>Discard this Review Submission?</strong>
-          </text>
-          <text fg={theme?.foreground}>
-            {draft.confirmationChoice === 'keepEditing' ? '[x]' : '[ ]'} Keep
-            editing{'   '}
-            {draft.confirmationChoice === 'discard' ? '[x]' : '[ ]'} Discard
-          </text>
-          <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
-            Left/Right choose Enter confirm Esc keep editing
-          </text>
-        </box>
-      ) : (
-        <>
-          <textarea
-            ref={editorRef}
-            initialValue={draft.message}
-            focused={draft.focus === 'editor' && !draft.inFlight}
-            flexGrow={1}
-            minHeight={5}
-            textColor={theme?.foreground}
-            backgroundColor={theme?.background}
-            focusedTextColor={theme?.foreground}
-            focusedBackgroundColor={theme?.background}
-            onContentChange={() => {
-              const message = editorRef.current?.plainText ?? '';
-              setDraft((current) =>
-                current === undefined
-                  ? current
-                  : { ...current, message, validation: undefined }
-              );
-            }}
-            onKeyDown={(key) => {
-              if (key.name !== 'escape') return;
-              key.preventDefault();
-              key.stopPropagation();
-              cancelDraft(draft, setDraft);
-            }}
-          />
-          <text fg={theme?.foreground}>
-            {draft.focus === 'decision' ? '› ' : '  '}
-            {decisionMark(draft, 'comment')} Comment{'   '}
-            {decisionMark(draft, 'approve')} Approve{'   '}
-            {decisionMark(draft, 'requestChanges')} Request changes
-          </text>
-          {draft.validation !== undefined ? (
-            <text fg={theme?.error}>{draft.validation}</text>
-          ) : null}
-          {draft.failure !== undefined ? (
-            <text fg={theme?.error}>{submissionFailureMessage(draft)}</text>
-          ) : null}
-          {draft.inFlight ? (
-            <text fg={theme?.info}>{submissionProgress(draft.decision)} …</text>
-          ) : null}
-          <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
-            Tab decision Ctrl+S submit Esc cancel
-          </text>
-        </>
-      )}
+      <text> </text>
+      <textarea
+        ref={editorRef}
+        initialValue={draft.message}
+        focused={!draft.inFlight}
+        flexGrow={1}
+        textColor={theme?.foreground}
+        backgroundColor={theme?.background}
+        focusedTextColor={theme?.foreground}
+        focusedBackgroundColor={theme?.background}
+        onContentChange={() => {
+          const message = editorRef.current?.plainText ?? '';
+          setDraft((current) =>
+            current === undefined
+              ? current
+              : {
+                  ...current,
+                  message,
+                  action: current.inFlight ? current.action : undefined,
+                  validation: undefined,
+                  failure: current.inFlight ? current.failure : undefined,
+                }
+          );
+        }}
+        onKeyDown={(key) => {
+          if (key.name !== 'escape') return;
+          stopKey(key);
+          onClose();
+        }}
+      />
+      <text fg={status.color}>{status.message}</text>
+      <SubmissionHints narrow={width < 78} theme={theme} />
+    </box>
+  );
+}
+
+function SubmissionHints({
+  narrow,
+  theme,
+}: {
+  readonly narrow: boolean;
+  readonly theme: SystemTheme | undefined;
+}) {
+  if (narrow) {
+    return (
+      <box flexDirection="column">
+        <text fg={theme?.textMuted}>
+          <strong>^A</strong> Approve{'   '}
+          <strong>^C</strong> Comment
+        </text>
+        <text fg={theme?.textMuted}>
+          <strong>^R</strong> Request changes{'   '}
+          <strong>Esc</strong> Discard
+        </text>
+      </box>
+    );
+  }
+  return (
+    <box flexDirection="row" justifyContent="space-between">
+      <text fg={theme?.textMuted}>
+        <strong>Ctrl+A</strong> Approve
+      </text>
+      <text fg={theme?.textMuted}>
+        <strong>Ctrl+C</strong> Comment
+      </text>
+      <text fg={theme?.textMuted}>
+        <strong>Ctrl+R</strong> Request changes
+      </text>
+      <text fg={theme?.textMuted}>
+        <strong>Esc</strong> Discard
+      </text>
     </box>
   );
 }
@@ -1305,79 +1347,41 @@ function SubmissionModal({
 function handleSubmissionKey(
   key: KeyEvent,
   draft: SubmissionDraft,
-  setDraft: React.Dispatch<React.SetStateAction<SubmissionDraft | undefined>>,
-  submitDraft: (draft: SubmissionDraft) => Promise<void>
+  message: string,
+  submitDraft: (
+    draft: SubmissionDraft,
+    action: ReviewDecision,
+    message: string
+  ) => Promise<void>,
+  closeDraft: () => void
 ): void {
-  if (draft.inFlight) {
-    key.preventDefault();
-    key.stopPropagation();
-    return;
-  }
-
-  if (draft.confirmation) {
-    key.preventDefault();
-    key.stopPropagation();
-    if (key.name === 'left') {
-      setDraft({ ...draft, confirmationChoice: 'keepEditing' });
-    } else if (key.name === 'right') {
-      setDraft({ ...draft, confirmationChoice: 'discard' });
-    } else if (key.name === 'escape') {
-      setDraft({ ...draft, confirmation: false });
-    } else if (key.name === 'return' || key.name === 'enter') {
-      if (draft.confirmationChoice === 'discard') setDraft(undefined);
-      else setDraft({ ...draft, confirmation: false });
-    }
-    return;
-  }
-
-  if (key.ctrl && key.name === 's') {
-    key.preventDefault();
-    key.stopPropagation();
-    void submitDraft(draft);
-    return;
-  }
   if (key.name === 'escape') {
-    key.preventDefault();
-    key.stopPropagation();
-    cancelDraft(draft, setDraft);
+    stopKey(key);
+    closeDraft();
     return;
   }
-  if (key.name === 'tab') {
-    key.preventDefault();
-    key.stopPropagation();
-    setDraft({ ...draft, focus: key.shift ? 'editor' : 'decision' });
-    return;
-  }
-  if (draft.focus !== 'decision') return;
 
-  key.preventDefault();
-  key.stopPropagation();
-  const current = decisions.indexOf(draft.decision);
-  const next =
-    key.name === 'left'
-      ? Math.max(0, current - 1)
-      : key.name === 'right'
-        ? Math.min(decisions.length - 1, current + 1)
-        : key.name === 'home'
-          ? 0
-          : key.name === 'end'
-            ? decisions.length - 1
-            : current;
-  if (next !== current) setDraft({ ...draft, decision: decisions[next] });
+  const action = submissionAction(key);
+  if (draft.inFlight) {
+    if (action !== undefined) stopKey(key);
+    return;
+  }
+  if (action === undefined) return;
+  stopKey(key);
+  void submitDraft(draft, action, message);
 }
 
-function cancelDraft(
-  draft: SubmissionDraft,
-  setDraft: React.Dispatch<React.SetStateAction<SubmissionDraft | undefined>>
-): void {
-  const changed = draft.message !== '' || draft.decision !== 'comment';
-  if (changed) {
-    setDraft({
-      ...draft,
-      confirmation: true,
-      confirmationChoice: 'keepEditing',
-    });
-  } else setDraft(undefined);
+function submissionAction(key: KeyEvent): ReviewDecision | undefined {
+  if (!key.ctrl) return undefined;
+  if (key.name === 'a') return 'approve';
+  if (key.name === 'c') return 'comment';
+  if (key.name === 'r') return 'requestChanges';
+  return undefined;
+}
+
+function stopKey(key: KeyEvent): void {
+  key.preventDefault();
+  key.stopPropagation();
 }
 
 export function App() {
@@ -1413,38 +1417,62 @@ export async function launchApplication(
 }
 
 function createDraft(target: PullRequestSummary): SubmissionDraft {
-  return {
-    target,
-    message: '',
-    decision: 'comment',
-    focus: 'editor',
-    confirmation: false,
-    confirmationChoice: 'keepEditing',
-    inFlight: false,
-  };
+  return { target, message: '', inFlight: false };
 }
 
-function decisionMark(
+function submissionStatus(
   draft: SubmissionDraft,
-  decision: ReviewDecision
-): '[x]' | '[ ]' {
-  return draft.decision === decision ? '[x]' : '[ ]';
+  theme: SystemTheme | undefined
+): {
+  readonly message: string;
+  readonly color: RGBA | undefined;
+} {
+  if (draft.validation !== undefined) {
+    return { message: draft.validation, color: theme?.error };
+  }
+  if (draft.failure !== undefined) {
+    return {
+      message: submissionFailureMessage(draft),
+      color: theme?.error,
+    };
+  }
+  if (draft.inFlight && draft.action !== undefined) {
+    return {
+      message: `${submissionProgress(draft.action)} …`,
+      color: theme?.info,
+    };
+  }
+  return { message: ' ', color: undefined };
 }
 
-function submissionProgress(decision: ReviewDecision): string {
-  switch (decision) {
+function reviewActionLabel(action: ReviewDecision): string {
+  switch (action) {
     case 'comment':
-      return 'Submitting comment';
+      return 'Comment';
     case 'approve':
-      return 'Submitting approval';
+      return 'Approval';
     case 'requestChanges':
-      return 'Submitting request for changes';
+      return 'Request changes';
   }
 }
 
-function submissionSuccessNotice(draft: SubmissionDraft): string {
-  const target = `${draft.target.repository} #${draft.target.number}.`;
-  switch (draft.decision) {
+function submissionProgress(action: ReviewDecision): string {
+  switch (action) {
+    case 'comment':
+      return 'Submitting comment';
+    case 'approve':
+      return 'Approving pull request';
+    case 'requestChanges':
+      return 'Requesting changes';
+  }
+}
+
+function submissionSuccessNotice(
+  pullRequest: PullRequestSummary,
+  action: ReviewDecision
+): string {
+  const target = `${pullRequest.repository} #${pullRequest.number}.`;
+  switch (action) {
     case 'comment':
       return `Commented on ${target}`;
     case 'approve':

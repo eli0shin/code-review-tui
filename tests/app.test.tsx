@@ -7,7 +7,7 @@ import {
 } from '@opentui/core';
 import { createTestRenderer } from '@opentui/core/testing';
 import { createRoot } from '@opentui/react';
-import { testRender } from '@opentui/react/test-utils';
+import { testRender as renderForTest } from '@opentui/react/test-utils';
 import { notifyManager } from '@tanstack/react-query';
 import { act } from 'react';
 import { App, ReviewQueuePage } from '../src/app.tsx';
@@ -26,6 +26,13 @@ import type { Herdr, HerdrResult } from '../src/tools/types.ts';
 
 notifyManager.setScheduler(queueMicrotask);
 notifyManager.setNotifyFunction(act);
+
+function testRender(
+  node: Parameters<typeof renderForTest>[0],
+  options: Parameters<typeof renderForTest>[1]
+) {
+  return renderForTest(node, { ...options, exitOnCtrlC: false });
+}
 
 const pullRequest = {
   url: 'https://github.com/acme/widgets/pull/7',
@@ -242,6 +249,7 @@ async function renderWithPalette(
     width: 100,
     height: 30,
     kittyKeyboard: true,
+    exitOnCtrlC: false,
   });
   jest.spyOn(view.renderer, 'getPalette').mockResolvedValue(colors);
   const root = createRoot(view.renderer);
@@ -830,16 +838,28 @@ describe('Review Submission', () => {
 
     await act(async () => view.mockInput.pressKey('s'));
     const modal = await view.waitForFrame((frame) =>
-      frame.includes('Tab decision Ctrl+S submit Esc cancel')
+      frame.includes('Ctrl+A Approve')
     );
-    expect(modal).toContain('[x] Comment');
+    expect(modal).not.toContain('Review acme/widgets');
+    expect(modal).not.toContain('Tab decision');
     await act(async () => view.mockInput.pressArrow('down'));
     await act(async () => view.mockInput.typeText('First line'));
     await act(view.mockInput.pressEnter);
     await act(async () => view.mockInput.typeText('Second line'));
+    const composed = await view.waitForFrame((frame) =>
+      frame.includes('Second line')
+    );
+    const rows = composed.split('\n');
+    const titleRow = rows.findLastIndex((row) =>
+      row.includes(pullRequest.title)
+    );
+    expect(rows[titleRow - 1]).toContain('acme/widgets #7');
+    const contentColumn = rows[titleRow]?.indexOf(pullRequest.title) ?? -1;
+    expect(rows[titleRow + 1]?.at(contentColumn)).toBe(' ');
+    expect(rows[titleRow + 2]?.indexOf('First line')).toBe(contentColumn);
     await act(async () => {
-      view.mockInput.pressKey('s', { ctrl: true });
-      view.mockInput.pressKey('s', { ctrl: true });
+      view.mockInput.pressKey('c', { ctrl: true });
+      view.mockInput.pressKey('c', { ctrl: true });
     });
 
     expect(submitReview).toHaveBeenCalledTimes(1);
@@ -855,11 +875,18 @@ describe('Review Submission', () => {
       frame.includes('Submitting comment')
     );
     expect(active).toContain('Submitting comment');
+    expect(active).not.toContain('actions are locked');
+    expect(active.split('\n').findIndex((row) => row.includes('Ctrl+A'))).toBe(
+      rows.findIndex((row) => row.includes('Ctrl+A'))
+    );
+    expect(
+      active.split('\n').findIndex((row) => row.includes('First line'))
+    ).toBe(rows.findIndex((row) => row.includes('First line')));
     await act(async () => submission.resolve(success(undefined)));
     const complete = await view.waitForFrame((frame) =>
       frame.includes('Commented on acme/widgets #7.')
     );
-    expect(complete).not.toContain('Tab decision Ctrl+S submit Esc cancel');
+    expect(complete).not.toContain('Ctrl+A Approve');
     expect(loadReviewQueue).toHaveBeenCalledTimes(2);
     view.renderer.destroy();
   });
@@ -893,12 +920,10 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
 
     await act(async () => view.mockInput.pressKey('s'));
-    await view.waitForFrame((frame) =>
-      frame.includes('Review acme/widgets #7')
-    );
+    await view.waitForFrame((frame) => frame.includes('acme/widgets #7'));
     await act(async () => view.mockInput.pressArrow('down'));
     await act(async () => view.mockInput.typeText('Looks good'));
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
 
     const failure = await view.waitForFrame((frame) =>
       frame.includes('Review Queue not refreshed')
@@ -939,17 +964,43 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
 
     await act(async () => view.mockInput.pressKey('s'));
-    await view.waitForFrame((frame) =>
-      frame.includes('Review acme/widgets #7')
-    );
+    await view.waitForFrame((frame) => frame.includes('acme/widgets #7'));
     await act(async () => view.mockInput.pressArrow('down'));
     await act(async () => view.mockInput.typeText('Looks good'));
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
 
     const complete = await view.waitForFrame((frame) => frame.includes('TAIL'));
     expect(complete).toContain('Commented on');
     expect(complete).not.toContain('PgUp/PgDn');
     expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('keeps the accepted controls visible on a narrow terminal', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        return success(undefined);
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 40,
+      height: 15,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    const modal = await view.waitForFrame((frame) =>
+      frame.includes('^A Approve')
+    );
+    expect(modal).toContain('^C Comment');
+    expect(modal).toContain('^R Request changes');
+    expect(modal).toContain('Esc Discard');
+    expect(modal).not.toContain('Review Submission');
+    expect(modal).not.toContain('message editor is always active');
     view.renderer.destroy();
   });
 
@@ -969,9 +1020,7 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
 
     await act(async () => view.mockInput.pressKey('s'));
-    await act(view.mockInput.pressTab);
-    await act(async () => view.mockInput.pressArrow('right'));
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('a', { ctrl: true }));
     await view.waitForFrame((frame) => frame.includes('Approved acme/widgets'));
     expect(submitReview).toHaveBeenNthCalledWith(
       1,
@@ -980,20 +1029,18 @@ describe('Review Submission', () => {
     );
 
     await act(async () => view.mockInput.pressKey('s'));
-    await act(view.mockInput.pressTab);
-    await act(async () => view.mockInput.pressKey('END'));
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('r', { ctrl: true }));
     const invalid = await view.waitForFrame((frame) =>
-      frame.includes('A message is required for this decision.')
+      frame.includes('Request changes requires a nonblank message.')
     );
-    expect(invalid).toContain('[x] Request changes');
+    expect(invalid).toContain('Ctrl+R Request changes');
     expect(submitReview).toHaveBeenCalledTimes(1);
 
     await act(async () => view.mockInput.typeText('  Please fix this  '));
     await view.waitForFrame(
-      (frame) => !frame.includes('A message is required for this decision.')
+      (frame) => !frame.includes('requires a nonblank message.')
     );
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('r', { ctrl: true }));
     await view.waitForFrame((frame) =>
       frame.includes('Requested changes on acme/widgets')
     );
@@ -1035,7 +1082,7 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
     await act(async () => view.mockInput.pressKey('s'));
     await act(async () => view.mockInput.typeText('Ship it'));
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
     await act(async () =>
       firstAttempt.resolve({
         ok: false,
@@ -1052,11 +1099,11 @@ describe('Review Submission', () => {
       frame.includes('permission denied')
     );
     expect(failed).toContain('Ship it');
-    expect(failed).toContain('Ctrl+S submit');
+    expect(failed).toContain('Ctrl+C Comment');
     expect(failed).not.toContain('retry');
     expect(submitReview).toHaveBeenCalledTimes(1);
 
-    await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+    await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
     const submitting = await view.waitForFrame((frame) =>
       frame.includes('Submitting comment')
     );
@@ -1070,7 +1117,7 @@ describe('Review Submission', () => {
     view.renderer.destroy();
   });
 
-  test('keeps or discards a changed draft and closes an untouched draft', async () => {
+  test('immediately discards unchanged and changed drafts', async () => {
     const submitReview = jest.fn(async () => success(undefined));
     const github = {
       async loadReviewQueue() {
@@ -1087,59 +1134,83 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
 
     await act(async () => view.mockInput.pressKey('s'));
-    await view.waitForFrame((frame) =>
-      frame.includes('Tab decision Ctrl+S submit Esc cancel')
-    );
+    await view.waitForFrame((frame) => frame.includes('Ctrl+A Approve'));
     await act(view.mockInput.pressEscape);
-    await view.waitForFrame(
-      (frame) => !frame.includes('Tab decision Ctrl+S submit Esc cancel')
-    );
+    await view.waitForFrame((frame) => !frame.includes('Ctrl+A Approve'));
 
     await act(async () => view.mockInput.pressKey('s'));
-    await view.waitForFrame((frame) =>
-      frame.includes('Tab decision Ctrl+S submit Esc cancel')
-    );
     await act(async () => view.mockInput.typeText('Draft'));
-    await act(view.mockInput.pressEscape);
-    const confirmation = await view.waitForFrame((frame) =>
-      frame.includes('Discard this Review Submission?')
-    );
-    expect(confirmation).toContain('[x]');
-    expect(confirmation).toContain('Keep editing');
-    await act(view.mockInput.pressEnter);
-    const kept = await view.waitForFrame((frame) => frame.includes('Draft'));
-    expect(kept).toContain('Ctrl+S submit');
-
-    await act(view.mockInput.pressEscape);
-    await view.waitForFrame((frame) =>
-      frame.includes('Discard this Review Submission?')
-    );
-    await act(async () => view.mockInput.pressArrow('right'));
-    await view.waitForFrame((frame) => frame.includes('[x] Discard'));
-    await act(view.mockInput.pressEscape);
-    await view.waitForFrame((frame) => frame.includes('Draft'));
-
-    await act(view.mockInput.pressEscape);
-    const reopenedConfirmation = await view.waitForFrame((frame) =>
-      frame.includes('Discard this Review Submission?')
-    );
-    expect(reopenedConfirmation).toContain('[x]');
-    expect(reopenedConfirmation).toContain('Keep editing');
-    await act(view.mockInput.pressEnter);
-    await view.waitForFrame((frame) => frame.includes('Draft'));
-
-    await act(view.mockInput.pressEscape);
-    await view.waitForFrame((frame) =>
-      frame.includes('Discard this Review Submission?')
-    );
-    await act(async () => view.mockInput.pressArrow('right'));
-    await view.waitForFrame((frame) => frame.includes('[x] Discard'));
-    await act(view.mockInput.pressEnter);
+    await act(async () => {
+      view.mockInput.pressEscape();
+      view.mockInput.pressKey('a', { ctrl: true });
+    });
     const discarded = await view.waitForFrame(
-      (frame) => !frame.includes('Discard this Review Submission?')
+      (frame) => !frame.includes('Draft')
     );
     expect(discarded).toContain('acme/widgets #7');
+    expect(discarded).not.toContain('Discard this Review Submission?');
     expect(submitReview).not.toHaveBeenCalled();
+    view.renderer.destroy();
+  });
+
+  test('closes and aborts an in-flight submission without reopening', async () => {
+    const submission = Promise.withResolvers<GitHubResult<void>>();
+    const submitReview = jest.fn(
+      (
+        _submission: Parameters<GitHub['submitReview']>[0],
+        signal: AbortSignal
+      ) => {
+        expect(signal.aborted).toBe(false);
+        return submission.promise;
+      }
+    );
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      submitReview,
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 30,
+      kittyKeyboard: true,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('s'));
+    await act(async () => {
+      view.mockInput.pressKey('a', { ctrl: true });
+      view.mockInput.pressKey('c', { ctrl: true });
+    });
+    const submitting = await view.waitForFrame((frame) =>
+      frame.includes('Approving pull request …')
+    );
+    expect(submitting).not.toContain('requires a nonblank message');
+    expect(submitReview).toHaveBeenCalledTimes(1);
+    expect(submitReview.mock.calls[0]?.[0].decision).toBe('approve');
+    const signal = submitReview.mock.calls[0]?.[1];
+    await act(view.mockInput.pressEscape);
+    expect(signal.aborted).toBe(true);
+    await view.waitForFrame((frame) => !frame.includes('Ctrl+A Approve'));
+
+    await act(async () =>
+      submission.resolve({
+        ok: false,
+        failure: {
+          kind: 'interrupted',
+          operation: 'reviewSubmission',
+          url: pullRequest.url,
+          reason: 'signal',
+          signal: 'SIGTERM',
+          stderr: '',
+        },
+      })
+    );
+    const closed = await view.waitForFrame((frame) =>
+      frame.includes('Review requests 1 open')
+    );
+    expect(closed).not.toContain('Review Submission');
     view.renderer.destroy();
   });
 });
@@ -1443,24 +1514,25 @@ describe.each(terminalPalettes)(
 
       await act(async () => view.mockInput.pressKey('s'));
       await view.waitForFrame((characters) =>
-        characters.includes('Review acme/widgets #7')
+        characters.includes('Ctrl+A Approve')
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Improve widgets').fg, foreground);
       expectColor(spanContaining(frame, 'acme/widgets').fg, '#087f8c');
       expectColor(spanContaining(frame, 'Comment').bg, surfaceBackground);
-      expectColor(spanContaining(frame, 'Ctrl+S submit').fg, foreground);
+      expect(spanContaining(frame, 'Ctrl+C').fg.toInts()).toEqual(mutedColor);
 
-      await act(view.mockInput.pressTab);
-      await act(async () => view.mockInput.pressKey('END'));
-      await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+      await act(async () => view.mockInput.pressKey('r', { ctrl: true }));
       await view.waitForFrame((characters) =>
-        characters.includes('A message is required')
+        characters.includes('Request changes requires a nonblank message')
       );
       frame = view.captureSpans();
-      expectColor(spanContaining(frame, 'A message is required').fg, '#a51010');
       expectColor(
-        spanContaining(frame, 'A message is required').bg,
+        spanContaining(frame, 'requires a nonblank message').fg,
+        '#a51010'
+      );
+      expectColor(
+        spanContaining(frame, 'requires a nonblank message').bg,
         surfaceBackground
       );
 
@@ -1471,27 +1543,15 @@ describe.each(terminalPalettes)(
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Draft').fg, foreground);
       expectColor(spanContaining(frame, 'Draft').bg, surfaceBackground);
-      await act(view.mockInput.pressEscape);
-      await view.waitForFrame((characters) =>
-        characters.includes('Discard this Review Submission?')
-      );
-      frame = view.captureSpans();
-      expectColor(spanContaining(frame, 'Discard this').fg, foreground);
-      expectColor(spanContaining(frame, 'Keep editing').fg, foreground);
-      expectColor(
-        spanContaining(frame, 'Left/Right choose').bg,
-        surfaceBackground
-      );
-      await act(view.mockInput.pressEnter);
 
-      await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+      await act(async () => view.mockInput.pressKey('r', { ctrl: true }));
       await view.waitForFrame((characters) =>
-        characters.includes('Submitting request for changes')
+        characters.includes('Requesting changes')
       );
       frame = view.captureSpans();
-      expectColor(spanContaining(frame, 'Submitting request').fg, '#087f8c');
+      expectColor(spanContaining(frame, 'Requesting changes').fg, '#087f8c');
       expectColor(
-        spanContaining(frame, 'Submitting request').bg,
+        spanContaining(frame, 'Requesting changes').bg,
         surfaceBackground
       );
       await act(async () =>
@@ -1516,9 +1576,9 @@ describe.each(terminalPalettes)(
         surfaceBackground
       );
 
-      await act(async () => view.mockInput.pressKey('s', { ctrl: true }));
+      await act(async () => view.mockInput.pressKey('r', { ctrl: true }));
       await view.waitForFrame((characters) =>
-        characters.includes('Submitting request for changes')
+        characters.includes('Requesting changes')
       );
       await act(async () => successfulSubmission.resolve(success(undefined)));
       await view.waitForFrame((characters) =>

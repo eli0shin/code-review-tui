@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: Pi
 Tags:
   - prototype
   - hitl
@@ -82,3 +82,13 @@ The session is complete only when the user explicitly accepts:
 ## Deliverable
 
 Preserve the accepted Review Submission modal prototype at a commit that can be run again. Record the accepted interaction contract and rejected alternatives in this ticket's resolution. Create separate implementation tickets only after explicit user acceptance. The prototype is throwaway and must not be imported into production code.
+
+## Resolution
+
+The user accepted variant A, **Editor first**, on branch `prototype/review-submission-modal` at commit `671613a`.
+
+The accepted modal has one always-active, borderless multiline editor. It has no decision selector, separate submit action, focus mode, or confirmation flow. `Ctrl+A` approves, `Ctrl+C` comments, and `Ctrl+R` requests changes immediately with the exact draft. `Esc` closes and discards immediately. Approve permits an empty message; Comment and Request Changes require a nonblank message. Validation and failure preserve the draft.
+
+The first line contains the repository and pull request number. The second contains the title. One blank line separates the title from the aligned editor. A reserved status row prevents progress from shifting the layout. Subdued action hints occupy the bottom with no space below them. The modal has no heading, explanatory sentence, or editor border.
+
+The user rejected Vim modes, decision selection followed by submission, all discard confirmations, variant B's action rail, and variant C's command header.
