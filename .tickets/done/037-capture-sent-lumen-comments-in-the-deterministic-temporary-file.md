@@ -50,3 +50,7 @@ Update the Lumen usage documentation and the researched external-process contrac
 - Repeated successful sends replace rather than append.
 - Repository and pull request values cannot escape or alter the generated shell command.
 - Lumen launch validation, Review Command launch, immediate Herdr failures, later calls after failure, and native executable smoke coverage continue to pass.
+
+## Resolution
+
+Implemented in PR #39 and squash-merged as `c32e8790c1e112677e1f24320013d888f352c43b`.
