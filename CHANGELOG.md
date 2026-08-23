@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.6
+
+### Patch Changes
+
+- [#37](https://github.com/eli0shin/code-review-tui/pull/37) [`a9488cf`](https://github.com/eli0shin/code-review-tui/commit/a9488cf0eb887c127b92e1de3a2b67905f2ae751) Thanks [@eli0shin](https://github.com/eli0shin)! - Replace Review Submission decision focus and confirmation flows with direct approve, comment, request-changes, and discard chords in an editor-first modal.
+
 ## 0.2.5
 
 ### Patch Changes
