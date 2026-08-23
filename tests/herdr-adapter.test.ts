@@ -57,7 +57,10 @@ if (process.env.FAKE_HERDR_FAIL_CLEANUP_FOCUS && process.argv[2] === 'tab' && pr
   process.exit(24);
 }
 if (process.env.FAKE_HERDR_EXECUTE_PANE && process.argv[2] === 'pane' && process.argv[3] === 'run') {
-  const result = Bun.spawnSync(['/bin/sh', '-c', process.argv[5]], { env: process.env });
+  const shell = process.env.FAKE_HERDR_PANE_SHELL ?? '/bin/sh';
+  const shellArguments = process.env.FAKE_HERDR_PANE_SHELL_ARGUMENT ? [process.env.FAKE_HERDR_PANE_SHELL_ARGUMENT] : [];
+  const result = Bun.spawnSync([shell, ...shellArguments, '-c', process.argv[5]], { env: process.env });
+  await Bun.stderr.write(result.stderr);
   process.exit(result.exitCode);
 }
 `
@@ -107,10 +110,34 @@ describe('Herdr CLI adapter contract', () => {
         'pane',
         'run',
         'w1:p9',
-        `if comments=$(mktemp); then if lumen diff 'https://github.example/acme/widgets/pull/42' >"$comments" && [ -s "$comments" ]; then mkdir -p '/tmp/review/lumen/acme/widgets' && mv "$comments" '/tmp/review/lumen/acme/widgets/42.txt' || rm -f "$comments"; else rm -f "$comments"; fi; fi; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'`,
+        `/bin/sh -c 'if comments=$(mktemp); then if lumen diff '"'"'https://github.example/acme/widgets/pull/42'"'"' >"$comments" && [ -s "$comments" ]; then mkdir -p '"'"'/tmp/review/lumen/acme/widgets'"'"' && mv "$comments" '"'"'/tmp/review/lumen/acme/widgets/42.txt'"'"' || rm -f "$comments"; else rm -f "$comments"; fi; fi; herdr tab focus '"'"'w1:t1'"'"'; herdr tab close '"'"'w1:t9'"'"''`,
       ],
       ['tab', 'focus', 'w1:t9'],
     ]);
+  });
+
+  test('runs the complete Lumen script through POSIX sh from real fish', async () => {
+    const fish = Bun.which('fish');
+    if (fish === null) return;
+    const destination = join('/tmp/review/lumen', testOwner, 'fish', '76.txt');
+    const herdr = createAdapter(
+      {},
+      {
+        FAKE_HERDR_EXECUTE_PANE: '1',
+        FAKE_HERDR_PANE_SHELL: fish,
+        FAKE_HERDR_PANE_SHELL_ARGUMENT: '--no-config',
+        FAKE_LUMEN_STDOUT: 'captured through fish',
+      }
+    );
+
+    expect(
+      await herdr.openLumen({
+        ...pullRequest,
+        repository: `${testOwner}/fish`,
+        number: 76,
+      })
+    ).toEqual({ ok: true });
+    expect(await readFile(destination, 'utf8')).toBe('captured through fish');
   });
 
   test('replaces the saved comments with exact nonempty Lumen stdout', async () => {

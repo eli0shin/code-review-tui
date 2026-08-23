@@ -18,7 +18,7 @@ For each action, execute these installed CLI commands directly from `PATH` witho
 
 1. `herdr tab create --workspace … --cwd … --label … --no-focus` creates a shell-backed Herdr tab. Pass the child environment with explicit `--env KEY=VALUE` arguments.
 2. Parse only `.result.tab.tab_id` and `.result.root_pane.pane_id` from the JSON response.
-3. `herdr pane run PANE_ID COMMAND` runs the requested command. It then runs best-effort `herdr tab focus REVIEW_QUEUE_TAB_ID` and `herdr tab close CREATED_TAB_ID` commands in that tab's shell.
+3. `herdr pane run PANE_ID COMMAND` runs the requested command. The command also runs best-effort `herdr tab focus REVIEW_QUEUE_TAB_ID` and `herdr tab close CREATED_TAB_ID` operations.
 4. `herdr tab focus TAB_ID` focuses the new Herdr tab.
 
 Return success after these immediate CLI calls succeed. Return the first immediate startup, exit, or JSON compatibility failure to the Review Queue page. Never retry an action automatically. A failed call does not disable a later user call.
@@ -29,7 +29,7 @@ Each action creates a new Herdr tab. Do not reuse tabs or infer Review Queue sta
 
 Before creating a Herdr tab, walk the directory from which `review` started and its ancestors for a `.git` or `.jj` marker. If none exists, report that `lumen diff` requires `review` to start inside a Git or Jujutsu repository.
 
-The shell command in the new Herdr tab creates a file with the system `mktemp`, then runs the fixed command below with stdout redirected to that file:
+Pass one safely quoted script operand to `/bin/sh -c` in the new Herdr tab. The user's interactive shell parses only that ordinary command invocation. The POSIX script creates a file with the system `mktemp`, then runs the fixed command below with stdout redirected to that file:
 
 ```text
 lumen diff PULL_REQUEST_URL
@@ -37,7 +37,9 @@ lumen diff PULL_REQUEST_URL
 
 Lumen continues to draw in the visible terminal through `/dev/tty`. If Lumen exits successfully and its stdout file is nonempty, create `/tmp/review/lumen/<org>/<repo>` and move the temporary file over `/tmp/review/lumen/<org>/<repo>/<number>.txt`. The move replaces the complete prior file with the exact stdout bytes. If Lumen exits unsuccessfully or writes no stdout, remove the temporary file and keep any prior destination unchanged. Then attempt the normal Review Queue focus and created-tab close in that order.
 
-Use the complete canonical pull request URL under the Cursor. Quote it as one shell argument. Quote the deterministic destination directory, destination file, and temporary-file variable as paths. Use the startup working directory and inherited environment. Do not add Review Command variables. Do not parse, normalize, append, or pass the comments to the separate Review Command interaction.
+The same POSIX script then independently attempts to focus the Review Queue Tab and close the created Herdr tab. The command submitted to the interactive shell contains no bare POSIX assignment, conditional, test, redirection, or cleanup statement. Do not detect the user's shell or generate shell-specific variants.
+
+Use the complete canonical pull request URL under the Cursor. Quote it as one shell argument. Quote the deterministic destination directory, destination file, temporary-file variable, and cleanup tab IDs as paths or arguments inside the script. Safely quote the complete script as the single `/bin/sh -c` operand. Use the startup working directory and inherited environment. Do not add Review Command variables. Do not parse, normalize, append, or pass the comments to the separate Review Command interaction.
 
 ## Review Command
 
@@ -55,7 +57,7 @@ Use the startup working directory. Inherit the parent environment and replace th
 
 After the final `herdr tab focus`, Herdr owns all terminal input and rendering for the launched command. OpenTUI continues to render only the Review Queue. Switching tabs uses Herdr controls.
 
-The command sent by `herdr pane run` appends shell-safe `herdr tab focus` and `herdr tab close` commands. It quotes the saved Review Queue Tab ID and the created tab ID as separate shell arguments. Semicolons separate the complete launched interaction, focus command, and close command. Thus, the tab shell attempts focus after the launched process and any Lumen capture handling return, even after a nonzero Lumen exit. It then attempts to close only the created tab, even if focus fails.
+For Lumen, the POSIX script passed to `/bin/sh -c` includes shell-safe `herdr tab focus` and `herdr tab close` commands. For a Review Command, the command sent by `herdr pane run` appends those cleanup commands after the existing `/bin/sh -c` invocation. Both forms quote the saved Review Queue Tab ID and the created tab ID as separate shell arguments. Semicolons separate the complete launched interaction, focus command, and close command. Thus, cleanup attempts focus after the launched process and any Lumen capture handling return, even after a nonzero Lumen exit. It then attempts to close only the created tab, even if focus fails.
 
 Both cleanup operations are best effort. `review` does not wait for or report their results, and it does not retry them. Review Queue focus can race with a user focus choice. The cleanup does not change the immediate adapter result boundary.
 
