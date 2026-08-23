@@ -1,5 +1,13 @@
 # code-review-tui
 
+## 0.2.7
+
+### Patch Changes
+
+- [#39](https://github.com/eli0shin/code-review-tui/pull/39) [`c32e879`](https://github.com/eli0shin/code-review-tui/commit/c32e8790c1e112677e1f24320013d888f352c43b) Thanks [@eli0shin](https://github.com/eli0shin)! - Capture sent Lumen comments at the pull request's deterministic temporary path.
+
+- [#40](https://github.com/eli0shin/code-review-tui/pull/40) [`1e58d39`](https://github.com/eli0shin/code-review-tui/commit/1e58d396c5574a871438d6b6ff2bd59a1a9d6658) Thanks [@eli0shin](https://github.com/eli0shin)! - Add `review skill install` to install the user-invoked review-comments Agent Skill.
+
 ## 0.2.6
 
 ### Patch Changes
