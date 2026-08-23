@@ -109,7 +109,7 @@ interface Herdr {
 
 Construct the adapter with the exact Review Command, startup working directory, inherited child environment, and Herdr CLI environment. Require Herdr workspace and Review Queue Tab IDs from that environment. There is no Herdr connection to start or stop.
 
-For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The pane command runs either `lumen diff PULL_REQUEST_URL` or `/bin/sh -c CONFIGURED_REVIEW_COMMAND`. After that process returns, the tab shell makes best-effort CLI calls to focus the saved Review Queue Tab and close the created tab. Semicolons keep each cleanup attempt independent of the prior command result.
+For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The Review Command pane runs `/bin/sh -c CONFIGURED_REVIEW_COMMAND` unchanged. The Lumen pane creates a system `mktemp` file, redirects the exact stdout from `lumen diff PULL_REQUEST_URL` to it, and replaces `/tmp/review/lumen/<org>/<repo>/<number>.txt` only after a successful nonempty result. Empty or failed results preserve any prior destination. After that interaction returns, the tab shell makes best-effort CLI calls to focus the saved Review Queue Tab and close the created tab. Semicolons keep each cleanup attempt independent of the prior command result.
 
 Add the specified `REVIEW_PR_*` values to the Review Command Herdr tab environment. Do not add a public tool ID or track a running phase. Return the first immediate CLI or JSON failure. A failure does not disable later calls.
 
@@ -181,7 +181,7 @@ Use a recording fake `gh` process. Prove exact arguments and environment, comple
 
 ### Herdr CLI adapter contract
 
-Use a recording fake `herdr` executable. Prove exact Lumen and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the appended best-effort Review Queue focus and created-tab close commands. Prove that semicolon sequencing attempts close after a focus failure.
+Use a recording fake `herdr` executable. Prove exact Lumen and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the appended best-effort Review Queue focus and created-tab close commands. For Lumen, execute the injected shell command and prove exact successful replacement, preservation after empty or nonzero results, repeated replacement, and shell-safe pull request values. Prove that semicolon sequencing attempts close after a focus failure.
 
 Do not model or review focus races or event-ordering races.
 

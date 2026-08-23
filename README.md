@@ -73,6 +73,8 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 
 Pull request details include reviewers, checks, the plain-text description, and the complete review conversation. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged Review Queue.
 
+When you send comments from Lumen, Review saves Lumen's exact stdout at `/tmp/review/lumen/<org>/<repo>/<number>.txt`. A successful nonempty send replaces the prior file. Leaving Lumen without a send, or a failed Lumen run, keeps the prior file unchanged. The Review Command is a separate interaction and does not receive these comments.
+
 Every application surface uses the terminal's normal background and foreground. Details, help, Review Submission, status, and diagnostic surfaces reuse the Review Queue accents for metadata, repositories, authors, success, failure, and warnings. Only the row under the Cursor uses the highlighted-row background.
 
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.

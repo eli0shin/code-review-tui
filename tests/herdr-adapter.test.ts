@@ -29,6 +29,7 @@ const pullRequest = {
   commentsCount: 4,
 } satisfies PullRequestSummary;
 
+const testOwner = `review-test-${process.pid}`;
 let directory: string;
 
 beforeEach(async () => {
@@ -62,10 +63,24 @@ if (process.env.FAKE_HERDR_EXECUTE_PANE && process.argv[2] === 'pane' && process
 `
   );
   await chmod(executable, 0o755);
+  const lumen = join(directory, 'lumen');
+  await writeFile(
+    lumen,
+    `#!/usr/bin/env bun
+await Bun.stdout.write(process.env.FAKE_LUMEN_STDOUT ?? '');
+process.exit(Number(process.env.FAKE_LUMEN_EXIT_CODE ?? '0'));
+`
+  );
+  await chmod(lumen, 0o755);
 });
 
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
+  await rm(join('/tmp/review/lumen', testOwner), {
+    recursive: true,
+    force: true,
+  });
+  await rm(join(process.cwd(), `HACKED-${process.pid}`), { force: true });
 });
 
 describe('Herdr CLI adapter contract', () => {
@@ -92,10 +107,113 @@ describe('Herdr CLI adapter contract', () => {
         'pane',
         'run',
         'w1:p9',
-        "lumen diff 'https://github.example/acme/widgets/pull/42'; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'",
+        `if comments=$(mktemp); then if lumen diff 'https://github.example/acme/widgets/pull/42' >"$comments" && [ -s "$comments" ]; then mkdir -p '/tmp/review/lumen/acme/widgets' && mv "$comments" '/tmp/review/lumen/acme/widgets/42.txt' || rm -f "$comments"; else rm -f "$comments"; fi; fi; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'`,
       ],
       ['tab', 'focus', 'w1:t9'],
     ]);
+  });
+
+  test('replaces the saved comments with exact nonempty Lumen stdout', async () => {
+    const destination = join(
+      '/tmp/review/lumen',
+      testOwner,
+      'capture',
+      '73.txt'
+    );
+    const testedPullRequest = {
+      ...pullRequest,
+      repository: `${testOwner}/capture`,
+      number: 73,
+    };
+    await mkdir(join(destination, '..'), { recursive: true });
+    await writeFile(destination, 'old comments');
+
+    const first = createAdapter(
+      {},
+      {
+        FAKE_HERDR_EXECUTE_PANE: '1',
+        FAKE_LUMEN_STDOUT: 'first comment\n---\nsecond comment',
+      }
+    );
+    expect(await first.openLumen(testedPullRequest)).toEqual({ ok: true });
+    expect(await readFile(destination, 'utf8')).toBe(
+      'first comment\n---\nsecond comment'
+    );
+
+    const second = createAdapter(
+      {},
+      {
+        FAKE_HERDR_EXECUTE_PANE: '1',
+        FAKE_LUMEN_STDOUT: 'replacement without a trailing newline',
+      }
+    );
+    expect(await second.openLumen(testedPullRequest)).toEqual({ ok: true });
+    expect(await readFile(destination, 'utf8')).toBe(
+      'replacement without a trailing newline'
+    );
+  });
+
+  test('preserves saved comments when Lumen writes no stdout', async () => {
+    const destination = join('/tmp/review/lumen', testOwner, 'empty', '74.txt');
+    await mkdir(join(destination, '..'), { recursive: true });
+    await writeFile(destination, 'keep these comments');
+    const herdr = createAdapter(
+      {},
+      { FAKE_HERDR_EXECUTE_PANE: '1', FAKE_LUMEN_STDOUT: '' }
+    );
+
+    expect(
+      await herdr.openLumen({
+        ...pullRequest,
+        repository: `${testOwner}/empty`,
+        number: 74,
+      })
+    ).toEqual({ ok: true });
+    expect(await readFile(destination, 'utf8')).toBe('keep these comments');
+  });
+
+  test('preserves saved comments when Lumen exits unsuccessfully', async () => {
+    const destination = join(
+      '/tmp/review/lumen',
+      testOwner,
+      'failed',
+      '75.txt'
+    );
+    await mkdir(join(destination, '..'), { recursive: true });
+    await writeFile(destination, 'keep these comments');
+    const herdr = createAdapter(
+      {},
+      {
+        FAKE_HERDR_EXECUTE_PANE: '1',
+        FAKE_LUMEN_STDOUT: 'incomplete comments',
+        FAKE_LUMEN_EXIT_CODE: '7',
+      }
+    );
+
+    expect(
+      await herdr.openLumen({
+        ...pullRequest,
+        repository: `${testOwner}/failed`,
+        number: 75,
+      })
+    ).toEqual({ ok: true });
+    expect(await readFile(destination, 'utf8')).toBe('keep these comments');
+  });
+
+  test('quotes pull request values in the Lumen command', async () => {
+    const hacked = join(process.cwd(), `HACKED-${process.pid}`);
+    const testedPullRequest = {
+      ...pullRequest,
+      url: `https://github.example/acme/widgets/pull/42'; touch HACKED-${process.pid}; echo '`,
+      repository: `${testOwner}/repo'; touch HACKED-${process.pid}; echo '`,
+    };
+    const herdr = createAdapter(
+      {},
+      { FAKE_HERDR_EXECUTE_PANE: '1', FAKE_LUMEN_STDOUT: 'safe' }
+    );
+
+    expect(await herdr.openLumen(testedPullRequest)).toEqual({ ok: true });
+    expect(await Bun.file(hacked).exists()).toBe(false);
   });
 
   test('opens the Review Command with exact pull request environment and shell command', async () => {
