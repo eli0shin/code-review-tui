@@ -60,3 +60,7 @@ Add a patch changeset and correct the external-process documentation.
 - Execute the generated pane command through real fish and prove that fish accepts it, Lumen starts, and successful nonempty stdout reaches the deterministic file.
 - Existing exact-byte replacement, empty result, nonzero result, repeated replacement, hostile-value quoting, focus failure, close attempt, and Review Command tests continue to pass.
 - Run formatting, lint, typecheck, all tests, build, and native executable smoke coverage.
+
+## Resolution
+
+Implemented in PR #42 and squash-merged as `4824b84a2a726cb4789c80451ff6c69288fc6b60`.
