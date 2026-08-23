@@ -20,6 +20,14 @@ curl -fsSL https://raw.githubusercontent.com/eli0shin/code-review-tui/main/insta
 
 The installer puts `review` in `~/.local/bin`. Add that directory to `PATH` when the installer asks you to do so.
 
+Install the bundled user-invoked Agent Skill:
+
+```bash
+review skill install
+```
+
+This command creates or replaces `~/.agents/skills/review-comments/SKILL.md`. It does not need Review configuration or the external review tools.
+
 ## Configure
 
 On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.json` with the editable defaults below. When `XDG_CONFIG_HOME` is not an absolute path, it creates `~/.config/review/config.json`. Existing files must pass strict validation and are never replaced or repaired automatically.
@@ -80,6 +88,12 @@ Every application surface uses the terminal's normal background and foreground. 
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
 
 A Review Submission can comment, approve, or request changes. Write the message directly in the submission modal, then press `Ctrl+C` to comment, `Ctrl+A` to approve, or `Ctrl+R` to request changes immediately. Press `Esc` to close and discard without confirmation. Comments and change requests need a nonblank message. Approvals can have an empty message. Review submits one top-level GitHub review; inline comments are not supported.
+
+## Read Lumen Review Comments with an Agent
+
+After you run `review skill install`, use `/skill:review-comments` in agents that expose Agent Skills as commands. The skill tells the agent where Lumen saved the comments for the pull request under review.
+
+Run `review skill install` again to replace the installed skill with the bundled version.
 
 ## Update
 

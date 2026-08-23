@@ -150,6 +150,102 @@ describe('native review executable', () => {
     });
   });
 
+  test('installs and replaces the review-comments skill without configuration or external CLIs', async () => {
+    const home = join(directory, 'skill-home');
+    const configHome = join(directory, 'skill-config');
+    const stateHome = join(directory, 'skill-state');
+    const destination = join(
+      home,
+      '.agents',
+      'skills',
+      'review-comments',
+      'SKILL.md'
+    );
+    const skillEnvironment = {
+      HOME: home,
+      PATH: '',
+      XDG_CONFIG_HOME: configHome,
+      XDG_STATE_HOME: stateHome,
+    };
+
+    const firstInstall = Bun.spawn([executable, 'skill', 'install'], {
+      env: skillEnvironment,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [firstExit, firstStdout, firstStderr] = await Promise.all([
+      firstInstall.exited,
+      new Response(firstInstall.stdout).text(),
+      new Response(firstInstall.stderr).text(),
+    ]);
+    await Bun.write(destination, 'different existing content');
+    const secondInstall = Bun.spawn([executable, 'skill', 'install'], {
+      env: skillEnvironment,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [secondExit, secondStdout, secondStderr] = await Promise.all([
+      secondInstall.exited,
+      new Response(secondInstall.stdout).text(),
+      new Response(secondInstall.stderr).text(),
+    ]);
+
+    expect([firstExit, secondExit]).toEqual([0, 0]);
+    expect([firstStdout, secondStdout]).toEqual([
+      `${destination}\n`,
+      `${destination}\n`,
+    ]);
+    expect([firstStderr, secondStderr]).toEqual(['', '']);
+    expect(await Bun.file(destination).text()).toContain(
+      'disable-model-invocation: true'
+    );
+    expect(
+      await Bun.file(join(configHome, 'review', 'config.json')).exists()
+    ).toBe(false);
+    expect(await Bun.file(stateHome).exists()).toBe(false);
+  });
+
+  test('reports actionable home and write failures', async () => {
+    const unusableHome = Bun.spawn([executable, 'skill', 'install'], {
+      env: { HOME: 'relative-home', PATH: '' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [unusableHomeExit, unusableHomeStdout, unusableHomeStderr] =
+      await Promise.all([
+        unusableHome.exited,
+        new Response(unusableHome.stdout).text(),
+        new Response(unusableHome.stderr).text(),
+      ]);
+
+    expect(unusableHomeExit).not.toBe(0);
+    expect(unusableHomeStdout).toBe('');
+    expect(unusableHomeStderr).toBe(
+      'review: Cannot install the review-comments skill because the user home directory is unavailable\n'
+    );
+
+    const blockedHome = join(directory, 'blocked-skill-home');
+    await Bun.write(blockedHome, 'not a directory');
+    const writeFailure = Bun.spawn([executable, 'skill', 'install'], {
+      env: { HOME: blockedHome, PATH: '' },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [writeFailureExit, writeFailureStdout, writeFailureStderr] =
+      await Promise.all([
+        writeFailure.exited,
+        new Response(writeFailure.stdout).text(),
+        new Response(writeFailure.stderr).text(),
+      ]);
+
+    expect(writeFailureExit).not.toBe(0);
+    expect(writeFailureStdout).toBe('');
+    expect(writeFailureStderr.split('\n')).toHaveLength(2);
+    expect(writeFailureStderr).toContain(
+      `review: Cannot install the review-comments skill at ${join(blockedHome, '.agents', 'skills', 'review-comments', 'SKILL.md')}`
+    );
+  });
+
   test('does not create configuration for a command that does not need it', async () => {
     const configHome = join(directory, 'version-config');
     const review = Bun.spawn([executable, '--version'], {
