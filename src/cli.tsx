@@ -9,6 +9,10 @@ import {
   type ConfigurationFailure,
   type ReviewConfiguration,
 } from './configuration/index.ts';
+import {
+  installReviewCommentsSkill,
+  type SkillInstallDependencies,
+} from './commands/skill-install.ts';
 import { updateCommand, type UpdateDependencies } from './commands/update.ts';
 import { getReviewExecutablePath } from './update.ts';
 import { runUpdaterWorker } from './updater-worker.ts';
@@ -16,6 +20,7 @@ import { runUpdaterWorker } from './updater-worker.ts';
 export type CliDependencies = {
   readonly launchApplication?: () => Promise<void>;
   readonly update?: UpdateDependencies;
+  readonly skillInstall?: SkillInstallDependencies;
   readonly executablePath?: string;
   readonly currentVersion?: string;
   readonly updateMessage?: string;
@@ -25,6 +30,7 @@ export type CliDependencies = {
 export function createProgram({
   launchApplication: start = launchConfiguredApplication,
   update,
+  skillInstall,
   executablePath = getReviewExecutablePath(),
   currentVersion = version,
   updateMessage,
@@ -35,6 +41,15 @@ export function createProgram({
     .description('Review GitHub pull requests from the terminal')
     .version(currentVersion)
     .action(start);
+
+  program
+    .command('skill')
+    .description('manage Review agent skills')
+    .command('install')
+    .description('install the review-comments agent skill')
+    .action(async () => {
+      writeLine(process.stdout, await installReviewCommentsSkill(skillInstall));
+    });
 
   program
     .command('update')
@@ -93,8 +108,10 @@ export async function run(
   const reviewConfiguration = startsReview
     ? await loadRequiredReviewConfiguration()
     : undefined;
-  const updateConfig =
-    reviewConfiguration === undefined
+  const skipsReviewServices = command === 'skill';
+  const updateConfig = skipsReviewServices
+    ? undefined
+    : reviewConfiguration === undefined
       ? await getUpdateConfigFromFile()
       : {
           behavior: reviewConfiguration.update.updateBehavior,
@@ -102,7 +119,7 @@ export async function run(
             reviewConfiguration.update.updateCheckIntervalHours,
         };
   const autoUpdateResult =
-    executablePath === undefined
+    executablePath === undefined || updateConfig === undefined
       ? {}
       : await handleAutoUpdate(
           version,
