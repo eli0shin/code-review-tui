@@ -791,35 +791,45 @@ describe('Review Queue browser action', () => {
       expect.any(AbortSignal)
     );
     expect(view.captureCharFrame()).toContain(secondPullRequest.title);
-    view.renderer.destroy();
+    await act(async () => {
+      view.renderer.destroy();
+      await Promise.resolve();
+    });
   });
 
   test('shows a GitHub CLI browser-launch failure', async () => {
+    const browserLaunch = Promise.withResolvers<GitHubResult<void>>();
     const github = {
       async loadReviewQueue() {
         return success([pullRequest]);
       },
       loadPullRequestDetails: pendingDetails,
-      async openPullRequestInBrowser() {
-        return {
-          ok: false,
-          failure: {
-            kind: 'exit',
-            operation: 'openPullRequestInBrowser',
-            url: pullRequest.url,
-            exitCode: 1,
-            stderr: 'browser unavailable',
-          },
-        } as const;
+      openPullRequestInBrowser() {
+        return browserLaunch.promise;
       },
       async submitReview() {
         throw new Error('Review Submission is not part of this page test');
       },
     } satisfies GitHub;
-    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 30,
+    });
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
 
     await act(async () => view.mockInput.pressKey('b'));
+    await act(async () =>
+      browserLaunch.resolve({
+        ok: false,
+        failure: {
+          kind: 'exit',
+          operation: 'openPullRequestInBrowser',
+          url: pullRequest.url,
+          exitCode: 1,
+          stderr: 'browser unavailable',
+        },
+      })
+    );
 
     const failure = await view.waitForFrame((frame) =>
       frame.includes('browser unavailable')
@@ -829,9 +839,12 @@ describe('Review Queue browser action', () => {
     );
     expectColor(
       spanContaining(view.captureSpans(), 'Could not open').fg,
-      '#a51010'
+      '#800000'
     );
-    view.renderer.destroy();
+    await act(async () => {
+      view.renderer.destroy();
+      await Promise.resolve();
+    });
   });
 });
 
