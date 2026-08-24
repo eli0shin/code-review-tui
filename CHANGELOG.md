@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.11
+
+### Patch Changes
+
+- [#48](https://github.com/eli0shin/code-review-tui/pull/48) [`05f98b7`](https://github.com/eli0shin/code-review-tui/commit/05f98b7acb11b7f0cda122c1feaf0979011b1264) Thanks [@eli0shin](https://github.com/eli0shin)! - Add a configurable `openInBrowser` Review Queue action, mapped to `b` by default, that opens the pull request under the Cursor in the user's default browser.
+
 ## 0.2.10
 
 ### Patch Changes
