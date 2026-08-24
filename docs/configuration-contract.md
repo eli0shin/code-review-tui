@@ -74,7 +74,7 @@ These rules preserve intentionally grouped GitHub search terms without evaluatin
 
 ## Key bindings
 
-The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. A Review Command, Lumen, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
+The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. Its one scrolling document renders GitHub-authored bodies with OpenTUI Markdown and keeps metadata and inline code context as ordinary text. A Review Command, Lumen, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
 
 A descriptor is one of:
 

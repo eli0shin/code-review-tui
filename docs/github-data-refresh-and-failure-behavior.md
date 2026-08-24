@@ -45,7 +45,7 @@ A failed load does not change the last successful Review Queue. The Cursor is no
 
 Details load only after `openDetails` captures the URL under the Cursor. Keep one React Query details query keyed by that captured URL while the full-screen modal is open. Refetch all independent detail sources on every opening and on the modal refresh action. Cached successful content can remain visible during the refetch. Closing the modal disables the query and returns to the unchanged Review Queue and Cursor.
 
-The adapter returns independent metadata, reviews, checks, issue-comment, and review-thread results. Publish each success or failure without making one failed source hide another. Merge every successful conversation source by timestamp. The modal shows concise unavailable markers. Its `showErrors` action opens the existing bounded error surface with complete unchanged diagnostics for all failed sources and returns to the same modal scroll position when closed.
+The adapter returns independent metadata, reviews, checks, issue-comment, and review-thread results. Publish each success or failure without making one failed source hide another. Merge every successful conversation source by timestamp. Render the pull request description and each successful conversation body with OpenTUI Markdown while metadata and inline code context remain ordinary text. The modal shows concise unavailable markers. Its `showErrors` action opens the existing bounded error surface with complete unchanged diagnostics for all failed sources and returns to the same modal scroll position when closed.
 
 A Review Queue refresh does not invalidate details. Queue and detail loading remain independent. Never remove a pull request because one of its detail sources cannot load.
 

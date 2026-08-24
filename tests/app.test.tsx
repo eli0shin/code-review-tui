@@ -396,12 +396,16 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('renders complete review context as plain text and uses configurable scrolling', async () => {
+  test('renders all GitHub-authored bodies as Markdown and keeps context as text while scrolling', async () => {
     const details = {
-      ...pullRequestDetails('Complete details'),
-      body: Array.from({ length: 20 }, (_, index) =>
-        index === 10 ? '# literal **Markdown**' : `description line ${index}`
-      ).join('\n'),
+      ...pullRequestDetails('**Literal metadata title**'),
+      body: [
+        '# Rendered heading',
+        '',
+        '**Emphasized description**',
+        '',
+        'This description line is intentionally long enough to wrap across the details viewport while keeping every GitHub-authored word visible to the reviewer.',
+      ].join('\n'),
     };
     const sources = {
       metadata: success(details),
@@ -410,16 +414,16 @@ describe('Review Queue page loading', () => {
           author: 'reviewer',
           state: 'CHANGES_REQUESTED',
           submittedAt: '2026-08-21T11:00:00Z',
-          body: '',
+          body: '[Review link](https://example.com/review)',
         },
       ]),
-      checks: success([{ name: 'build', state: 'SUCCESS' }]),
+      checks: success([{ name: '`literal check name`', state: 'SUCCESS' }]),
       issueComments: success([
         {
           id: 'issue-1',
           author: 'commenter',
           createdAt: '2026-08-21T10:00:00Z',
-          body: 'issue body',
+          body: '- first issue item\n- second issue item\n\n> quoted issue',
         },
       ]),
       inlineComments: success([
@@ -427,8 +431,8 @@ describe('Review Queue page loading', () => {
           id: '99',
           author: 'inline-reviewer',
           createdAt: '2026-08-21T12:00:00Z',
-          body: 'inline body',
-          path: 'src/widget.ts',
+          body: '```ts\nconst rendered = true;\n```',
+          path: 'src/**literal-context**.ts',
           startLine: 4,
           line: 7,
           inReplyToId: '88',
@@ -461,7 +465,7 @@ describe('Review Queue page loading', () => {
       reviewQueuePage(github, unusedHerdr, bindings),
       {
         width: 100,
-        height: 20,
+        height: 24,
       }
     );
 
@@ -469,28 +473,43 @@ describe('Review Queue page loading', () => {
     act(() => {
       view.mockInput.pressEnter();
     });
-    await view.waitForFrame((frame) => frame.includes('Reviewers'));
+    const startFrame = await view.waitForFrame(
+      (frame) =>
+        frame.includes('Rendered heading') &&
+        frame.includes('Emphasized description')
+    );
+    expect(startFrame).toContain('**Literal metadata title**');
+    expect(startFrame).toContain('`literal check name` · SUCCESS');
+    expect(startFrame).not.toContain('# Rendered heading');
+    expect(startFrame).not.toContain('**Emphasized description**');
+    expect(startFrame).toContain('details viewport while');
+    expect(startFrame).toContain(
+      'keeping every GitHub-authored word visible to the reviewer.'
+    );
+
     await act(async () => view.mockInput.pressKey('v'));
     await act(async () => view.mockInput.pressKey('m'));
     await act(async () => view.mockInput.pressKey('b'));
     const endFrame = await view.waitForFrame(
-      (frame) => frame.includes('inline body') && frame.includes('i/m line')
+      (frame) =>
+        frame.includes('const rendered = true;') && frame.includes('i/m line')
     );
+    expect(endFrame).toContain('- first issue item');
+    expect(endFrame).toContain('- second issue item');
+    expect(endFrame).toContain('quoted issue');
+    expect(endFrame).not.toContain('> quoted issue');
+    expect(endFrame).toContain('Review link (https://example.com/review)');
+    expect(endFrame).not.toContain('[Review link]');
+    expect(endFrame).not.toContain('```');
     expect(endFrame).toContain(
-      'src/widget.ts:4-7 · reply to 88 · resolved · outdated'
+      'src/**literal-context**.ts:4-7 · reply to 88 · resolved · outdated'
     );
     expect(endFrame).toContain('Submitted review · reviewer');
 
     await act(async () => view.mockInput.pressKey('a'));
-    const startFrame = await view.waitForFrame((frame) =>
+    await view.waitForFrame((frame) =>
       frame.includes('Pull request details · acme/widgets #7')
     );
-    expect(startFrame).toContain('build · SUCCESS');
-    await act(async () => view.mockInput.pressKey('v'));
-    const descriptionFrame = await view.waitForFrame((frame) =>
-      frame.includes('# literal **Markdown**')
-    );
-    expect(descriptionFrame).toContain('# literal **Markdown**');
     await act(async () => view.mockInput.pressKey('u'));
     view.renderer.destroy();
   });

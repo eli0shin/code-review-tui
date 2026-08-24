@@ -105,7 +105,7 @@ The details fields have these uses:
 - `comments` provides all issue comments.
 - Review threads provide inline comments and their complete line, reply, resolved, and outdated context.
 
-All bodies remain exact plain text. Do not parse Markdown.
+The adapter preserves all body strings exactly and does not parse Markdown. The Pull Request Details modal passes GitHub-authored bodies to OpenTUI's Markdown renderer.
 
 ## Review Submission
 
