@@ -24,6 +24,7 @@ A complete example is:
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],
     "openDetails": ["enter"],
+    "openInBrowser": ["b"],
     "openDiff": ["d"],
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
@@ -91,6 +92,7 @@ The actions have these meanings:
 | `selectPrevious`          | `k`, `up`        | Move the Cursor to the previous Review Queue row.                         |
 | `selectNext`              | `j`, `down`      | Move the Cursor to the next Review Queue row.                             |
 | `openDetails`             | `enter`          | Open full-screen details for the pull request under the Cursor.           |
+| `openInBrowser`           | `b`              | Open the pull request under the Cursor in the user's default browser.     |
 | `openDiff`                | `d`              | Open the pull request under the Cursor in fixed `lumen diff`.             |
 | `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |

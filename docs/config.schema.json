@@ -57,6 +57,10 @@
           "$ref": "#/$defs/bindingList",
           "default": ["enter"]
         },
+        "openInBrowser": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["b"]
+        },
         "openDiff": {
           "$ref": "#/$defs/bindingList",
           "default": ["d"]

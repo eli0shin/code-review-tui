@@ -85,6 +85,10 @@ interface GitHub {
     url: string,
     signal: AbortSignal
   ): Promise<PullRequestDetailSources>;
+  openPullRequestInBrowser(
+    url: string,
+    signal: AbortSignal
+  ): Promise<GitHubResult<void>>;
   submitReview(
     submission: ReviewSubmission,
     signal: AbortSignal
@@ -92,7 +96,7 @@ interface GitHub {
 }
 ```
 
-The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSON validation, domain conversion, and operation-specific failures. It loads pull request metadata, reviews, checks, issue comments, and review threads independently so each source keeps its own success or complete diagnostic. It starts `gh` directly from `PATH` without a shell. It inherits the environment and does not set authentication values. It enriches each search result with `gh pr view` file and change counts at bounded concurrency before it publishes the complete Review Queue. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
+The GitHub CLI adapter hides exact `gh` arguments, process input and output, JSON validation, domain conversion, browser launch, and operation-specific failures. It loads pull request metadata, reviews, checks, issue comments, and review threads independently so each source keeps its own success or complete diagnostic. It starts `gh` directly from `PATH` without a shell. It inherits the environment and does not set authentication values. It enriches each search result with `gh pr view` file and change counts at bounded concurrency before it publishes the complete Review Queue. Review Submission writes the exact UTF-8 message to stdin and closes stdin.
 
 Construct the adapter with tokenized GitHub search from configuration. Page tests use a small in-memory `GitHub` implementation. Adapter tests put a recording `gh` executable first in `PATH`.
 
@@ -135,7 +139,7 @@ TanStack React Query owns:
 - the fixed 60-second Review Queue refetch interval;
 - request cancellation through the query function's supplied `AbortSignal`.
 
-The page keeps one local numeric Cursor and clamps its rendered position to the current queue rows. `openDetails` captures the pull request URL under the Cursor as temporary modal state. The Cursor has no pull request identity, and queue replacement does not preserve a URL. The modal refetches all detail sources on each opening and explicit refresh. Closing it restores the unchanged Review Queue and Cursor.
+The page keeps one local numeric Cursor and clamps its rendered position to the current queue rows. `openDetails` captures the pull request URL under the Cursor as temporary modal state. The Cursor has no pull request identity, and queue replacement does not preserve a URL. The browser action opens the canonical URL under the Cursor through GitHub CLI. The modal refetches all detail sources on each opening and explicit refresh. Closing it restores the unchanged Review Queue and Cursor.
 
 Configure TanStack Query's public `environmentManager` for the long-lived non-browser OpenTUI runtime before mounting queries. The queue query loads on mount, sets `refetchInterval: 60_000`, and uses `refetch()` for `r`. Do not add fetch effects, timer effects, pull request identity for the Cursor, request generations, or another remote-state layer.
 
@@ -179,7 +183,7 @@ Use temporary XDG and HOME directories. Prove path selection, complete validatio
 
 ### GitHub CLI adapter contract
 
-Use a recording fake `gh` process. Prove exact arguments and environment, complete JSON validation and conversion, failure classes, Review Submission input, and no shell or authentication mutation.
+Use a recording fake `gh` process. Prove exact arguments and environment, complete JSON validation and conversion, failure classes, Review Submission input, default-browser launch, and no shell or authentication mutation.
 
 ### Herdr CLI adapter contract
 

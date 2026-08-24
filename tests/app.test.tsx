@@ -18,7 +18,7 @@ import type {
   ReviewQueue,
 } from '../src/domain/pull-request.ts';
 import type {
-  GitHub,
+  GitHub as ProductionGitHub,
   GitHubResult,
   PullRequestDetailSources,
 } from '../src/github/types.ts';
@@ -87,6 +87,15 @@ function success<Value>(value: Value): GitHubResult<Value> {
   return { ok: true, value };
 }
 
+type GitHub = Omit<ProductionGitHub, 'openPullRequestInBrowser'> &
+  Partial<Pick<ProductionGitHub, 'openPullRequestInBrowser'>>;
+
+const unusedOpenPullRequestInBrowser = async (): Promise<
+  GitHubResult<void>
+> => {
+  throw new Error('Browser launch is not part of this page test');
+};
+
 const unusedHerdr = {
   async openLumen() {
     throw new Error('Lumen is not part of this page test');
@@ -100,6 +109,7 @@ const defaultKeyBindings = {
   selectPrevious: ['k', 'up'],
   selectNext: ['j', 'down'],
   openDetails: ['enter'],
+  openInBrowser: ['b'],
   openDiff: ['d'],
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
@@ -121,7 +131,11 @@ function reviewQueuePage(
 ) {
   return (
     <ReviewQueuePage
-      github={github}
+      github={{
+        ...github,
+        openPullRequestInBrowser:
+          github.openPullRequestInBrowser ?? unusedOpenPullRequestInBrowser,
+      }}
       herdr={herdr}
       keyBindings={keyBindings}
       onQuit={onQuit}
@@ -460,6 +474,7 @@ describe('Review Queue page loading', () => {
       pageNext: ['v'],
       scrollStart: ['a'],
       scrollEnd: ['b'],
+      openInBrowser: ['w'],
     } satisfies EffectiveKeyBindings;
     const view = await testRender(
       reviewQueuePage(github, unusedHerdr, bindings),
@@ -746,6 +761,77 @@ describe('Review Queue page loading', () => {
       view.renderer.destroy();
       await Promise.resolve();
     });
+  });
+});
+
+describe('Review Queue browser action', () => {
+  test('opens the pull request under the Cursor in the default browser', async () => {
+    const openPullRequestInBrowser = jest.fn(async () => success(undefined));
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest, secondPullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      openPullRequestInBrowser,
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(secondPullRequest.title));
+    await act(async () => view.mockInput.pressArrow('down'));
+
+    await act(async () => view.mockInput.pressKey('b'));
+
+    expect(openPullRequestInBrowser).toHaveBeenCalledWith(
+      secondPullRequest.url,
+      expect.any(AbortSignal)
+    );
+    expect(view.captureCharFrame()).toContain(secondPullRequest.title);
+    view.renderer.destroy();
+  });
+
+  test('shows a GitHub CLI browser-launch failure', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      async openPullRequestInBrowser() {
+        return {
+          ok: false,
+          failure: {
+            kind: 'exit',
+            operation: 'openPullRequestInBrowser',
+            url: pullRequest.url,
+            exitCode: 1,
+            stderr: 'browser unavailable',
+          },
+        } as const;
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('b'));
+
+    const failure = await view.waitForFrame((frame) =>
+      frame.includes('browser unavailable')
+    );
+    expect(failure).toContain(
+      `Could not open ${pullRequest.repository} #${pullRequest.number} in the browser`
+    );
+    expectColor(
+      spanContaining(view.captureSpans(), 'Could not open').fg,
+      '#a51010'
+    );
+    view.renderer.destroy();
   });
 });
 
