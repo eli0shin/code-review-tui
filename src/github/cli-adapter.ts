@@ -145,6 +145,18 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
       return { metadata, reviews, checks, issueComments, inlineComments };
     },
 
+    async openPullRequestInBrowser(url, signal) {
+      return runGh(
+        ['pr', 'view', url, '--web'],
+        '',
+        'openPullRequestInBrowser',
+        url,
+        signal
+      ).then((result): GitHubResult<void> =>
+        result.ok ? { ok: true, value: undefined } : result
+      );
+    },
+
     async submitReview(submission, signal) {
       return runGh(
         [

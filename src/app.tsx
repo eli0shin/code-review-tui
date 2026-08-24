@@ -75,6 +75,13 @@ type HerdrActionFailure = {
   readonly failure: HerdrFailure;
 };
 
+type QueueNotice = {
+  readonly message: string;
+  readonly tone?: 'error' | 'success';
+  readonly refreshFailure?: GitHubFailure;
+  readonly queueSuccessSequence?: number;
+};
+
 type SystemTheme = {
   readonly success: RGBA;
   readonly error: RGBA;
@@ -129,11 +136,7 @@ function ReviewQueue({
   const [detailErrorsOpen, setDetailErrorsOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [dismissedFailureKey, setDismissedFailureKey] = useState<string>();
-  const [notice, setNotice] = useState<{
-    readonly message: string;
-    readonly refreshFailure?: GitHubFailure;
-    readonly queueSuccessSequence?: number;
-  }>();
+  const [notice, setNotice] = useState<QueueNotice>();
   const [herdrActionFailure, setHerdrActionFailure] =
     useState<HerdrActionFailure>();
   const editorRef = useRef<TextareaRenderable>(null);
@@ -285,6 +288,22 @@ function ReviewQueue({
     }
   };
 
+  const openPullRequestInBrowser = async (
+    pullRequest: PullRequestSummary
+  ): Promise<void> => {
+    setNotice(undefined);
+    const result = await github.openPullRequestInBrowser(
+      pullRequest.url,
+      new AbortController().signal
+    );
+    if (!result.ok) {
+      setNotice({
+        message: `Could not open ${pullRequest.repository} #${pullRequest.number} in the browser: ${failureMessage(result.failure)}`,
+        tone: 'error',
+      });
+    }
+  };
+
   const openHerdrTab = async (
     action: HerdrActionFailure['action'],
     open: () => Promise<HerdrResult>
@@ -415,6 +434,10 @@ function ReviewQueue({
       setModalTarget(highlightedPullRequest);
       return;
     }
+    if (action === 'openInBrowser') {
+      void openPullRequestInBrowser(highlightedPullRequest);
+      return;
+    }
     if (action === 'openDiff') {
       void openHerdrTab('Lumen', () => herdr.openLumen(highlightedPullRequest));
       return;
@@ -484,7 +507,7 @@ function ReviewQueue({
             cursorPosition={cursorPosition}
             refreshing={queueQuery.isFetching}
             refreshFailure={queueFailure}
-            notice={notice?.message}
+            notice={notice}
             herdrActionFailure={herdrActionFailure}
             keyBindings={keyBindings}
             theme={theme}
@@ -550,7 +573,7 @@ function ReviewQueueContent({
   readonly cursorPosition: number;
   readonly refreshing: boolean;
   readonly refreshFailure: GitHubFailure | null;
-  readonly notice: string | undefined;
+  readonly notice: QueueNotice | undefined;
   readonly herdrActionFailure: HerdrActionFailure | undefined;
   readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
@@ -613,7 +636,11 @@ function ReviewQueueContent({
           {notice !== undefined || refreshFailure !== null ? (
             <text width="100%" wrapMode="char">
               {notice !== undefined ? (
-                <span fg={theme?.success}>{notice}</span>
+                <span
+                  fg={notice.tone === 'error' ? theme?.error : theme?.success}
+                >
+                  {notice.message}
+                </span>
               ) : null}
               {notice !== undefined && refreshFailure !== null ? '\n' : null}
               {refreshFailure !== null ? (
@@ -1276,7 +1303,7 @@ function HelpOverlay({
       left="25%"
       top="15%"
       width="50%"
-      height={14}
+      height={15}
       zIndex={10}
       border
       borderColor={theme?.foreground}
@@ -1290,6 +1317,9 @@ function HelpOverlay({
       <text fg={theme?.foreground}>{line('selectPrevious', 'previous')}</text>
       <text fg={theme?.foreground}>{line('selectNext', 'next')}</text>
       <text fg={theme?.foreground}>{line('openDetails', 'open details')}</text>
+      <text fg={theme?.foreground}>
+        {line('openInBrowser', 'open in browser')}
+      </text>
       <text fg={theme?.foreground}>{line('openDiff', 'open diff')}</text>
       <text fg={theme?.foreground}>
         {line('runReviewCommand', 'run Review Command')}
@@ -1677,7 +1707,9 @@ function formatBindings(bindings: readonly string[]): string {
 
 function footerText(keyBindings: EffectiveKeyBindings): string {
   const movement = `${keyBindings.selectNext[0]}/${keyBindings.selectPrevious[0]}`;
-  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${formatBindings(keyBindings.openDiff)} diff  ${formatBindings(
+  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${formatBindings(
+    keyBindings.openInBrowser
+  )} browser  ${formatBindings(keyBindings.openDiff)} diff  ${formatBindings(
     keyBindings.runReviewCommand
   )} review command  ${formatBindings(
     keyBindings.composeReviewSubmission

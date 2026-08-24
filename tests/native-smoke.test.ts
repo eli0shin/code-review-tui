@@ -134,6 +134,7 @@ describe('native review executable', () => {
         selectPrevious: ['k', 'up'],
         selectNext: ['j', 'down'],
         openDetails: ['enter'],
+        openInBrowser: ['b'],
         openDiff: ['d'],
         runReviewCommand: ['c'],
         composeReviewSubmission: ['s'],

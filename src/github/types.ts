@@ -15,6 +15,7 @@ export type GitHubOperation =
   | 'pullRequestChecks'
   | 'pullRequestIssueComments'
   | 'pullRequestReviewThreads'
+  | 'openPullRequestInBrowser'
   | 'reviewSubmission';
 
 export type PullRequestDetailSources = {
@@ -69,6 +70,10 @@ export type GitHub = {
     url: string,
     signal: AbortSignal
   ): Promise<PullRequestDetailSources>;
+  openPullRequestInBrowser(
+    url: string,
+    signal: AbortSignal
+  ): Promise<GitHubResult<void>>;
   submitReview(
     submission: ReviewSubmission,
     signal: AbortSignal

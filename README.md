@@ -42,6 +42,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
     "selectPrevious": ["k", "up"],
     "selectNext": ["j", "down"],
     "openDetails": ["enter"],
+    "openInBrowser": ["b"],
     "openDiff": ["d"],
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
@@ -72,6 +73,7 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 | `j`/`down`   | Move the Cursor to the next pull request.             |
 | `k`/`up`     | Move the Cursor to the previous pull request.         |
 | `enter`      | Open full-screen pull request details.                |
+| `b`          | Open the pull request in the default browser.         |
 | `d`          | Open the pull request in `lumen diff` in a Herdr tab. |
 | `c`          | Run the configured Review Command in a Herdr tab.     |
 | `s`          | Compose a Review Submission.                          |

@@ -7,6 +7,7 @@ export const queueActions = [
   'selectPrevious',
   'selectNext',
   'openDetails',
+  'openInBrowser',
   'openDiff',
   'runReviewCommand',
   'composeReviewSubmission',
@@ -57,6 +58,7 @@ const defaultKeyBindings = {
   selectPrevious: ['k', 'up'],
   selectNext: ['j', 'down'],
   openDetails: ['enter'],
+  openInBrowser: ['b'],
   openDiff: ['d'],
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
@@ -406,6 +408,7 @@ function validateKeyBindings(
       selectPrevious: getEffectiveBindings(effective, 'selectPrevious'),
       selectNext: getEffectiveBindings(effective, 'selectNext'),
       openDetails: getEffectiveBindings(effective, 'openDetails'),
+      openInBrowser: getEffectiveBindings(effective, 'openInBrowser'),
       openDiff: getEffectiveBindings(effective, 'openDiff'),
       runReviewCommand: getEffectiveBindings(effective, 'runReviewCommand'),
       composeReviewSubmission: getEffectiveBindings(

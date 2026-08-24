@@ -475,6 +475,20 @@ describe('GitHub CLI adapter contract', () => {
     ).toBe(true);
   });
 
+  test('opens a canonical pull request URL in the default browser', async () => {
+    const result = await createGitHubCliAdapter([]).openPullRequestInBrowser(
+      detailsJson.url,
+      new AbortController().signal
+    );
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(await readRecord()).toEqual({
+      argv: ['pr', 'view', detailsJson.url, '--web'],
+      stdin: '',
+      marker: 'inherited',
+    });
+  });
+
   for (const [decision, flag, message] of [
     ['comment', '--comment', 'line one\nline two'],
     ['approve', '--approve', ''],
