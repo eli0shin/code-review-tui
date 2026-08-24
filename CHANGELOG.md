@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.10
+
+### Patch Changes
+
+- [#46](https://github.com/eli0shin/code-review-tui/pull/46) [`ff395b6`](https://github.com/eli0shin/code-review-tui/commit/ff395b666d2757271751236164dab58a1a1ad4d5) Thanks [@eli0shin](https://github.com/eli0shin)! - Stabilize Pull Request Details modal close coverage for release publication.
+
 ## 0.2.9
 
 ### Patch Changes
