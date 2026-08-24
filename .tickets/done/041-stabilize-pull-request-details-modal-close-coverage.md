@@ -47,3 +47,7 @@ Make Pull Request Details modal closure and its test deterministic after OpenTUI
 - The complete test suite passes repeatedly enough to exercise the corrected interaction.
 - Formatting, lint, typecheck, build, and all four native executable smoke checks pass.
 - The Version workflow can publish v0.2.9 with exactly four native binaries and only the intended OpenTUI Markdown release note. A later patch release is created only if the repository fix requires it.
+
+## Resolution
+
+Implemented in PR #46 and squash-merged as `ff395b666d2757271751236164dab58a1a1ad4d5`.
