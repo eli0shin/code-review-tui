@@ -686,13 +686,14 @@ describe('Review Queue page loading', () => {
     const view = await testRender(reviewQueuePage(github, herdr), {
       width: 90,
       height: 24,
+      kittyKeyboard: true,
     });
     await view.waitForFrame((frame) => frame.includes('Improve widgets'));
     await act(async () => {
       view.mockInput.pressKey('e');
       view.mockInput.pressKey('d', { ctrl: true });
     });
-    act(() => {
+    await act(async () => {
       view.mockInput.pressEnter();
     });
     const firstTargetFrame = await view.waitForFrame((frame) =>
@@ -709,7 +710,7 @@ describe('Review Queue page loading', () => {
     expect(openReviewCommand).not.toHaveBeenCalled();
     expect(view.captureCharFrame()).toContain('First target');
 
-    act(() => {
+    await act(async () => {
       view.mockInput.pressEscape();
     });
     await view.waitForFrame((frame) =>
@@ -726,14 +727,14 @@ describe('Review Queue page loading', () => {
       expect.any(AbortSignal)
     );
 
-    act(() => {
+    await act(async () => {
       view.mockInput.pressEscape();
     });
     await view.waitForFrame((frame) =>
       frame.includes('Review requests 2 open')
     );
     await act(async () => view.mockInput.pressKey('j'));
-    act(() => {
+    await act(async () => {
       view.mockInput.pressEnter();
     });
     await view.waitForFrame((frame) => frame.includes('Second target'));
@@ -741,7 +742,10 @@ describe('Review Queue page loading', () => {
       secondPullRequest.url,
       expect.any(AbortSignal)
     );
-    view.renderer.destroy();
+    await act(async () => {
+      view.renderer.destroy();
+      await Promise.resolve();
+    });
   });
 });
 
