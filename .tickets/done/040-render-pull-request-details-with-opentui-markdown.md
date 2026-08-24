@@ -34,3 +34,7 @@ Render GitHub-authored Markdown in the full-screen Pull Request Details modal wi
 - Tests prove all four GitHub-authored body locations use Markdown while metadata and inline code context remain ordinary text.
 - Tests prove details scrolling and independent partial loading/failure behavior still work.
 - Formatting, lint, typecheck, all tests, build, and native executable smoke coverage pass.
+
+## Resolution
+
+Implemented in PR #44 and squash-merged as `d02ac4b7cf6445cba8ef307d3936cc92e45717ab`.
