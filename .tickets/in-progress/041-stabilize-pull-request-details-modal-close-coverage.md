@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@041-stabilize-pull-request-details-modal-close-coverage
 Tags:
   - bug
   - test
