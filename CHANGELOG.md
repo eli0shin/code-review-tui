@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.9
+
+### Patch Changes
+
+- [#44](https://github.com/eli0shin/code-review-tui/pull/44) [`d02ac4b`](https://github.com/eli0shin/code-review-tui/commit/d02ac4b7cf6445cba8ef307d3936cc92e45717ab) Thanks [@eli0shin](https://github.com/eli0shin)! - Render GitHub-authored pull request detail bodies with OpenTUI Markdown.
+
 ## 0.2.8
 
 ### Patch Changes
