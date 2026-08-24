@@ -1,5 +1,5 @@
 ---
-Assigned-To:
+Assigned-To: code-review-tui@040-render-pull-request-details-with-opentui-markdown
 Tags:
   - ui
   - integration

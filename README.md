@@ -79,7 +79,7 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 | `?`          | Show the effective Review Queue keys.                 |
 | `q`/`escape` | Quit.                                                 |
 
-Pull request details include reviewers, checks, the plain-text description, and the complete review conversation. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged Review Queue.
+Pull request details include reviewers, checks, the rendered Markdown description, and the complete review conversation. Descriptions, issue comments, submitted review bodies, and inline review comment bodies use OpenTUI's Markdown renderer. Metadata and inline code context stay ordinary text. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged Review Queue.
 
 When you send comments from Lumen, Review saves Lumen's exact stdout at `/tmp/review/lumen/<org>/<repo>/<number>.txt`. A successful nonempty send replaces the prior file. Leaving Lumen without a send, or a failed Lumen run, keeps the prior file unchanged. The Review Command is a separate interaction and does not receive these comments.
 

@@ -1,9 +1,13 @@
 import {
+  BoxRenderable,
+  CodeRenderable,
   createCliRenderer,
   normalizeTerminalPalette,
   RGBA,
+  SyntaxStyle,
   TextAttributes,
   type KeyEvent,
+  type MarkdownOptions,
   type ScrollBoxRenderable,
   type TerminalColors,
   type TextareaRenderable,
@@ -21,7 +25,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   normalizeKeyDescriptor,
   queueActions,
@@ -729,12 +733,14 @@ function PullRequestDetailsModal({
   readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
 }) {
+  const resolvedTheme = theme ?? fallbackSystemTheme;
   const metadata = sources?.metadata;
   const reviews = sources?.reviews;
   const checks = sources?.checks;
   const issueComments = sources?.issueComments;
   const inlineComments = sources?.inlineComments;
   const conversation = collectConversation(sources);
+  const markdownStyle = useMarkdownStyle(resolvedTheme);
 
   return (
     <scrollbox
@@ -887,9 +893,10 @@ function PullRequestDetailsModal({
       {metadata === undefined ? (
         <text fg={theme?.textMuted}>Loading description…</text>
       ) : metadata.ok ? (
-        <PlainTextBody
+        <MarkdownBody
           body={metadata.value.body || 'No description provided.'}
-          theme={theme}
+          syntaxStyle={markdownStyle}
+          theme={resolvedTheme}
         />
       ) : (
         <Unavailable label="Description" theme={theme} />
@@ -932,7 +939,11 @@ function PullRequestDetailsModal({
           {entry.context === undefined ? null : (
             <text fg={theme?.textMuted}>{entry.context}</text>
           )}
-          <PlainTextBody body={entry.body} theme={theme} />
+          <MarkdownBody
+            body={entry.body}
+            syntaxStyle={markdownStyle}
+            theme={resolvedTheme}
+          />
         </box>
       ))}
       {conversation.length === 0 &&
@@ -958,29 +969,77 @@ function PullRequestDetailsModal({
   );
 }
 
-function PlainTextBody({
+function MarkdownBody({
   body,
+  syntaxStyle,
   theme,
 }: {
   readonly body: string;
-  readonly theme: SystemTheme | undefined;
+  readonly syntaxStyle: SyntaxStyle;
+  readonly theme: SystemTheme;
 }) {
-  return plainTextLines(body).map((line) => (
-    <text key={line.key} width="100%" wrapMode="char" fg={theme?.foreground}>
-      {line.text}
-    </text>
-  ));
+  return (
+    <markdown
+      content={body}
+      syntaxStyle={syntaxStyle}
+      renderNode={renderMarkdownNode}
+      width="100%"
+      fg={theme.foreground}
+      bg={theme.background}
+      conceal
+      concealCode={false}
+      streaming
+      internalBlockMode="top-level"
+    />
+  );
 }
 
-function plainTextLines(
-  body: string
-): readonly { readonly key: string; readonly text: string }[] {
-  let offset = 0;
-  return body.split('\n').map((text) => {
-    const line = { key: `${offset}:${text}`, text };
-    offset += text.length + 1;
-    return line;
-  });
+const renderMarkdownNode: NonNullable<MarkdownOptions['renderNode']> = (
+  token,
+  context
+) => {
+  if (token.type !== 'code' && token.type !== 'blockquote') return undefined;
+  const renderable = context.defaultRender();
+  const code =
+    renderable instanceof CodeRenderable
+      ? renderable
+      : renderable instanceof BoxRenderable
+        ? renderable
+            .getChildren()
+            .find((child) => child instanceof CodeRenderable)
+        : undefined;
+  if (code instanceof CodeRenderable) code.drawUnstyledText = true;
+  return renderable;
+};
+
+function useMarkdownStyle(theme: SystemTheme): SyntaxStyle {
+  const syntaxStyle = useMemo(
+    () =>
+      SyntaxStyle.fromStyles({
+        default: { fg: theme.foreground },
+        conceal: { fg: theme.textMuted },
+        'markup.heading': { fg: theme.info, bold: true },
+        'markup.strong': { fg: theme.foreground, bold: true },
+        'markup.italic': { fg: theme.foreground, italic: true },
+        'markup.strikethrough': { fg: theme.textMuted, dim: true },
+        'markup.raw': { fg: theme.warning },
+        'markup.list': { fg: theme.info },
+        'markup.quote': { fg: theme.textMuted, italic: true },
+        'markup.link': { fg: theme.secondary },
+        'markup.link.label': { fg: theme.secondary, underline: true },
+        'markup.link.url': { fg: theme.textMuted, underline: true },
+      }),
+    [theme]
+  );
+
+  useEffect(
+    () => () => {
+      syntaxStyle.destroy();
+    },
+    [syntaxStyle]
+  );
+
+  return syntaxStyle;
 }
 
 function reviewStateColor(

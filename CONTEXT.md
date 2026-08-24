@@ -18,6 +18,10 @@ _Avoid_: Review Prompt, Pi command
 A GitHub pull request review with a message and one decision: comment, approve, or request changes.
 _Avoid_: Inline comment
 
+**GitHub-authored body**:
+A pull request description, issue comment body, submitted review body, or inline review comment body. The Pull Request Details modal renders it as Markdown. Metadata and inline code context are not GitHub-authored bodies.
+_Avoid_: Plain-text body
+
 **Review Queue Tab**:
 The saved Herdr tab that contains the Review Queue. `review` makes a best-effort attempt to focus its Review Queue pane when a launched tool exits.
 _Avoid_: Parent tab, caller tab
