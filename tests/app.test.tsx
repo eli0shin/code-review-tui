@@ -410,6 +410,57 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
+  test('copies a completed mouse selection from pull request details', async () => {
+    const details = {
+      ...pullRequestDetails('Copy details'),
+      body: 'Selectable details',
+    };
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(details);
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 90,
+      height: 18,
+    });
+    const copy = jest
+      .spyOn(view.renderer, 'copyToClipboardOSC52')
+      .mockReturnValue(true);
+
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(view.mockInput.pressEnter);
+    const frame = await view.waitForFrame((output) =>
+      output.includes('Selectable details')
+    );
+    const lines = frame.split('\n');
+    const row = lines.findIndex((line) => line.includes('Selectable details'));
+    const column = lines[row]?.indexOf('Selectable details') ?? -1;
+    expect(row).toBeGreaterThanOrEqual(0);
+    expect(column).toBeGreaterThanOrEqual(0);
+
+    await act(() =>
+      view.mockMouse.drag(
+        column,
+        row,
+        column + 'Selectable details'.length,
+        row
+      )
+    );
+
+    const selectedText = view.renderer.getSelection()?.getSelectedText();
+    expect(selectedText).toContain('Selectable details');
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledWith(selectedText);
+    view.renderer.destroy();
+  });
+
   test('renders all GitHub-authored bodies as Markdown and keeps context as text while scrolling', async () => {
     const details = {
       ...pullRequestDetails('**Literal metadata title**'),
