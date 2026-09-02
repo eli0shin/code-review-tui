@@ -413,7 +413,11 @@ describe('Review Queue page loading', () => {
   test('copies a completed mouse selection from pull request details', async () => {
     const details = {
       ...pullRequestDetails('Copy details'),
-      body: 'Selectable details',
+      body: `Selectable details
+
+| Kind | Value |
+| --- | --- |
+| Table | Table details |`,
     };
     const github = {
       async loadReviewQueue() {
@@ -428,7 +432,7 @@ describe('Review Queue page loading', () => {
     } satisfies GitHub;
     const view = await testRender(reviewQueuePage(github), {
       width: 90,
-      height: 18,
+      height: 24,
     });
     const copy = jest
       .spyOn(view.renderer, 'copyToClipboardOSC52')
@@ -439,6 +443,10 @@ describe('Review Queue page loading', () => {
     const frame = await view.waitForFrame((output) =>
       output.includes('Selectable details')
     );
+    const normalBackground = spanContaining(
+      view.captureSpans(),
+      'Selectable details'
+    ).bg.toInts();
     const lines = frame.split('\n');
     const row = lines.findIndex((line) => line.includes('Selectable details'));
     const column = lines[row]?.indexOf('Selectable details') ?? -1;
@@ -456,8 +464,41 @@ describe('Review Queue page loading', () => {
 
     const selectedText = view.renderer.getSelection()?.getSelectedText();
     expect(selectedText).toContain('Selectable details');
-    expect(copy).toHaveBeenCalledTimes(1);
+    await view.waitFor(() =>
+      allSpans(view.captureSpans()).some(
+        (span) => span.text.includes('Selectable') && span.bg.intent === 'rgb'
+      )
+    );
+    const selectedSpan = allSpans(view.captureSpans()).find(
+      (span) => span.text.includes('Selectable') && span.bg.intent === 'rgb'
+    );
+    expect(selectedSpan).toBeDefined();
+    if (selectedSpan === undefined) throw new Error('Selection is not visible');
+    expect(selectedSpan.bg.toInts()).not.toEqual(normalBackground);
+    expect(selectedSpan.bg.intent).toBe('rgb');
     expect(copy).toHaveBeenCalledWith(selectedText);
+
+    const tableFrame = view.captureCharFrame().split('\n');
+    const tableRow = tableFrame.findIndex((line) =>
+      line.includes('Table details')
+    );
+    const tableColumn = tableFrame[tableRow]?.indexOf('Table details') ?? -1;
+    expect(tableRow).toBeGreaterThanOrEqual(0);
+    expect(tableColumn).toBeGreaterThanOrEqual(0);
+    await act(() =>
+      view.mockMouse.drag(
+        tableColumn,
+        tableRow,
+        tableColumn + 'Table details'.length,
+        tableRow
+      )
+    );
+    await view.waitFor(() =>
+      allSpans(view.captureSpans()).some(
+        (span) => span.text.includes('detail') && span.bg.intent === 'rgb'
+      )
+    );
+    expect(copy).toHaveBeenCalledTimes(2);
     view.renderer.destroy();
   });
 
