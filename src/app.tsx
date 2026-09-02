@@ -7,6 +7,8 @@ import {
   RGBA,
   SyntaxStyle,
   TextAttributes,
+  TextBufferRenderable,
+  TextTableRenderable,
   type KeyEvent,
   type MarkdownOptions,
   type ScrollBoxRenderable,
@@ -93,6 +95,8 @@ type SystemTheme = {
   readonly textMuted: RGBA;
   readonly foreground: RGBA;
   readonly background: RGBA;
+  readonly selectionForeground: RGBA;
+  readonly selectionBackground: RGBA;
   readonly subtleSurface: RGBA;
 };
 
@@ -129,8 +133,8 @@ function ReviewQueue({
   keyBindings,
   onQuit,
 }: ReviewQueuePageProps) {
-  useCopyCompletedSelection();
   const theme = useSystemTheme();
+  useCopyCompletedSelection(theme);
   const terminal = useTerminalDimensions();
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
@@ -1008,11 +1012,20 @@ function MarkdownBody({
   readonly syntaxStyle: SyntaxStyle;
   readonly theme: SystemTheme;
 }) {
+  const renderNode = useMemo(
+    () =>
+      createMarkdownNodeRenderer(
+        theme.selectionBackground,
+        theme.selectionForeground
+      ),
+    [theme.selectionBackground, theme.selectionForeground]
+  );
+
   return (
     <markdown
       content={body}
       syntaxStyle={syntaxStyle}
-      renderNode={renderMarkdownNode}
+      renderNode={renderNode}
       width="100%"
       fg={theme.foreground}
       bg={theme.background}
@@ -1022,6 +1035,37 @@ function MarkdownBody({
       internalBlockMode="top-level"
     />
   );
+}
+
+function createMarkdownNodeRenderer(
+  selectionBackground: RGBA,
+  selectionForeground: RGBA
+): NonNullable<MarkdownOptions['renderNode']> {
+  return (token, context) => {
+    if (token.type !== 'table') return renderMarkdownNode(token, context);
+    const table = context.defaultRender();
+    if (!(table instanceof TextTableRenderable)) return table;
+
+    return new TextTableRenderable(table.ctx, {
+      id: table.id,
+      content: table.content,
+      width: '100%',
+      columnWidthMode: table.columnWidthMode,
+      columnFitter: table.columnFitter,
+      wrapMode: table.wrapMode,
+      cellPaddingX: table.cellPaddingX,
+      cellPaddingY: table.cellPaddingY,
+      columnGap: table.columnGap,
+      border: table.border,
+      outerBorder: table.outerBorder,
+      showBorders: table.showBorders,
+      borderStyle: table.borderStyle,
+      borderColor: table.borderColor,
+      selectable: table.selectable,
+      selectionBg: selectionBackground,
+      selectionFg: selectionForeground,
+    });
+  };
 }
 
 const renderMarkdownNode: NonNullable<MarkdownOptions['renderNode']> = (
@@ -1744,22 +1788,29 @@ function relativeAge(value: string, now = Date.now()): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
-function useCopyCompletedSelection(): void {
+function useCopyCompletedSelection(theme: SystemTheme): void {
   const renderer = useRenderer();
 
   useEffect(() => {
-    const copySelection = (selection: Selection) => {
+    const handleSelection = (selection: Selection) => {
+      for (const renderable of selection.selectedRenderables) {
+        if (renderable instanceof TextBufferRenderable) {
+          renderable.selectionBg = theme.selectionBackground;
+          renderable.selectionFg = theme.selectionForeground;
+        }
+      }
+
       if (selection.isDragging) return;
       const text = selection.getSelectedText();
       if (text.trim().length === 0) return;
       renderer.copyToClipboardOSC52(text);
     };
 
-    renderer.on(CliRenderEvents.SELECTION, copySelection);
+    renderer.on(CliRenderEvents.SELECTION, handleSelection);
     return () => {
-      renderer.off(CliRenderEvents.SELECTION, copySelection);
+      renderer.off(CliRenderEvents.SELECTION, handleSelection);
     };
-  }, [renderer]);
+  }, [renderer, theme.selectionBackground, theme.selectionForeground]);
 }
 
 function useSystemTheme(): SystemTheme {
@@ -1803,6 +1854,12 @@ function generateSystemTheme(colors: TerminalColors): SystemTheme | undefined {
     textMuted: generateMutedTextColor(bg, isDark),
     foreground: RGBA.defaultForeground(),
     background: RGBA.defaultBackground(),
+    selectionForeground: colors.highlightForeground
+      ? RGBA.fromHex(colors.highlightForeground)
+      : bg,
+    selectionBackground: colors.highlightBackground
+      ? RGBA.fromHex(colors.highlightBackground)
+      : fg,
     subtleSurface: tint(bg, fg, isDark ? 0.14 : 0.1),
   };
 }
@@ -1821,6 +1878,8 @@ function createFallbackSystemTheme(): SystemTheme {
     textMuted: generateMutedTextColor(bg, isDark),
     foreground: RGBA.defaultForeground(),
     background: RGBA.defaultBackground(),
+    selectionForeground: bg,
+    selectionBackground: fg,
     subtleSurface: tint(bg, fg, isDark ? 0.14 : 0.1),
   };
 }
