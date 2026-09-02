@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.12
+
+### Patch Changes
+
+- [#50](https://github.com/eli0shin/code-review-tui/pull/50) [`d6a6bfa`](https://github.com/eli0shin/code-review-tui/commit/d6a6bfaa51b170467d9bb319a17cbf99f9f94b82) Thanks [@eli0shin](https://github.com/eli0shin)! - Copy completed mouse selections from pull request details to the clipboard.
+
 ## 0.2.11
 
 ### Patch Changes
