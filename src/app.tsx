@@ -1,5 +1,6 @@
 import {
   BoxRenderable,
+  CliRenderEvents,
   CodeRenderable,
   createCliRenderer,
   normalizeTerminalPalette,
@@ -9,6 +10,7 @@ import {
   type KeyEvent,
   type MarkdownOptions,
   type ScrollBoxRenderable,
+  type Selection,
   type TerminalColors,
   type TextareaRenderable,
 } from '@opentui/core';
@@ -127,6 +129,7 @@ function ReviewQueue({
   keyBindings,
   onQuit,
 }: ReviewQueuePageProps) {
+  useCopyCompletedSelection();
   const theme = useSystemTheme();
   const terminal = useTerminalDimensions();
   const queryClient = useQueryClient();
@@ -1739,6 +1742,24 @@ function relativeAge(value: string, now = Date.now()): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function useCopyCompletedSelection(): void {
+  const renderer = useRenderer();
+
+  useEffect(() => {
+    const copySelection = (selection: Selection) => {
+      if (selection.isDragging) return;
+      const text = selection.getSelectedText();
+      if (text.trim().length === 0) return;
+      renderer.copyToClipboardOSC52(text);
+    };
+
+    renderer.on(CliRenderEvents.SELECTION, copySelection);
+    return () => {
+      renderer.off(CliRenderEvents.SELECTION, copySelection);
+    };
+  }, [renderer]);
 }
 
 function useSystemTheme(): SystemTheme {
