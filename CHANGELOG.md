@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.2.13
+
+### Patch Changes
+
+- [#52](https://github.com/eli0shin/code-review-tui/pull/52) [`eeee687`](https://github.com/eli0shin/code-review-tui/commit/eeee687f1e54bc2d7f74e13edf472d24bb198956) Thanks [@eli0shin](https://github.com/eli0shin)! - Show terminal-aware highlighting for selected pull request detail text.
+
 ## 0.2.12
 
 ### Patch Changes
