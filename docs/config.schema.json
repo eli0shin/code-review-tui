@@ -73,6 +73,10 @@
           "$ref": "#/$defs/bindingList",
           "default": ["s"]
         },
+        "togglePullRequestList": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["m"]
+        },
         "refresh": {
           "$ref": "#/$defs/bindingList",
           "default": ["r"]

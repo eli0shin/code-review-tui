@@ -8,6 +8,8 @@ import type {
   ReviewSubmission,
 } from '../domain/pull-request.ts';
 
+export type PullRequestList = 'reviewQueue' | 'authored';
+
 export type GitHubOperation =
   | 'reviewQueue'
   | 'pullRequestMetadata'
@@ -65,7 +67,10 @@ export type GitHubResult<Value> =
   | { readonly ok: false; readonly failure: GitHubFailure };
 
 export type GitHub = {
-  loadReviewQueue(signal: AbortSignal): Promise<GitHubResult<ReviewQueue>>;
+  loadReviewQueue(
+    signal: AbortSignal,
+    list?: PullRequestList
+  ): Promise<GitHubResult<ReviewQueue>>;
   loadPullRequestDetails(
     url: string,
     signal: AbortSignal

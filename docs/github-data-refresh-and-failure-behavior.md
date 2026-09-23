@@ -2,7 +2,7 @@
 
 ## Decision
 
-The Review Queue is the last complete, successful result from the configured GitHub search. The application does not combine that result with local review status, hidden-item lists, or optimistic changes.
+The Review Queue is the last complete, successful result from the configured GitHub search. My PRs is a separate result from `is:pr author:@me state:open`. Only the active list is visible and refreshed. The application does not combine either result with local review status, hidden-item lists, or optimistic changes.
 
 The Cursor is temporary interface state. It is a numeric position that highlights one visible Review Queue row and has no pull request identity.
 
@@ -10,7 +10,7 @@ The Cursor is temporary interface state. It is a numeric position that highlight
 
 Load the Review Queue in these cases only:
 
-1. when the Review Queue page mounts;
+1. when the Review Queue page mounts or the user switches lists with `m`;
 2. when the user requests a refresh with `r`;
 3. every 60 seconds while the page is mounted; and
 4. immediately after a successful Review Submission.
@@ -24,7 +24,7 @@ TanStack React Query owns request deduplication, polling, status, caching, and c
 A load is atomic:
 
 - Keep the current Review Queue visible while a refresh is active.
-- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation.
+- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation. The enrichment includes review decision for both lists and check rollup for My PRs.
 - Treat malformed JSON, a non-array result, or any item without a required field as a failed load. Do not display a partial result.
 - An empty valid array is a successful load and an empty Review Queue.
 

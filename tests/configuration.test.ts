@@ -26,6 +26,7 @@ const generatedConfiguration = {
     openDiff: ['d'],
     runReviewCommand: ['c'],
     composeReviewSubmission: ['s'],
+    togglePullRequestList: ['m'],
     refresh: ['r'],
     pagePrevious: ['ctrl+u'],
     pageNext: ['ctrl+d'],
@@ -98,6 +99,7 @@ describe('Review configuration contract', () => {
           openDiff: ['d'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
+          togglePullRequestList: ['m'],
           refresh: ['r'],
           pagePrevious: ['ctrl+u'],
           pageNext: ['ctrl+d'],
@@ -164,6 +166,7 @@ describe('Review configuration contract', () => {
           openDiff: ['shift+a'],
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
+          togglePullRequestList: ['m'],
           refresh: ['r'],
           pagePrevious: ['ctrl+u'],
           pageNext: ['ctrl+d'],
@@ -337,6 +340,21 @@ describe('Review configuration contract', () => {
       await rm(directory, { recursive: true, force: true });
       testDirectory = undefined;
     }
+  });
+
+  test('rejects a switch-list key that collides with another action', async () => {
+    const { file, environment } = await makeEnvironment();
+    await writeConfiguration(file, {
+      ...completeConfiguration,
+      keyBindings: { togglePullRequestList: ['r'] },
+    });
+
+    expectFailure(
+      await loadReviewConfiguration(environment),
+      file,
+      'keyBindings.refresh',
+      /togglePullRequestList and refresh/
+    );
   });
 
   test('reports invalid key descriptors', async () => {

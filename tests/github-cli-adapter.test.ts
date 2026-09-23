@@ -26,6 +26,7 @@ const queueStatsJson = {
   additions: 12,
   deletions: 3,
   changedFiles: 2,
+  reviewDecision: 'REVIEW_REQUIRED',
 };
 
 const detailsJson = {
@@ -236,6 +237,7 @@ describe('GitHub CLI adapter contract', () => {
           changedFiles: 2,
           labels: ['review'],
           commentsCount: 4,
+          reviewDecision: 'REVIEW_REQUIRED',
         },
       ],
     });
@@ -261,11 +263,86 @@ describe('GitHub CLI adapter contract', () => {
           'view',
           'https://github.example/acme/widgets/pull/42',
           '--json',
-          'additions,deletions,changedFiles',
+          'additions,deletions,changedFiles,reviewDecision',
         ],
         stdin: '',
         marker: 'inherited',
       },
+    ]);
+  });
+
+  test('searches open PRs authored by the active GitHub user without changing the configured search', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify({
+      ...queueStatsJson,
+      reviewDecision: 'REVIEW_REQUIRED',
+      statusCheckRollup: [
+        { name: 'build', status: 'COMPLETED', conclusion: 'FAILURE' },
+      ],
+    });
+    const github = createGitHubCliAdapter([
+      'review-requested:@me',
+      'state:open',
+    ]);
+
+    const authored = await github.loadReviewQueue(
+      new AbortController().signal,
+      'authored'
+    );
+    expect(authored).toMatchObject({
+      ok: true,
+      value: [
+        {
+          reviewDecision: 'REVIEW_REQUIRED',
+          checks: [{ name: 'build', state: 'FAILURE' }],
+        },
+      ],
+    });
+    const queue = await github.loadReviewQueue(new AbortController().signal);
+    expect(queue).toMatchObject({
+      ok: true,
+      value: [{ reviewDecision: 'REVIEW_REQUIRED' }],
+    });
+    expect(queue.ok && queue.value[0]?.checks).toBeUndefined();
+    const records = await readRecords();
+    expect(records.map((record) => record.argv)).toEqual([
+      [
+        'search',
+        'prs',
+        '--json',
+        'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount',
+        '--limit',
+        '1000',
+        '--',
+        'is:pr',
+        'author:@me',
+        'state:open',
+      ],
+      [
+        'pr',
+        'view',
+        queueJson[0].url,
+        '--json',
+        'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
+      ],
+      [
+        'search',
+        'prs',
+        '--json',
+        'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount',
+        '--limit',
+        '1000',
+        '--',
+        'review-requested:@me',
+        'state:open',
+      ],
+      [
+        'pr',
+        'view',
+        queueJson[0].url,
+        '--json',
+        'additions,deletions,changedFiles,reviewDecision',
+      ],
     ]);
   });
 

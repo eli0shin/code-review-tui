@@ -15,12 +15,15 @@ import type {
   GitHubFailure,
   GitHubOperation,
   GitHubResult,
+  PullRequestList,
 } from './types.ts';
 
 const queueFields =
   'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount';
-const queueStatsFields = 'additions,deletions,changedFiles';
+const queueStatsFields = 'additions,deletions,changedFiles,reviewDecision';
+const authoredStatsFields = `${queueStatsFields},statusCheckRollup`;
 const queueEnrichmentConcurrency = 8;
+const authoredSearch = ['is:pr', 'author:@me', 'state:open'] as const;
 const detailFields =
   'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests';
 const reviewThreadQuery = `
@@ -82,7 +85,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   const searchArguments = [...search];
 
   return {
-    async loadReviewQueue(signal) {
+    async loadReviewQueue(signal, list: PullRequestList = 'reviewQueue') {
       const processResult = await runGh(
         [
           'search',
@@ -92,7 +95,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
           '--limit',
           '1000',
           '--',
-          ...searchArguments,
+          ...(list === 'authored' ? authoredSearch : searchArguments),
         ],
         '',
         'reviewQueue',
@@ -106,7 +109,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         parseReviewQueue
       );
       if (!parsed.ok) return parsed;
-      return enrichReviewQueue(parsed.value, signal);
+      return enrichReviewQueue(parsed.value, signal, list);
     },
 
     async loadPullRequestDetails(url, signal) {
@@ -506,7 +509,8 @@ function validateJson<Value>(
 
 async function enrichReviewQueue(
   queue: ReviewQueue,
-  signal: AbortSignal
+  signal: AbortSignal,
+  list: PullRequestList
 ): Promise<GitHubResult<ReviewQueue>> {
   const enriched: PullRequestSummary[] = [];
   for (
@@ -528,7 +532,13 @@ async function enrichReviewQueue(
     pullRequest: PullRequestSummary
   ): Promise<GitHubResult<PullRequestSummary>> {
     const processResult = await runGh(
-      ['pr', 'view', pullRequest.url, '--json', queueStatsFields],
+      [
+        'pr',
+        'view',
+        pullRequest.url,
+        '--json',
+        list === 'authored' ? authoredStatsFields : queueStatsFields,
+      ],
       '',
       'reviewQueue',
       undefined,
@@ -536,14 +546,15 @@ async function enrichReviewQueue(
     );
     if (!processResult.ok) return processResult;
     return parseOutput(processResult.value, 'reviewQueue', (value) =>
-      addSummaryStats(pullRequest, value)
+      addSummaryStats(pullRequest, value, list)
     );
   }
 }
 
 function addSummaryStats(
   pullRequest: PullRequestSummary,
-  value: unknown
+  value: unknown,
+  list: PullRequestList
 ): PullRequestSummary {
   const stats = record(value, '$');
   return {
@@ -551,6 +562,8 @@ function addSummaryStats(
     additions: integer(stats.additions, '$.additions'),
     deletions: integer(stats.deletions, '$.deletions'),
     changedFiles: integer(stats.changedFiles, '$.changedFiles'),
+    reviewDecision: string(stats.reviewDecision, '$.reviewDecision'),
+    ...(list === 'authored' ? { checks: parseChecks(stats) } : {}),
   };
 }
 

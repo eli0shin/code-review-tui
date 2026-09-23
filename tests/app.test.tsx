@@ -113,6 +113,7 @@ const defaultKeyBindings = {
   openDiff: ['d'],
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
+  togglePullRequestList: ['m'],
   refresh: ['r'],
   pagePrevious: ['ctrl+u'],
   pageNext: ['ctrl+d'],
@@ -281,6 +282,194 @@ function firstDescriptionLine(frame: string): number {
   return Number(match[1]);
 }
 
+describe('Review Queue list switching', () => {
+  test('switches between independent search results, resets the Cursor, and refreshes the active list', async () => {
+    const loadReviewQueue = jest.fn(
+      async (_signal: AbortSignal, list = 'reviewQueue') =>
+        success(
+          list === 'authored'
+            ? [
+                {
+                  ...secondPullRequest,
+                  isDraft: true,
+                  reviewDecision: 'CHANGES_REQUESTED',
+                  checks: [{ name: 'build', state: 'FAILURE' }],
+                },
+              ]
+            : [
+                { ...pullRequest, reviewDecision: 'REVIEW_REQUIRED' },
+                {
+                  ...secondPullRequest,
+                  title: 'Review another PR',
+                  reviewDecision: 'APPROVED',
+                },
+              ]
+        )
+    );
+    const openPullRequestInBrowser = jest.fn(async () => success(undefined));
+    const github = {
+      loadReviewQueue,
+      openPullRequestInBrowser,
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No Review Submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 24,
+    });
+    await view.waitForFrame((frame) => frame.includes('Review another PR'));
+    await act(async () => view.mockInput.pressKey('j'));
+    await act(async () => view.mockInput.pressKey('m'));
+    const authoredFrame = await view.waitForFrame((frame) =>
+      frame.includes('My PRs 1 open')
+    );
+    expect(authoredFrame).toContain('Add more widgets · draft');
+    expect(authoredFrame).toContain(
+      'Review: changes requested · Checks: 1 failed'
+    );
+    expect(authoredFrame).not.toContain('Review another PR');
+    expect(authoredFrame).not.toContain('Improve widgets');
+    await act(async () => view.mockInput.pressKey('b'));
+    expect(openPullRequestInBrowser).toHaveBeenCalledWith(
+      secondPullRequest.url,
+      expect.any(AbortSignal)
+    );
+    await act(async () => view.mockInput.pressKey('r'));
+    expect(loadReviewQueue.mock.calls.at(-1)?.[1]).toBe('authored');
+    await act(async () => view.mockInput.pressKey('m'));
+    const queueFrame = await view.waitForFrame((frame) =>
+      frame.includes('Review requests 2 open')
+    );
+    expect(queueFrame).toContain('Review: required');
+    expect(queueFrame).not.toContain('Checks:');
+    await act(async () => view.mockInput.pressKey('b'));
+    expect(openPullRequestInBrowser).toHaveBeenLastCalledWith(
+      pullRequest.url,
+      expect.any(AbortSignal)
+    );
+    view.renderer.destroy();
+  });
+
+  test('keeps a wrapped title and status readable in a narrow authored row', async () => {
+    const github = {
+      async loadReviewQueue(_signal: AbortSignal, list = 'reviewQueue') {
+        return success(
+          list === 'authored'
+            ? [
+                {
+                  ...pullRequest,
+                  title: 'A title that wraps across two visible lines',
+                  reviewDecision: 'CHANGES_REQUESTED',
+                  checks: [{ name: 'build', state: 'FAILURE' }],
+                },
+              ]
+            : []
+        );
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 50,
+      height: 15,
+    });
+    await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+    await act(async () => view.mockInput.pressKey('m'));
+    const frame = await view.waitForFrame((output) =>
+      output.includes('My PRs 1 open')
+    );
+    expect(frame).toContain('A title that wraps across two visible');
+    expect(frame).toContain('lines');
+    expect(frame.indexOf('lines')).toBeLessThan(frame.indexOf('acme/widgets'));
+    expect(frame).toContain('3 comments');
+    expect(frame).toContain('review');
+    expect(frame).toContain('Review: changes requested');
+    expect(frame).toContain('Checks:');
+    expect(frame).toContain('failed');
+    view.renderer.destroy();
+  });
+
+  test('keeps long labels visible and the Cursor title in short panes', async () => {
+    const request = {
+      ...pullRequest,
+      reviewDecision: 'REVIEW_REQUIRED',
+      labels: ['needs-design-review'],
+    };
+    const github = {
+      async loadReviewQueue() {
+        return success([request]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const wide = await testRender(reviewQueuePage(github), {
+      width: 80,
+      height: 24,
+    });
+    const wideFrame = await wide.waitForFrame((frame) =>
+      frame.includes('Review: required')
+    );
+    expect(wideFrame).toContain('needs-design-review');
+    wide.renderer.destroy();
+
+    const short = await testRender(reviewQueuePage(github), {
+      width: 80,
+      height: 9,
+    });
+    const shortFrame = await short.waitForFrame((frame) =>
+      frame.includes('Review requests 1 open')
+    );
+    expect(shortFrame).toContain('Improve widgets');
+    short.renderer.destroy();
+  });
+
+  test('switches from an empty list and an unavailable list without showing stale rows', async () => {
+    const github = {
+      async loadReviewQueue(_signal: AbortSignal, list = 'reviewQueue') {
+        return list === 'reviewQueue'
+          ? success([])
+          : {
+              ok: false as const,
+              failure: {
+                kind: 'exit' as const,
+                operation: 'reviewQueue' as const,
+                exitCode: 1,
+                stderr: 'Search failed',
+              },
+            };
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 80,
+      height: 24,
+    });
+    await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+    await act(async () => view.mockInput.pressKey('m'));
+    await view.waitForFrame((frame) => frame.includes('My PRs unavailable'));
+    await act(async () => view.mockInput.pressKey('m'));
+    await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+    view.renderer.destroy();
+  });
+});
+
 describe('Review Queue page loading', () => {
   test('loads on mount, r, and 60 seconds and cancels on unmount', async () => {
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
@@ -381,7 +570,7 @@ describe('Review Queue page loading', () => {
     } satisfies GitHub;
     const view = await testRender(reviewQueuePage(github), {
       width: 90,
-      height: 18,
+      height: 26,
     });
 
     const queueFrame = await view.waitForFrame((frame) =>

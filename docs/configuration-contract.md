@@ -28,6 +28,7 @@ A complete example is:
     "openDiff": ["d"],
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
+    "togglePullRequestList": ["m"],
     "refresh": ["r"],
     "pagePrevious": ["ctrl+u"],
     "pageNext": ["ctrl+d"],
@@ -44,7 +45,7 @@ A complete example is:
 }
 ```
 
-`github.search` and `reviewCommand` are required nonblank strings. `keyBindings` and `config` are optional. The `config` object retains the updater settings supplied by the application shell.
+`github.search` and `reviewCommand` are required nonblank strings. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `keyBindings` and `config` are optional. The `config` object retains the updater settings supplied by the application shell.
 
 Each omitted key-binding action gets the value shown in the example. A present action replaces its complete default list; lists do not merge. Each list must contain at least one binding.
 
@@ -96,7 +97,8 @@ The actions have these meanings:
 | `openDiff`                | `d`              | Open the pull request under the Cursor in fixed `lumen diff`.             |
 | `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |
-| `refresh`                 | `r`              | Refresh the active Review Queue or details modal.                         |
+| `togglePullRequestList`   | `m`              | Switch between the Review Queue and My PRs when a list owns input.        |
+| `refresh`                 | `r`              | Refresh the active list or details modal.                                 |
 | `pagePrevious`            | `ctrl+u`         | Scroll details up by half of the current visible viewport.                |
 | `pageNext`                | `ctrl+d`         | Scroll details down by half of the current visible viewport.              |
 | `scrollStart`             | `g`, `home`      | Scroll details to the start.                                              |
