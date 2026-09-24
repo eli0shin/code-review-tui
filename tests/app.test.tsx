@@ -283,6 +283,46 @@ function firstDescriptionLine(frame: string): number {
 }
 
 describe('Review Queue list switching', () => {
+  test('puts one highlighted padding line above adjacent title, metadata, and status lines', async () => {
+    const request = {
+      ...pullRequest,
+      reviewDecision: 'REVIEW_REQUIRED',
+      checks: [{ name: 'build', state: 'SUCCESS' }],
+    };
+    const github = {
+      async loadReviewQueue() {
+        return success([request]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 24,
+    });
+    const frame = await view.waitForFrame((output) =>
+      output.includes('review required · 1 passed')
+    );
+    const lines = frame.split('\n');
+    const title = lines.findIndex((line) => line.includes('Improve widgets'));
+    const status = lines.findIndex((line) => line.includes('review required'));
+    const metadata = lines.findIndex((line) =>
+      line.includes('acme/widgets #7')
+    );
+    expect(title).toBeGreaterThan(0);
+    expect(metadata).toBe(title + 1);
+    expect(status).toBe(metadata + 1);
+    const spans = view.captureSpans();
+    const highlighted = spanContaining(spans, 'Improve widgets').bg;
+    expect(
+      spans.lines[title - 1]?.spans.some((span) => span.bg.equals(highlighted))
+    ).toBe(true);
+    view.renderer.destroy();
+  });
   test('switches between independent search results, resets the Cursor, and refreshes the active list', async () => {
     const loadReviewQueue = jest.fn(
       async (_signal: AbortSignal, list = 'reviewQueue') =>
@@ -333,10 +373,10 @@ describe('Review Queue list switching', () => {
     );
     expect(authoredFrame).toContain('Add more widgets · draft');
     expect(authoredFrame).toContain(
-      'Review: changes requested · Checks: 1 failed · 3 comments · review'
+      'changes requested · 1 failed · 3 comments · review'
     );
-    expect(authoredFrame.indexOf('Review: changes requested')).toBeLessThan(
-      authoredFrame.indexOf('acme/widgets #8')
+    expect(authoredFrame.indexOf('acme/widgets #8')).toBeLessThan(
+      authoredFrame.indexOf('changes requested')
     );
     expect(authoredFrame).not.toContain('Review another PR');
     expect(authoredFrame).not.toContain('Improve widgets');
@@ -352,16 +392,75 @@ describe('Review Queue list switching', () => {
       frame.includes('Review requests 2 open')
     );
     expect(queueFrame).toContain(
-      'Review: required · Checks: 1 passed · 3 comments · review'
+      'review required · 1 passed · 3 comments · review'
     );
-    expect(queueFrame.indexOf('Review: required')).toBeLessThan(
-      queueFrame.indexOf('acme/widgets #7')
+    expect(queueFrame.indexOf('acme/widgets #7')).toBeLessThan(
+      queueFrame.indexOf('review required')
     );
     await act(async () => view.mockInput.pressKey('b'));
     expect(openPullRequestInBrowser).toHaveBeenLastCalledWith(
       pullRequest.url,
       expect.any(AbortSignal)
     );
+    view.renderer.destroy();
+  });
+
+  test('keeps all wrapped metadata visible in a narrow pane', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([
+          { ...pullRequest, reviewDecision: 'REVIEW_REQUIRED', checks: [] },
+        ]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 30,
+      height: 40,
+    });
+    const frame = await view.waitForFrame((output) =>
+      output.includes('review required')
+    );
+    expect(frame).toContain('Improve widgets');
+    expect(frame).toContain('+10');
+    expect(frame).toContain('-2');
+    view.renderer.destroy();
+  });
+
+  test('keeps a double-width label visible at the wrap boundary', async () => {
+    const label = `xx界${'z'.repeat(23)}`;
+    const github = {
+      async loadReviewQueue() {
+        return success([
+          {
+            ...pullRequest,
+            reviewDecision: 'REVIEW_REQUIRED',
+            checks: [],
+            labels: [label],
+          },
+        ]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 30,
+      height: 40,
+    });
+    const frame = await view.waitForFrame((output) =>
+      output.includes('review required')
+    );
+    expect(frame).toContain('界');
+    expect((frame.match(/z/g) ?? []).length).toBe(23);
     view.renderer.destroy();
   });
 
@@ -397,13 +496,12 @@ describe('Review Queue list switching', () => {
     const frame = await view.waitForFrame((output) =>
       output.includes('My PRs 1 open')
     );
-    expect(frame).toContain('A title that wraps across two visible');
-    expect(frame).toContain('lines');
+    expect(frame).toContain('A title that wraps across two visible line');
+    expect(frame).toMatch(/\n   s\s/);
     expect(frame.indexOf('lines')).toBeLessThan(frame.indexOf('acme/widgets'));
     expect(frame).toContain('3 comments');
     expect(frame).toContain('review');
-    expect(frame).toContain('Review: changes requested');
-    expect(frame).toContain('Checks:');
+    expect(frame).toContain('changes requested');
     expect(frame).toContain('failed');
     view.renderer.destroy();
   });
@@ -430,7 +528,7 @@ describe('Review Queue list switching', () => {
       height: 24,
     });
     const wideFrame = await wide.waitForFrame((frame) =>
-      frame.includes('Review: required')
+      frame.includes('review required')
     );
     expect(wideFrame).toContain('needs-design-review');
     wide.renderer.destroy();

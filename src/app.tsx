@@ -625,22 +625,24 @@ function ReviewQueueContent({
     () =>
       queue.map((pullRequest) => {
         const width = terminal.width - 6;
-        const metadataHeight = Math.max(
-          1,
-          renderedRows(rowMetadataText(pullRequest), width) + 1
+        const titleHeight = charWrappedRows(
+          `● ${pullRequest.title}${list === 'authored' && pullRequest.isDraft ? ' · draft' : ''}`,
+          width
         );
-        const statusHeight = Math.max(
-          1,
-          renderedRows(rowStatusText(pullRequest), width) + 1
+        const statusHeight = charWrappedRows(rowStatusText(pullRequest), width);
+        const metadataHeight = charWrappedRows(
+          rowMetadataText(pullRequest),
+          width
         );
         return {
           pullRequest,
-          metadataHeight,
+          titleHeight,
           statusHeight,
-          height: 2 + statusHeight + metadataHeight,
+          metadataHeight,
+          height: 2 + titleHeight + statusHeight + metadataHeight,
         };
       }),
-    [queue, terminal.width]
+    [queue, list, terminal.width]
   );
   const keepCursorVisible = useCallback(
     (viewport: ScrollBoxRenderable | null = queueViewportRef.current) => {
@@ -744,13 +746,17 @@ function ReviewQueueContent({
         contentOptions={{ flexDirection: 'column' }}
       >
         {rows.map(
-          ({ pullRequest, height, metadataHeight, statusHeight }, index) => (
+          (
+            { pullRequest, height, titleHeight, metadataHeight, statusHeight },
+            index
+          ) => (
             <ReviewQueueRow
               key={pullRequest.url}
               id={`review-queue-row-${index}`}
               pullRequest={pullRequest}
               list={list}
               rowHeight={height}
+              titleHeight={titleHeight}
               metadataHeight={metadataHeight}
               statusHeight={statusHeight}
               underCursor={index === cursorPosition}
@@ -772,6 +778,7 @@ function ReviewQueueRow({
   pullRequest,
   list,
   rowHeight,
+  titleHeight,
   metadataHeight,
   statusHeight,
   underCursor,
@@ -781,6 +788,7 @@ function ReviewQueueRow({
   readonly pullRequest: PullRequestSummary;
   readonly list: PullRequestList;
   readonly rowHeight: number;
+  readonly titleHeight: number;
   readonly metadataHeight: number;
   readonly statusHeight: number;
   readonly underCursor: boolean;
@@ -795,36 +803,29 @@ function ReviewQueueRow({
       height={rowHeight}
       paddingLeft={1}
       paddingRight={1}
+      paddingTop={1}
+      paddingBottom={1}
       flexDirection="column"
-      justifyContent="center"
       backgroundColor={underCursor ? theme?.subtleSurface : undefined}
     >
-      <text height={2} flexShrink={0} overflow="hidden">
+      <text
+        height={titleHeight}
+        flexShrink={0}
+        wrapMode="char"
+        overflow="hidden"
+      >
         <span fg={theme?.success}>● </span>
         <strong>{pullRequest.title}</strong>
         {list === 'authored' && pullRequest.isDraft ? (
           <span fg={theme?.warning}> · draft</span>
         ) : null}
       </text>
-      <text height={statusHeight} flexShrink={0} overflow="hidden">
-        {'  '}
-        <span fg={theme?.textMuted}>Review: </span>
-        <span fg={reviewStateColor(decision || 'none', theme)}>
-          {reviewDecisionLabel(decision)}
-        </span>
-        <span fg={theme?.textMuted}> · Checks: </span>
-        <span fg={theme?.[checks.tone]}>{checks.label}</span>
-        <span fg={theme?.textMuted}>
-          {' '}
-          · {pullRequest.commentsCount}{' '}
-          {pullRequest.commentsCount === 1 ? 'comment' : 'comments'}
-          {pullRequest.labels.length === 0 ? '' : ' · '}
-        </span>
-        {pullRequest.labels.length === 0 ? null : (
-          <span fg={theme?.warning}>{pullRequest.labels.join('  ')}</span>
-        )}
-      </text>
-      <text height={metadataHeight} flexShrink={0} overflow="hidden">
+      <text
+        height={metadataHeight}
+        flexShrink={0}
+        wrapMode="char"
+        overflow="hidden"
+      >
         {'  '}
         <span fg={theme?.info}>{pullRequest.repository}</span>
         <span fg={theme?.textMuted}> #{pullRequest.number} opened by </span>
@@ -836,6 +837,28 @@ function ReviewQueueRow({
         </span>
         <span fg={theme?.success}>+{pullRequest.additions}</span>{' '}
         <span fg={theme?.error}>-{pullRequest.deletions}</span>
+      </text>
+      <text
+        height={statusHeight}
+        flexShrink={0}
+        wrapMode="char"
+        overflow="hidden"
+      >
+        {'  '}
+        <span fg={reviewStateColor(decision || 'none', theme)}>
+          {reviewDecisionLabel(decision)}
+        </span>
+        <span fg={theme?.textMuted}> · </span>
+        <span fg={theme?.[checks.tone]}>{checks.label}</span>
+        <span fg={theme?.textMuted}>
+          {' '}
+          · {pullRequest.commentsCount}{' '}
+          {pullRequest.commentsCount === 1 ? 'comment' : 'comments'}
+          {pullRequest.labels.length === 0 ? '' : ' · '}
+        </span>
+        {pullRequest.labels.length === 0 ? null : (
+          <span fg={theme?.warning}>{pullRequest.labels.join('  ')}</span>
+        )}
       </text>
     </box>
   );
@@ -1767,6 +1790,25 @@ function herdrFailureMessage(failure: HerdrFailure): string {
   return message;
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function charWrappedRows(message: string, renderedWidth: number): number {
+  const width = Math.max(renderedWidth, 1);
+  return message.split('\n').reduce((total, line) => {
+    let rows = 1;
+    let column = 0;
+    for (const { segment } of graphemes.segment(line)) {
+      const glyphWidth = Bun.stringWidth(segment === '\t' ? '  ' : segment);
+      if (column > 0 && column + glyphWidth > width) {
+        rows += 1;
+        column = 0;
+      }
+      column += glyphWidth;
+    }
+    return total + rows;
+  }, 0);
+}
+
 function renderedRows(message: string, renderedWidth: number): number {
   const width = Math.max(renderedWidth, 1);
   return message.split('\n').reduce((total, line) => {
@@ -1868,7 +1910,7 @@ function failureMessageLines(
 }
 
 function reviewDecisionLabel(decision: string | undefined): string {
-  if (decision === 'REVIEW_REQUIRED') return 'required';
+  if (decision === 'REVIEW_REQUIRED') return 'review required';
   if (decision === 'CHANGES_REQUESTED') return 'changes requested';
   if (decision === 'APPROVED') return 'approved';
   return decision || 'none';
@@ -1879,7 +1921,7 @@ function checkSummary(checks: PullRequestSummary['checks']): {
   readonly tone: 'error' | 'info' | 'success' | 'textMuted';
 } {
   if (checks === undefined || checks.length === 0) {
-    return { label: 'none', tone: 'textMuted' };
+    return { label: 'no checks', tone: 'textMuted' };
   }
   const failedStates = new Set([
     'FAILURE',
@@ -1903,7 +1945,7 @@ function checkSummary(checks: PullRequestSummary['checks']): {
 
 function rowStatusText(pullRequest: PullRequestSummary): string {
   const comments = `${pullRequest.commentsCount} ${pullRequest.commentsCount === 1 ? 'comment' : 'comments'}`;
-  return `  Review: ${reviewDecisionLabel(pullRequest.reviewDecision)} · Checks: ${checkSummary(pullRequest.checks).label} · ${comments}${pullRequest.labels.length === 0 ? '' : ` · ${pullRequest.labels.join('  ')}`}`;
+  return `  ${reviewDecisionLabel(pullRequest.reviewDecision)} · ${checkSummary(pullRequest.checks).label} · ${comments}${pullRequest.labels.length === 0 ? '' : ` · ${pullRequest.labels.join('  ')}`}`;
 }
 
 function rowMetadataText(pullRequest: PullRequestSummary): string {
