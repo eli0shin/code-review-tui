@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.3.0
+
+### Minor Changes
+
+- [#54](https://github.com/eli0shin/code-review-tui/pull/54) [`d947cfa`](https://github.com/eli0shin/code-review-tui/commit/d947cfacf2eb98ccd4da6dca6639a752519fe2cb) Thanks [@eli0shin](https://github.com/eli0shin)! - Switch between the Review Queue and open PRs authored by the active GitHub user.
+
 ## 0.2.13
 
 ### Patch Changes
