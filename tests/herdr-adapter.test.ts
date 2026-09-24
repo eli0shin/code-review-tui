@@ -87,10 +87,10 @@ afterEach(async () => {
 });
 
 describe('Herdr CLI adapter contract', () => {
-  test('opens Lumen with exact Herdr CLI calls and inherited child environment', async () => {
+  test('opens Lumen by default with exact Herdr CLI calls and inherited child environment', async () => {
     const herdr = createAdapter({ KEEP: 'yes' });
 
-    expect(await herdr.openLumen(pullRequest)).toEqual({ ok: true });
+    expect(await herdr.openDiff(pullRequest)).toEqual({ ok: true });
 
     expect(await calls()).toEqual([
       [
@@ -131,7 +131,7 @@ describe('Herdr CLI adapter contract', () => {
     );
 
     expect(
-      await herdr.openLumen({
+      await herdr.openDiff({
         ...pullRequest,
         repository: `${testOwner}/fish`,
         number: 76,
@@ -162,7 +162,7 @@ describe('Herdr CLI adapter contract', () => {
         FAKE_LUMEN_STDOUT: 'first comment\n---\nsecond comment',
       }
     );
-    expect(await first.openLumen(testedPullRequest)).toEqual({ ok: true });
+    expect(await first.openDiff(testedPullRequest)).toEqual({ ok: true });
     expect(await readFile(destination, 'utf8')).toBe(
       'first comment\n---\nsecond comment'
     );
@@ -174,7 +174,7 @@ describe('Herdr CLI adapter contract', () => {
         FAKE_LUMEN_STDOUT: 'replacement without a trailing newline',
       }
     );
-    expect(await second.openLumen(testedPullRequest)).toEqual({ ok: true });
+    expect(await second.openDiff(testedPullRequest)).toEqual({ ok: true });
     expect(await readFile(destination, 'utf8')).toBe(
       'replacement without a trailing newline'
     );
@@ -190,7 +190,7 @@ describe('Herdr CLI adapter contract', () => {
     );
 
     expect(
-      await herdr.openLumen({
+      await herdr.openDiff({
         ...pullRequest,
         repository: `${testOwner}/empty`,
         number: 74,
@@ -218,7 +218,7 @@ describe('Herdr CLI adapter contract', () => {
     );
 
     expect(
-      await herdr.openLumen({
+      await herdr.openDiff({
         ...pullRequest,
         repository: `${testOwner}/failed`,
         number: 75,
@@ -239,7 +239,7 @@ describe('Herdr CLI adapter contract', () => {
       { FAKE_HERDR_EXECUTE_PANE: '1', FAKE_LUMEN_STDOUT: 'safe' }
     );
 
-    expect(await herdr.openLumen(testedPullRequest)).toEqual({ ok: true });
+    expect(await herdr.openDiff(testedPullRequest)).toEqual({ ok: true });
     expect(await Bun.file(hacked).exists()).toBe(false);
   });
 
@@ -285,6 +285,60 @@ describe('Herdr CLI adapter contract', () => {
         'run',
         'w1:p9',
         `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'`,
+      ],
+      ['tab', 'focus', 'w1:t9'],
+    ]);
+  });
+
+  test('opens the configured Diff Command instead of Lumen with the pull request environment', async () => {
+    await rm(join(directory, '.git'), { recursive: true });
+    const herdr = createAdapter(
+      { KEEP: 'yes', REVIEW_PR_URL: 'old' },
+      {},
+      'w1:t1',
+      undefined,
+      `fish -c 'pr "$REVIEW_PR_URL"'`
+    );
+
+    expect(await herdr.openDiff(pullRequest)).toEqual({ ok: true });
+
+    expect(await calls()).toEqual([
+      [
+        'tab',
+        'create',
+        '--workspace',
+        'w1',
+        '--cwd',
+        directory,
+        '--label',
+        'Diff Command acme/widgets#42',
+        '--no-focus',
+        '--env',
+        'KEEP=yes',
+        '--env',
+        `REVIEW_PR_URL=${pullRequest.url}`,
+        '--env',
+        `REVIEW_PR_REPOSITORY=${pullRequest.repository}`,
+        '--env',
+        'REVIEW_PR_NUMBER=42',
+        '--env',
+        `REVIEW_PR_TITLE=${pullRequest.title}`,
+        '--env',
+        `REVIEW_PR_AUTHOR=${pullRequest.author}`,
+        '--env',
+        'REVIEW_PR_IS_DRAFT=false',
+        '--env',
+        `REVIEW_PR_STATE=${pullRequest.state}`,
+        '--env',
+        `REVIEW_PR_CREATED_AT=${pullRequest.createdAt}`,
+        '--env',
+        `REVIEW_PR_UPDATED_AT=${pullRequest.updatedAt}`,
+      ],
+      [
+        'pane',
+        'run',
+        'w1:p9',
+        `/bin/sh -c 'fish -c '"'"'pr "$REVIEW_PR_URL"'"'"''; herdr tab focus 'w1:t1'; herdr tab close 'w1:t9'`,
       ],
       ['tab', 'focus', 'w1:t9'],
     ]);
@@ -361,10 +415,12 @@ function createAdapter(
   environment: NodeJS.ProcessEnv,
   extraHerdrEnvironment: NodeJS.ProcessEnv = {},
   reviewQueueTabId = 'w1:t1',
-  reviewCommand = 'pi --prompt "Review $REVIEW_PR_URL"'
+  reviewCommand = 'pi --prompt "Review $REVIEW_PR_URL"',
+  diffCommand?: string
 ) {
   return createHerdrCliAdapter({
     reviewCommand,
+    diffCommand,
     workingDirectory: directory,
     environment,
     herdrEnvironment: {

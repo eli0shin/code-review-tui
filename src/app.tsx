@@ -76,7 +76,7 @@ type ReviewQueuePageProps = {
 };
 
 type HerdrActionFailure = {
-  readonly action: 'Lumen' | 'Review Command';
+  readonly action: 'diff' | 'Review Command';
   readonly failure: HerdrFailure;
 };
 
@@ -466,7 +466,7 @@ function ReviewQueue({
       return;
     }
     if (action === 'openDiff') {
-      void openHerdrTab('Lumen', () => herdr.openLumen(highlightedPullRequest));
+      void openHerdrTab('diff', () => herdr.openDiff(highlightedPullRequest));
       return;
     }
     if (action === 'runReviewCommand') {
@@ -1665,9 +1665,11 @@ export function App() {
 export async function launchApplication(
   configuration: ReviewConfiguration
 ): Promise<void> {
-  const { githubSearch, reviewCommand, keyBindings } = configuration;
+  const { githubSearch, reviewCommand, diffCommand, keyBindings } =
+    configuration;
   const herdr = createHerdrCliAdapter({
     reviewCommand,
+    diffCommand,
     workingDirectory: process.cwd(),
     environment: process.env,
   });

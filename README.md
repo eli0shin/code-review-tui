@@ -2,13 +2,14 @@
 
 A personal terminal interface for reviewing GitHub pull requests.
 
-Run `review` inside a Herdr pane. The application loads the configured GitHub pull request search into the **Review Queue**. Press `m` to switch to **My PRs**, which shows open pull requests authored by your active GitHub account, and press it again to return. From either list, you can inspect pull request details, open Lumen, run a Review Command, and submit a review.
+Run `review` inside a Herdr pane. The application loads the configured GitHub pull request search into the **Review Queue**. Press `m` to switch to **My PRs**, which shows open pull requests authored by your active GitHub account, and press it again to return. From either list, you can inspect pull request details, open the pull request diff, run a Review Command, and submit a review.
 
 ## Requirements
 
 - x64 or arm64 macOS, or glibc Linux. musl Linux is not supported.
 - [GitHub CLI](https://cli.github.com/) installed and authenticated with `gh auth login`.
-- [Herdr](https://herdr.dev/) and [Lumen](https://github.com/jnsahaj/lumen) installed and available on `PATH`.
+- [Herdr](https://herdr.dev/) installed and available on `PATH`.
+- [Lumen](https://github.com/jnsahaj/lumen) installed and available on `PATH` if you do not configure a Diff Command.
 
 Run `review` inside a Herdr pane. Start it in a Git or Jujutsu repository if you want to open Lumen.
 
@@ -63,35 +64,49 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 }
 ```
 
-`github.search` contains GitHub pull request search terms, not extra `gh` flags. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `keyBindings` and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
+`github.search` contains GitHub pull request search terms, not extra `gh` flags. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
 See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
 
 ## Use the Review Queue
 
-| Default key  | Action                                                |
-| ------------ | ----------------------------------------------------- |
-| `j`/`down`   | Move the Cursor to the next pull request.             |
-| `k`/`up`     | Move the Cursor to the previous pull request.         |
-| `enter`      | Open full-screen pull request details.                |
-| `b`          | Open the pull request in the default browser.         |
-| `d`          | Open the pull request in `lumen diff` in a Herdr tab. |
-| `c`          | Run the configured Review Command in a Herdr tab.     |
-| `s`          | Compose a Review Submission.                          |
-| `m`          | Switch between the Review Queue and My PRs.           |
-| `r`          | Refresh the current list.                             |
-| `?`          | Show the effective Review Queue keys.                 |
-| `q`/`escape` | Quit.                                                 |
+| Default key  | Action                                            |
+| ------------ | ------------------------------------------------- |
+| `j`/`down`   | Move the Cursor to the next pull request.         |
+| `k`/`up`     | Move the Cursor to the previous pull request.     |
+| `enter`      | Open full-screen pull request details.            |
+| `b`          | Open the pull request in the default browser.     |
+| `d`          | Open the pull request diff in a Herdr tab.        |
+| `c`          | Run the configured Review Command in a Herdr tab. |
+| `s`          | Compose a Review Submission.                      |
+| `m`          | Switch between the Review Queue and My PRs.       |
+| `r`          | Refresh the current list.                         |
+| `?`          | Show the effective Review Queue keys.             |
+| `q`/`escape` | Quit.                                             |
 
 Each row shows the title, then repository and change details, then the review decision, check status, comment count, and labels. My PRs also marks drafts. Pull request details include reviewers, checks, the rendered Markdown description, and the complete review conversation. Descriptions, issue comments, submitted review bodies, and inline review comment bodies use OpenTUI's Markdown renderer. Metadata and inline code context stay ordinary text. Drag across text to copy the selection to the clipboard. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged list.
-
-When you send comments from Lumen, Review saves Lumen's exact stdout at `/tmp/review/lumen/<org>/<repo>/<number>.txt`. A successful nonempty send replaces the prior file. Leaving Lumen without a send, or a failed Lumen run, keeps the prior file unchanged. The Review Command is a separate interaction and does not receive these comments.
 
 Every application surface uses the terminal's normal background and foreground. Details, help, Review Submission, status, and diagnostic surfaces reuse the Review Queue accents for metadata, repositories, authors, success, failure, and warnings. Only the row under the Cursor uses the highlighted-row background.
 
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
 
 A Review Submission can comment, approve, or request changes. Write the message directly in the submission modal, then press `Ctrl+C` to comment, `Ctrl+A` to approve, or `Ctrl+R` to request changes immediately. Press `Esc` to close and discard without confirmation. Comments and change requests need a nonblank message. Approvals can have an empty message. Review submits one top-level GitHub review; inline comments are not supported.
+
+## Open the diff
+
+Without a `diffCommand`, `d` opens the pull request in `lumen diff`. Lumen compares the current tip of the base branch with the head. When the base branch has advanced, Lumen can show base-branch changes as removed code that the GitHub pull request does not contain. See [Lumen's base comparison](research/lumen-diff-launch-contract.md#base-comparison).
+
+Set `diffCommand` to open the diff with a different tool. For example, this command pages the diff that GitHub shows for the pull request:
+
+```json
+{
+  "diffCommand": "gh pr diff \"$REVIEW_PR_URL\" --color always | less -R"
+}
+```
+
+The Diff Command runs like the Review Command: as the exact configured POSIX shell command, in a Herdr tab, with the same `REVIEW_PR_*` variables. To call a shell function, start that shell explicitly, for example `fish -c 'pr "$REVIEW_PR_URL"'`. Review does not check for a repository and does not save comments from a Diff Command.
+
+When you send comments from Lumen, Review saves Lumen's exact stdout at `/tmp/review/lumen/<org>/<repo>/<number>.txt`. A successful nonempty send replaces the prior file. Leaving Lumen without a send, or a failed Lumen run, keeps the prior file unchanged. The Review Command is a separate interaction and does not receive these comments.
 
 ## Read Lumen Review Comments with an Agent
 

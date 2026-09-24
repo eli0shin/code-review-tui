@@ -11,6 +11,7 @@ import type {
 
 type AdapterOptions = {
   readonly reviewCommand: string;
+  readonly diffCommand?: string;
   readonly workingDirectory: string;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly herdrEnvironment?: Readonly<NodeJS.ProcessEnv>;
@@ -21,6 +22,14 @@ type HerdrContext = {
   readonly reviewQueueTabId: string;
 };
 
+type TabAction =
+  | { readonly kind: 'lumen' }
+  | {
+      readonly kind: 'command';
+      readonly name: 'Diff Command' | 'Review Command';
+      readonly command: string;
+    };
+
 type ProcessOutput = {
   readonly stdout: string;
   readonly stderr: string;
@@ -30,17 +39,22 @@ export function createHerdrCliAdapter(options: AdapterOptions): Herdr {
   const herdrEnvironment = options.herdrEnvironment ?? process.env;
   const context = readContext(herdrEnvironment);
 
+  const diff = (
+    options.diffCommand === undefined
+      ? { kind: 'lumen' }
+      : { kind: 'command', name: 'Diff Command', command: options.diffCommand }
+  ) satisfies TabAction;
+  const review = {
+    kind: 'command',
+    name: 'Review Command',
+    command: options.reviewCommand,
+  } satisfies TabAction;
+
   return {
-    openLumen: (pullRequest) =>
-      openHerdrTab(options, herdrEnvironment, context, 'lumen', pullRequest),
+    openDiff: (pullRequest) =>
+      openHerdrTab(options, herdrEnvironment, context, diff, pullRequest),
     openReviewCommand: (pullRequest) =>
-      openHerdrTab(
-        options,
-        herdrEnvironment,
-        context,
-        'reviewCommand',
-        pullRequest
-      ),
+      openHerdrTab(options, herdrEnvironment, context, review, pullRequest),
   };
 }
 
@@ -48,11 +62,11 @@ async function openHerdrTab(
   options: AdapterOptions,
   herdrEnvironment: Readonly<NodeJS.ProcessEnv>,
   context: HerdrContext,
-  kind: 'lumen' | 'reviewCommand',
+  action: TabAction,
   pullRequest: PullRequestSummary
 ): Promise<HerdrResult> {
   if (
-    kind === 'lumen' &&
+    action.kind === 'lumen' &&
     !(await isInsideRepository(options.workingDirectory))
   ) {
     return failed(
@@ -61,7 +75,11 @@ async function openHerdrTab(
     );
   }
 
-  const environment = childEnvironment(options.environment, kind, pullRequest);
+  const environment = childEnvironment(
+    options.environment,
+    action,
+    pullRequest
+  );
   const create = await runHerdr(
     [
       'tab',
@@ -71,7 +89,7 @@ async function openHerdrTab(
       '--cwd',
       options.workingDirectory,
       '--label',
-      tabLabel(kind, pullRequest),
+      tabLabel(action, pullRequest),
       '--no-focus',
       ...environmentArguments(environment),
     ],
@@ -85,9 +103,9 @@ async function openHerdrTab(
 
   const cleanup = `herdr tab focus ${shellQuote(context.reviewQueueTabId)}; herdr tab close ${shellQuote(created.value.tabId)}`;
   const command =
-    kind === 'lumen'
+    action.kind === 'lumen'
       ? lumenCommand(pullRequest, cleanup)
-      : `/bin/sh -c ${shellQuote(options.reviewCommand)}; ${cleanup}`;
+      : `/bin/sh -c ${shellQuote(action.command)}; ${cleanup}`;
   const run = await runHerdr(
     ['pane', 'run', created.value.paneId, command],
     herdrEnvironment,
@@ -227,7 +245,7 @@ function requiredContextValue(name: string, value: string | undefined): string {
 
 function childEnvironment(
   inherited: Readonly<NodeJS.ProcessEnv>,
-  kind: 'lumen' | 'reviewCommand',
+  action: TabAction,
   pullRequest: PullRequestSummary
 ): Record<string, string> {
   const environment = Object.fromEntries(
@@ -235,7 +253,7 @@ function childEnvironment(
       (entry): entry is [string, string] => entry[1] !== undefined
     )
   );
-  if (kind === 'reviewCommand') {
+  if (action.kind === 'command') {
     Object.assign(environment, {
       REVIEW_PR_URL: pullRequest.url,
       REVIEW_PR_REPOSITORY: pullRequest.repository,
@@ -260,11 +278,8 @@ function environmentArguments(
   ]);
 }
 
-function tabLabel(
-  kind: 'lumen' | 'reviewCommand',
-  pullRequest: PullRequestSummary
-): string {
-  const name = kind === 'lumen' ? 'Lumen' : 'Review Command';
+function tabLabel(action: TabAction, pullRequest: PullRequestSummary): string {
+  const name = action.kind === 'lumen' ? 'Lumen' : action.name;
   return `${name} ${pullRequest.repository}#${pullRequest.number}`;
 }
 

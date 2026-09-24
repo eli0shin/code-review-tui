@@ -97,8 +97,8 @@ const unusedOpenPullRequestInBrowser = async (): Promise<
 };
 
 const unusedHerdr = {
-  async openLumen() {
-    throw new Error('Lumen is not part of this page test');
+  async openDiff() {
+    throw new Error('The diff is not part of this page test');
   },
   async openReviewCommand() {
     throw new Error('The Review Command is not part of this page test');
@@ -1076,9 +1076,9 @@ describe('Review Queue page loading', () => {
         )
       )
     );
-    const openLumen = jest.fn(async () => ({ ok: true }) as const);
+    const openDiff = jest.fn(async () => ({ ok: true }) as const);
     const openReviewCommand = jest.fn(async () => ({ ok: true }) as const);
-    const herdr = { openLumen, openReviewCommand } satisfies Herdr;
+    const herdr = { openDiff, openReviewCommand } satisfies Herdr;
     const github = {
       async loadReviewQueue() {
         return success([pullRequest, secondPullRequest]);
@@ -1111,7 +1111,7 @@ describe('Review Queue page loading', () => {
       await view.mockInput.pressKey('c');
       await view.mockInput.pressKey('s');
     });
-    expect(openLumen).not.toHaveBeenCalled();
+    expect(openDiff).not.toHaveBeenCalled();
     expect(openReviewCommand).not.toHaveBeenCalled();
     expect(view.captureCharFrame()).toContain('First target');
 
@@ -1239,7 +1239,7 @@ describe('Review Queue browser action', () => {
 });
 
 describe('Review Queue Herdr actions', () => {
-  test('opens Lumen and the Review Command for the pull request under the Cursor', async () => {
+  test('opens the diff and the Review Command for the pull request under the Cursor', async () => {
     const github = {
       async loadReviewQueue() {
         return success([pullRequest, secondPullRequest]);
@@ -1249,9 +1249,9 @@ describe('Review Queue Herdr actions', () => {
         throw new Error('Review Submission is not part of this page test');
       },
     } satisfies GitHub;
-    const openLumen = jest.fn(async () => ({ ok: true }) as const);
+    const openDiff = jest.fn(async () => ({ ok: true }) as const);
     const openReviewCommand = jest.fn(async () => ({ ok: true }) as const);
-    const herdr = { openLumen, openReviewCommand } satisfies Herdr;
+    const herdr = { openDiff, openReviewCommand } satisfies Herdr;
     const view = await testRender(reviewQueuePage(github, herdr), {
       width: 100,
       height: 30,
@@ -1260,7 +1260,7 @@ describe('Review Queue Herdr actions', () => {
     await act(async () => view.mockInput.pressArrow('down'));
 
     await act(async () => view.mockInput.pressKey('d'));
-    expect(openLumen).toHaveBeenCalledWith(secondPullRequest);
+    expect(openDiff).toHaveBeenCalledWith(secondPullRequest);
     await act(async () => view.mockInput.pressKey('c'));
     expect(openReviewCommand).toHaveBeenCalledWith(secondPullRequest);
 
@@ -1289,7 +1289,7 @@ describe('Review Queue Herdr actions', () => {
       .mockReturnValueOnce(failedAttempt.promise)
       .mockResolvedValueOnce({ ok: true });
     const herdr = {
-      async openLumen() {
+      async openDiff() {
         return { ok: true } as const;
       },
       openReviewCommand,
@@ -1326,6 +1326,46 @@ describe('Review Queue Herdr actions', () => {
     );
     expect(retried).toContain(`${pullRequest.repository} #7`);
     expect(openReviewCommand).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('names the diff in an immediate diff failure', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const herdr = {
+      async openDiff() {
+        return {
+          ok: false,
+          failure: {
+            operation: 'createTab',
+            message:
+              'lumen diff requires review to start inside a Git or Jujutsu repository.',
+          },
+        } as const;
+      },
+      async openReviewCommand() {
+        throw new Error('The Review Command is not part of this page test');
+      },
+    } satisfies Herdr;
+    const view = await testRender(reviewQueuePage(github, herdr), {
+      width: 100,
+      height: 30,
+    });
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+
+    await act(async () => view.mockInput.pressKey('d'));
+
+    const failure = await view.waitForFrame((frame) =>
+      frame.includes('Could not open diff')
+    );
+    expect(failure).toContain('Git or Jujutsu repository');
     view.renderer.destroy();
   });
 });
@@ -1862,7 +1902,7 @@ describe.each(terminalPalettes)(
         },
       } satisfies GitHub;
       const herdr = {
-        async openLumen() {
+        async openDiff() {
           return { ok: true } as const;
         },
         async openReviewCommand() {

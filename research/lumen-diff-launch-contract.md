@@ -42,6 +42,14 @@ GitHub CLI documents that `gh pr diff --repo [HOST/]OWNER/REPO` selects another 
 
 Lumen does not clone or fetch the target repository in this path. The machine must have `gh` installed and authenticated with access to the target pull request.
 
+## Base comparison
+
+Lumen's pull request mode does not show the pull request diff that GitHub shows. The GraphQL query reads the base and head branch **names** (`baseRefName` and `headRefName`), not the merge base.[^metadata] Lumen then reads each old file at the current tip of the base branch and each new file at the current tip of the head branch.[^file-content] Only the changed-file list comes from `gh pr diff`.[^pr-diff] `v2.32.0` has the same behavior.
+
+Thus, for each file that the pull request changes, Lumen shows a two-dot comparison between the base branch tip and the head. GitHub pull requests show a three-dot comparison between the merge base and the head.[^github-three-dot] When the base branch advances after the pull request branch point and changes a file that the pull request also changes, Lumen shows those base-branch changes as reversed edits, usually as removed code. GitHub does not show these edits.
+
+This is a Lumen limit. `review` cannot correct it through Lumen arguments. To see the GitHub pull request diff, configure a Diff Command that compares the merge base with the head, for example a Diffview or `git diff` range `BASE...HEAD`.
+
 ## Current working directory requirement
 
 At process startup, Lumen gets the current directory and creates a VCS backend before command dispatch, including before `Diff` dispatch.[^startup] Auto-detection walks upward until it finds `.jj` or `.git`; if it finds neither, backend creation returns `not a repository`.[^vcs-detection]
@@ -117,5 +125,7 @@ Do not depend only on Lumen's cleanup. The setup and event loop use fallible ope
 [^exit-keys]: [Lumen `v2.31.0`, main-loop exit keys, lines 1241-1266](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L1241-L1266)
 
 [^terminal-exit]: [Lumen `v2.31.0`, normal terminal cleanup, lines 2204-2210](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L2204-L2210)
+
+[^github-three-dot]: [GitHub Docs: Three-dot and two-dot Git diff comparisons](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-comparing-branches-in-pull-requests#three-dot-and-two-dot-git-diff-comparisons)
 
 [^annotation-output]: [Lumen `v2.31.0`, annotation output after cleanup, lines 2212-2218](https://github.com/jnsahaj/lumen/blob/d7811336c911501175c2e4d9a449c0fe985ae893/src/command/diff/app.rs#L2212-L2218)

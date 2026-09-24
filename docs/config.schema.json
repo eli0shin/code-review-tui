@@ -24,6 +24,12 @@
       "pattern": "\\S",
       "description": "Opaque POSIX shell command. The value must contain a non-whitespace character."
     },
+    "diffCommand": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Optional opaque POSIX shell command that opens the pull request diff. When omitted, openDiff runs lumen diff. The value must contain a non-whitespace character."
+    },
     "keyBindings": {
       "$ref": "#/$defs/keyBindings"
     },

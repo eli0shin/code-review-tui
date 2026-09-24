@@ -35,6 +35,7 @@ export type UpdateConfiguration = {
 export type ReviewConfiguration = {
   readonly githubSearch: readonly string[];
   readonly reviewCommand: string;
+  readonly diffCommand: string | undefined;
   readonly keyBindings: EffectiveKeyBindings;
   readonly update: UpdateConfiguration;
 };
@@ -278,6 +279,7 @@ function validateReviewConfiguration(
   const topLevelFailure = rejectUnknownFields(value, [
     'github',
     'reviewCommand',
+    'diffCommand',
     'keyBindings',
     'config',
   ]);
@@ -321,6 +323,16 @@ function validateReviewConfiguration(
     return failure(file, 'reviewCommand', 'Value must be a string');
   }
 
+  const diffCommand = value.diffCommand;
+  if (diffCommand !== undefined && typeof diffCommand !== 'string') {
+    return failure(file, 'diffCommand', 'Value must be a string');
+  }
+  const diffCommandFailure =
+    diffCommand === undefined ? undefined : validateRequiredString(diffCommand);
+  if (diffCommandFailure !== undefined) {
+    return failure(file, 'diffCommand', diffCommandFailure);
+  }
+
   const bindings = validateKeyBindings(value.keyBindings, file);
   if (!bindings.ok) return bindings;
 
@@ -332,6 +344,7 @@ function validateReviewConfiguration(
     value: {
       githubSearch: search.value,
       reviewCommand,
+      diffCommand,
       keyBindings: bindings.value,
       update: update.value,
     },

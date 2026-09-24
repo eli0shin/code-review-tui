@@ -13,7 +13,7 @@ This shape keeps these concerns separate:
 - GitHub CLI owns GitHub host, account, authentication, search, details, and Review Submission transport.
 - The configuration module owns the XDG path, strict JSON validation, search tokenization, and effective key bindings.
 - The OpenTUI Review Queue page owns temporary user-interface state and calls the configured ports directly.
-- The Herdr module owns Review Command child data, Lumen launch checks, exact Herdr CLI calls, response parsing, and the best-effort Review Queue focus and created-tab close commands.
+- The Herdr module owns Review Command and Diff Command child data, the Lumen or Diff Command choice, Lumen launch checks, exact Herdr CLI calls, response parsing, and the best-effort Review Queue focus and created-tab close commands.
 - The release module owns update checks, executable replacement, installer rules, and release assets.
 
 ## Dependency direction
@@ -28,7 +28,7 @@ src/cli.tsx (composition root)
        └── presentation/opentui ─> GitHub + Herdr ports
 ```
 
-Production adapters can import domain types, but domain modules cannot import adapters. The OpenTUI page receives configured port instances and effective key bindings from the composition root. It does not receive GitHub search tokens, Review Command text, Herdr CLI response data, or release settings.
+Production adapters can import domain types, but domain modules cannot import adapters. The OpenTUI page receives configured port instances and effective key bindings from the composition root. It does not receive GitHub search tokens, Review Command or Diff Command text, Herdr CLI response data, or release settings.
 
 ## Shared domain values
 
@@ -41,7 +41,7 @@ Put stable application values in `src/domain/`:
 
 These are data values, not active objects. Do not put GitHub CLI JSON, Herdr CLI JSON, OpenTUI key events, or update state in these types.
 
-The configured search order is the Review Queue order. A pull request URL identifies the target for detail loading, Review Submission, Lumen, and the Review Command.
+The configured search order is the Review Queue order. A pull request URL identifies the target for detail loading, Review Submission, the diff, and the Review Command.
 
 ## Module interfaces
 
@@ -59,6 +59,7 @@ type ConfigurationFailure = {
 type ReviewConfiguration = {
   readonly githubSearch: readonly string[];
   readonly reviewCommand: string;
+  readonly diffCommand: string | undefined;
   readonly keyBindings: EffectiveKeyBindings;
   readonly update: UpdateConfiguration;
 };
@@ -68,7 +69,7 @@ function loadReviewConfiguration(): Promise<
 >;
 ```
 
-The module hides XDG path selection, file reading, strict JSON validation, search tokenization without shell evaluation, key normalization and collision checks, and defaults. The returned search is already tokenized. The returned Review Command is the exact configured string.
+The module hides XDG path selection, file reading, strict JSON validation, search tokenization without shell evaluation, key normalization and collision checks, and defaults. The returned search is already tokenized. The returned Review Command and optional Diff Command are the exact configured strings.
 
 The release module can read only optional updater settings through a separate tolerant function. `review update`, version output, help, and the detached updater worker must not require complete TUI configuration.
 
@@ -106,16 +107,16 @@ Construct the adapter with tokenized GitHub search from configuration. Page test
 
 ```ts
 interface Herdr {
-  openLumen(pullRequest: PullRequestSummary): Promise<HerdrResult>;
+  openDiff(pullRequest: PullRequestSummary): Promise<HerdrResult>;
   openReviewCommand(pullRequest: PullRequestSummary): Promise<HerdrResult>;
 }
 ```
 
-Construct the adapter with the exact Review Command, startup working directory, inherited child environment, and Herdr CLI environment. Require Herdr workspace and Review Queue Tab IDs from that environment. There is no Herdr connection to start or stop.
+Construct the adapter with the exact Review Command, the optional exact Diff Command, startup working directory, inherited child environment, and Herdr CLI environment. Require Herdr workspace and Review Queue Tab IDs from that environment. There is no Herdr connection to start or stop.
 
-For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The Review Command pane runs `/bin/sh -c CONFIGURED_REVIEW_COMMAND` unchanged. The Lumen pane passes one safely quoted POSIX script to `/bin/sh -c`, so the user's interactive shell parses no bare script syntax. That script creates a system `mktemp` file, redirects the exact stdout from `lumen diff PULL_REQUEST_URL` to it, and replaces `/tmp/review/lumen/<org>/<repo>/<number>.txt` only after a successful nonempty result. Empty or failed results preserve any prior destination. After that interaction returns, the same script makes best-effort CLI calls to focus the saved Review Queue Tab and close the created tab. Semicolons keep each cleanup attempt independent of the prior command result.
+For each action, execute explicit `herdr tab create`, `herdr pane run`, and `herdr tab focus` commands. Parse only the created tab and root pane IDs from the tab-create JSON. The Review Command pane runs `/bin/sh -c CONFIGURED_REVIEW_COMMAND` unchanged. `openDiff` runs `/bin/sh -c CONFIGURED_DIFF_COMMAND` the same way when a Diff Command is configured, and opens Lumen otherwise. The Lumen pane passes one safely quoted POSIX script to `/bin/sh -c`, so the user's interactive shell parses no bare script syntax. That script creates a system `mktemp` file, redirects the exact stdout from `lumen diff PULL_REQUEST_URL` to it, and replaces `/tmp/review/lumen/<org>/<repo>/<number>.txt` only after a successful nonempty result. Empty or failed results preserve any prior destination. After that interaction returns, the same script makes best-effort CLI calls to focus the saved Review Queue Tab and close the created tab. Semicolons keep each cleanup attempt independent of the prior command result.
 
-Add the specified `REVIEW_PR_*` values to the Review Command Herdr tab environment. Do not add a public tool ID or track a running phase. Return the first immediate CLI or JSON failure. A failure does not disable later calls.
+Add the specified `REVIEW_PR_*` values to the Review Command and Diff Command Herdr tab environments. Do not add a public tool ID or track a running phase. Return the first immediate CLI or JSON failure. A failure does not disable later calls.
 
 Test the adapter with a recording fake `herdr` executable. Prove exact calls, JSON parsing, immediate failure, later calls after failure, and the appended best-effort Review Queue focus and created-tab close commands. Prove that the close attempt occurs when focus fails.
 
@@ -159,7 +160,7 @@ The composition root performs this order for the TUI command:
 
 1. load and validate complete TUI configuration;
 2. route updater settings to release behavior;
-3. validate Herdr context and create the Herdr CLI adapter with the exact Review Command;
+3. validate Herdr context and create the Herdr CLI adapter with the exact Review Command and optional Diff Command;
 4. create the GitHub CLI adapter with tokenized search;
 5. create the OpenTUI renderer and mount the Review Queue page with both ports and effective key bindings.
 
@@ -179,7 +180,7 @@ Keep artifact naming in one release function and verify that the installer, upda
 
 ### Configuration contract
 
-Use temporary XDG and HOME directories. Prove path selection, complete validation, search tokenization, normalized key collisions, exact Review Command preservation, defaults, and updater-only reads.
+Use temporary XDG and HOME directories. Prove path selection, complete validation, search tokenization, normalized key collisions, exact Review Command and Diff Command preservation, defaults, and updater-only reads.
 
 ### GitHub CLI adapter contract
 
@@ -187,7 +188,7 @@ Use a recording fake `gh` process. Prove exact arguments and environment, comple
 
 ### Herdr CLI adapter contract
 
-Use a recording fake `herdr` executable. Prove exact Lumen and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the best-effort Review Queue focus and created-tab close commands. For Lumen, prove the explicit `/bin/sh -c` boundary, execute the injected command through real fish, and prove exact successful replacement, preservation after empty or nonzero results, repeated replacement, and shell-safe pull request values. Prove that semicolon sequencing attempts close after a focus failure.
+Use a recording fake `herdr` executable. Prove exact Lumen, Diff Command, and Review Command calls, inherited and pull request environment, tab-create JSON parsing, immediate failures, later calls after failure, and the best-effort Review Queue focus and created-tab close commands. For Lumen, prove the explicit `/bin/sh -c` boundary, execute the injected command through real fish, and prove exact successful replacement, preservation after empty or nonzero results, repeated replacement, and shell-safe pull request values. Prove that semicolon sequencing attempts close after a focus failure.
 
 Do not model or review focus races or event-ordering races.
 

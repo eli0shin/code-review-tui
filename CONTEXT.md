@@ -14,6 +14,10 @@ _Avoid_: Selection, selected pull request
 The user-configured shell command that starts an interactive agent review for the pull request under the cursor. The command includes the program, flags, and initial input.
 _Avoid_: Review Prompt, Pi command
 
+**Diff Command**:
+The optional user-configured shell command that opens the diff for the pull request under the cursor. It replaces the default Lumen diff.
+_Avoid_: Diff viewer, Lumen command
+
 **Review Submission**:
 A GitHub pull request review with a message and one decision: comment, approve, or request changes.
 _Avoid_: Inline comment
@@ -27,5 +31,5 @@ The saved Herdr tab that contains the Review Queue. `review` makes a best-effort
 _Avoid_: Parent tab, caller tab
 
 **Herdr tab**:
-A tab created by Herdr to run Lumen or a Review Command for the pull request under the Cursor.
+A tab created by Herdr to run Lumen, a Diff Command, or a Review Command for the pull request under the Cursor.
 _Avoid_: Tool Tab, Cab, embedded terminal
