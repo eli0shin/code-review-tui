@@ -20,8 +20,8 @@ import type {
 
 const queueFields =
   'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount';
-const queueStatsFields = 'additions,deletions,changedFiles,reviewDecision';
-const authoredStatsFields = `${queueStatsFields},statusCheckRollup`;
+const queueStatsFields =
+  'additions,deletions,changedFiles,reviewDecision,statusCheckRollup';
 const queueEnrichmentConcurrency = 8;
 const authoredSearch = ['is:pr', 'author:@me', 'state:open'] as const;
 const detailFields =
@@ -109,7 +109,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         parseReviewQueue
       );
       if (!parsed.ok) return parsed;
-      return enrichReviewQueue(parsed.value, signal, list);
+      return enrichReviewQueue(parsed.value, signal);
     },
 
     async loadPullRequestDetails(url, signal) {
@@ -509,8 +509,7 @@ function validateJson<Value>(
 
 async function enrichReviewQueue(
   queue: ReviewQueue,
-  signal: AbortSignal,
-  list: PullRequestList
+  signal: AbortSignal
 ): Promise<GitHubResult<ReviewQueue>> {
   const enriched: PullRequestSummary[] = [];
   for (
@@ -532,13 +531,7 @@ async function enrichReviewQueue(
     pullRequest: PullRequestSummary
   ): Promise<GitHubResult<PullRequestSummary>> {
     const processResult = await runGh(
-      [
-        'pr',
-        'view',
-        pullRequest.url,
-        '--json',
-        list === 'authored' ? authoredStatsFields : queueStatsFields,
-      ],
+      ['pr', 'view', pullRequest.url, '--json', queueStatsFields],
       '',
       'reviewQueue',
       undefined,
@@ -546,15 +539,14 @@ async function enrichReviewQueue(
     );
     if (!processResult.ok) return processResult;
     return parseOutput(processResult.value, 'reviewQueue', (value) =>
-      addSummaryStats(pullRequest, value, list)
+      addSummaryStats(pullRequest, value)
     );
   }
 }
 
 function addSummaryStats(
   pullRequest: PullRequestSummary,
-  value: unknown,
-  list: PullRequestList
+  value: unknown
 ): PullRequestSummary {
   const stats = record(value, '$');
   return {
@@ -563,7 +555,7 @@ function addSummaryStats(
     deletions: integer(stats.deletions, '$.deletions'),
     changedFiles: integer(stats.changedFiles, '$.changedFiles'),
     reviewDecision: string(stats.reviewDecision, '$.reviewDecision'),
-    ...(list === 'authored' ? { checks: parseChecks(stats) } : {}),
+    checks: parseChecks(stats),
   };
 }
 

@@ -624,17 +624,20 @@ function ReviewQueueContent({
   const rows = useMemo(
     () =>
       queue.map((pullRequest) => {
+        const width = terminal.width - 6;
         const metadataHeight = Math.max(
-          2,
-          renderedRows(rowMetadataText(pullRequest), terminal.width - 6) + 1
+          1,
+          renderedRows(rowMetadataText(pullRequest), width) + 1
+        );
+        const statusHeight = Math.max(
+          1,
+          renderedRows(rowStatusText(pullRequest), width) + 1
         );
         return {
           pullRequest,
           metadataHeight,
-          height:
-            2 +
-            metadataHeight +
-            (pullRequest.reviewDecision === undefined ? 0 : 2),
+          statusHeight,
+          height: 2 + statusHeight + metadataHeight,
         };
       }),
     [queue, terminal.width]
@@ -740,18 +743,21 @@ function ReviewQueueContent({
         viewportCulling
         contentOptions={{ flexDirection: 'column' }}
       >
-        {rows.map(({ pullRequest, height, metadataHeight }, index) => (
-          <ReviewQueueRow
-            key={pullRequest.url}
-            id={`review-queue-row-${index}`}
-            pullRequest={pullRequest}
-            list={list}
-            rowHeight={height}
-            metadataHeight={metadataHeight}
-            underCursor={index === cursorPosition}
-            theme={theme}
-          />
-        ))}
+        {rows.map(
+          ({ pullRequest, height, metadataHeight, statusHeight }, index) => (
+            <ReviewQueueRow
+              key={pullRequest.url}
+              id={`review-queue-row-${index}`}
+              pullRequest={pullRequest}
+              list={list}
+              rowHeight={height}
+              metadataHeight={metadataHeight}
+              statusHeight={statusHeight}
+              underCursor={index === cursorPosition}
+              theme={theme}
+            />
+          )
+        )}
       </scrollbox>
       <text flexShrink={0} attributes={TextAttributes.DIM}>
         {' '}
@@ -767,6 +773,7 @@ function ReviewQueueRow({
   list,
   rowHeight,
   metadataHeight,
+  statusHeight,
   underCursor,
   theme,
 }: {
@@ -775,53 +782,12 @@ function ReviewQueueRow({
   readonly list: PullRequestList;
   readonly rowHeight: number;
   readonly metadataHeight: number;
+  readonly statusHeight: number;
   readonly underCursor: boolean;
   readonly theme: SystemTheme | undefined;
 }) {
-  const checks = pullRequest.checks;
-  const failedChecks =
-    checks?.filter((check) =>
-      [
-        'FAILURE',
-        'ERROR',
-        'CANCELLED',
-        'TIMED_OUT',
-        'ACTION_REQUIRED',
-        'STARTUP_FAILURE',
-      ].includes(check.state.toUpperCase())
-    ).length ?? 0;
-  const pendingChecks =
-    checks?.filter(
-      (check) =>
-        ![
-          'SUCCESS',
-          'NEUTRAL',
-          'SKIPPED',
-          'FAILURE',
-          'ERROR',
-          'CANCELLED',
-          'TIMED_OUT',
-          'ACTION_REQUIRED',
-          'STARTUP_FAILURE',
-        ].includes(check.state.toUpperCase())
-    ).length ?? 0;
-  const checksLabel =
-    failedChecks > 0
-      ? `${failedChecks} failed`
-      : pendingChecks > 0
-        ? `${pendingChecks} pending`
-        : checks?.length === 0
-          ? 'none'
-          : `${checks?.length} passed`;
   const decision = pullRequest.reviewDecision;
-  const reviewLabel =
-    decision === 'REVIEW_REQUIRED'
-      ? 'required'
-      : decision === 'CHANGES_REQUESTED'
-        ? 'changes requested'
-        : decision === 'APPROVED'
-          ? 'approved'
-          : decision || 'none';
+  const checks = checkSummary(pullRequest.checks);
   return (
     <box
       id={id}
@@ -840,6 +806,24 @@ function ReviewQueueRow({
           <span fg={theme?.warning}> · draft</span>
         ) : null}
       </text>
+      <text height={statusHeight} flexShrink={0} overflow="hidden">
+        {'  '}
+        <span fg={theme?.textMuted}>Review: </span>
+        <span fg={reviewStateColor(decision || 'none', theme)}>
+          {reviewDecisionLabel(decision)}
+        </span>
+        <span fg={theme?.textMuted}> · Checks: </span>
+        <span fg={theme?.[checks.tone]}>{checks.label}</span>
+        <span fg={theme?.textMuted}>
+          {' '}
+          · {pullRequest.commentsCount}{' '}
+          {pullRequest.commentsCount === 1 ? 'comment' : 'comments'}
+          {pullRequest.labels.length === 0 ? '' : ' · '}
+        </span>
+        {pullRequest.labels.length === 0 ? null : (
+          <span fg={theme?.warning}>{pullRequest.labels.join('  ')}</span>
+        )}
+      </text>
       <text height={metadataHeight} flexShrink={0} overflow="hidden">
         {'  '}
         <span fg={theme?.info}>{pullRequest.repository}</span>
@@ -852,41 +836,7 @@ function ReviewQueueRow({
         </span>
         <span fg={theme?.success}>+{pullRequest.additions}</span>{' '}
         <span fg={theme?.error}>-{pullRequest.deletions}</span>
-        <span fg={theme?.textMuted}>
-          {' '}
-          · {pullRequest.commentsCount}{' '}
-          {pullRequest.commentsCount === 1 ? 'comment' : 'comments'}
-          {pullRequest.labels.length === 0 ? '' : ' · '}
-        </span>
-        {pullRequest.labels.length === 0 ? null : (
-          <span fg={theme?.warning}>{pullRequest.labels.join('  ')}</span>
-        )}
       </text>
-      {decision !== undefined ? (
-        <text height={2} flexShrink={0} overflow="hidden">
-          {'  '}
-          <span fg={theme?.textMuted}>Review: </span>
-          <span fg={reviewStateColor(decision, theme)}>{reviewLabel}</span>
-          {list === 'authored' && checks !== undefined ? (
-            <>
-              <span fg={theme?.textMuted}> · Checks: </span>
-              <span
-                fg={
-                  failedChecks > 0
-                    ? theme?.error
-                    : pendingChecks > 0
-                      ? theme?.info
-                      : checks.length === 0
-                        ? theme?.textMuted
-                        : theme?.success
-                }
-              >
-                {checksLabel}
-              </span>
-            </>
-          ) : null}
-        </text>
-      ) : null}
     </box>
   );
 }
@@ -1917,8 +1867,47 @@ function failureMessageLines(
   });
 }
 
+function reviewDecisionLabel(decision: string | undefined): string {
+  if (decision === 'REVIEW_REQUIRED') return 'required';
+  if (decision === 'CHANGES_REQUESTED') return 'changes requested';
+  if (decision === 'APPROVED') return 'approved';
+  return decision || 'none';
+}
+
+function checkSummary(checks: PullRequestSummary['checks']): {
+  readonly label: string;
+  readonly tone: 'error' | 'info' | 'success' | 'textMuted';
+} {
+  if (checks === undefined || checks.length === 0) {
+    return { label: 'none', tone: 'textMuted' };
+  }
+  const failedStates = new Set([
+    'FAILURE',
+    'ERROR',
+    'CANCELLED',
+    'TIMED_OUT',
+    'ACTION_REQUIRED',
+    'STARTUP_FAILURE',
+  ]);
+  const passedStates = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+  const failed = checks.filter((check) =>
+    failedStates.has(check.state.toUpperCase())
+  ).length;
+  if (failed > 0) return { label: `${failed} failed`, tone: 'error' };
+  const pending = checks.filter(
+    (check) => !passedStates.has(check.state.toUpperCase())
+  ).length;
+  if (pending > 0) return { label: `${pending} pending`, tone: 'info' };
+  return { label: `${checks.length} passed`, tone: 'success' };
+}
+
+function rowStatusText(pullRequest: PullRequestSummary): string {
+  const comments = `${pullRequest.commentsCount} ${pullRequest.commentsCount === 1 ? 'comment' : 'comments'}`;
+  return `  Review: ${reviewDecisionLabel(pullRequest.reviewDecision)} · Checks: ${checkSummary(pullRequest.checks).label} · ${comments}${pullRequest.labels.length === 0 ? '' : ` · ${pullRequest.labels.join('  ')}`}`;
+}
+
 function rowMetadataText(pullRequest: PullRequestSummary): string {
-  return `  ${pullRequest.repository} #${pullRequest.number} opened by ${pullRequest.author} · updated ${relativeAge(pullRequest.updatedAt)} · ${fileSummary(pullRequest.changedFiles)} +${pullRequest.additions} -${pullRequest.deletions} · ${pullRequest.commentsCount} ${pullRequest.commentsCount === 1 ? 'comment' : 'comments'} · ${pullRequest.labels.join('  ')}`;
+  return `  ${pullRequest.repository} #${pullRequest.number} opened by ${pullRequest.author} · updated ${relativeAge(pullRequest.updatedAt)} · ${fileSummary(pullRequest.changedFiles)} +${pullRequest.additions} -${pullRequest.deletions}`;
 }
 
 function fileSummary(files: number): string {

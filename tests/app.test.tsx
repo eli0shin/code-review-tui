@@ -297,7 +297,11 @@ describe('Review Queue list switching', () => {
                 },
               ]
             : [
-                { ...pullRequest, reviewDecision: 'REVIEW_REQUIRED' },
+                {
+                  ...pullRequest,
+                  reviewDecision: 'REVIEW_REQUIRED',
+                  checks: [{ name: 'build', state: 'SUCCESS' }],
+                },
                 {
                   ...secondPullRequest,
                   title: 'Review another PR',
@@ -329,7 +333,10 @@ describe('Review Queue list switching', () => {
     );
     expect(authoredFrame).toContain('Add more widgets · draft');
     expect(authoredFrame).toContain(
-      'Review: changes requested · Checks: 1 failed'
+      'Review: changes requested · Checks: 1 failed · 3 comments · review'
+    );
+    expect(authoredFrame.indexOf('Review: changes requested')).toBeLessThan(
+      authoredFrame.indexOf('acme/widgets #8')
     );
     expect(authoredFrame).not.toContain('Review another PR');
     expect(authoredFrame).not.toContain('Improve widgets');
@@ -344,8 +351,12 @@ describe('Review Queue list switching', () => {
     const queueFrame = await view.waitForFrame((frame) =>
       frame.includes('Review requests 2 open')
     );
-    expect(queueFrame).toContain('Review: required');
-    expect(queueFrame).not.toContain('Checks:');
+    expect(queueFrame).toContain(
+      'Review: required · Checks: 1 passed · 3 comments · review'
+    );
+    expect(queueFrame.indexOf('Review: required')).toBeLessThan(
+      queueFrame.indexOf('acme/widgets #7')
+    );
     await act(async () => view.mockInput.pressKey('b'));
     expect(openPullRequestInBrowser).toHaveBeenLastCalledWith(
       pullRequest.url,

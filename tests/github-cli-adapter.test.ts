@@ -27,6 +27,9 @@ const queueStatsJson = {
   deletions: 3,
   changedFiles: 2,
   reviewDecision: 'REVIEW_REQUIRED',
+  statusCheckRollup: [
+    { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+  ],
 };
 
 const detailsJson = {
@@ -238,6 +241,7 @@ describe('GitHub CLI adapter contract', () => {
           labels: ['review'],
           commentsCount: 4,
           reviewDecision: 'REVIEW_REQUIRED',
+          checks: [{ name: 'build', state: 'SUCCESS' }],
         },
       ],
     });
@@ -263,7 +267,7 @@ describe('GitHub CLI adapter contract', () => {
           'view',
           'https://github.example/acme/widgets/pull/42',
           '--json',
-          'additions,deletions,changedFiles,reviewDecision',
+          'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
         ],
         stdin: '',
         marker: 'inherited',
@@ -303,7 +307,10 @@ describe('GitHub CLI adapter contract', () => {
       ok: true,
       value: [{ reviewDecision: 'REVIEW_REQUIRED' }],
     });
-    expect(queue.ok && queue.value[0]?.checks).toBeUndefined();
+    expect(queue).toMatchObject({
+      ok: true,
+      value: [{ checks: [{ name: 'build', state: 'FAILURE' }] }],
+    });
     const records = await readRecords();
     expect(records.map((record) => record.argv)).toEqual([
       [
@@ -341,7 +348,7 @@ describe('GitHub CLI adapter contract', () => {
         'view',
         queueJson[0].url,
         '--json',
-        'additions,deletions,changedFiles,reviewDecision',
+        'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
       ],
     ]);
   });
