@@ -2,7 +2,7 @@
 
 A personal terminal interface for reviewing GitHub pull requests.
 
-Run `review` inside a Herdr pane. The application loads the configured GitHub pull request search into the **Review Queue**. From the queue, you can inspect pull request details, open Lumen, run a Review Command, and submit a review.
+Run `review` inside a Herdr pane. The application loads the configured GitHub pull request search into the **Review Queue**. Press `m` to switch to **My PRs**, which shows open pull requests authored by your active GitHub account, and press it again to return. From either list, you can inspect pull request details, open Lumen, run a Review Command, and submit a review.
 
 ## Requirements
 
@@ -46,6 +46,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
     "openDiff": ["d"],
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
+    "togglePullRequestList": ["m"],
     "refresh": ["r"],
     "pagePrevious": ["ctrl+u"],
     "pageNext": ["ctrl+d"],
@@ -62,7 +63,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 }
 ```
 
-`github.search` contains GitHub pull request search terms, not extra `gh` flags. `keyBindings` and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
+`github.search` contains GitHub pull request search terms, not extra `gh` flags. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `keyBindings` and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
 See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
 
@@ -77,11 +78,12 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 | `d`          | Open the pull request in `lumen diff` in a Herdr tab. |
 | `c`          | Run the configured Review Command in a Herdr tab.     |
 | `s`          | Compose a Review Submission.                          |
-| `r`          | Refresh the Review Queue.                             |
+| `m`          | Switch between the Review Queue and My PRs.           |
+| `r`          | Refresh the current list.                             |
 | `?`          | Show the effective Review Queue keys.                 |
 | `q`/`escape` | Quit.                                                 |
 
-Pull request details include reviewers, checks, the rendered Markdown description, and the complete review conversation. Descriptions, issue comments, submitted review bodies, and inline review comment bodies use OpenTUI's Markdown renderer. Metadata and inline code context stay ordinary text. Drag across text to copy the selection to the clipboard. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged Review Queue.
+Each row shows the title, then repository and change details, then the review decision, check status, comment count, and labels. My PRs also marks drafts. Pull request details include reviewers, checks, the rendered Markdown description, and the complete review conversation. Descriptions, issue comments, submitted review bodies, and inline review comment bodies use OpenTUI's Markdown renderer. Metadata and inline code context stay ordinary text. Drag across text to copy the selection to the clipboard. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged list.
 
 When you send comments from Lumen, Review saves Lumen's exact stdout at `/tmp/review/lumen/<org>/<repo>/<number>.txt`. A successful nonempty send replaces the prior file. Leaving Lumen without a send, or a failed Lumen run, keeps the prior file unchanged. The Review Command is a separate interaction and does not receive these comments.
 

@@ -95,6 +95,42 @@ describe('native review executable', () => {
     expect(await Bun.file(herdrRecord).exists()).toBe(false);
   });
 
+  test('switches the native TUI to the authored search with m', async () => {
+    const record = join(directory, 'my-prs-gh-calls');
+    const review = Bun.spawn(
+      ['script', '--quiet', '--return', '--command', executable, '/dev/null'],
+      {
+        env: { ...environment, FAKE_GH_RECORD: record },
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: 'pipe',
+      }
+    );
+    const stdout = new Response(review.stdout).text();
+    const stderr = new Response(review.stderr).text();
+    await waitForFile(record);
+    await Bun.sleep(100);
+    review.stdin.write('m');
+    const deadline = Date.now() + 10_000;
+    while (!(await Bun.file(record).text()).includes('author:@me')) {
+      if (Date.now() >= deadline)
+        throw new Error('Authored search did not run');
+      await Bun.sleep(10);
+    }
+    await Bun.sleep(100);
+    review.stdin.write('q');
+    review.stdin.end();
+
+    expect(await exitWithin(review)).toBe(0);
+    expect(stripTerminalControls(await stdout)).toContain(
+      'No open PRs authored by me'
+    );
+    expect(await stderr).toBe('');
+    expect(await Bun.file(record).text()).toContain(
+      'search prs --json number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount --limit 1000 -- is:pr author:@me state:open'
+    );
+  });
+
   test('silently creates complete defaults and continues first startup', async () => {
     const firstRunConfigHome = join(directory, 'first-run-config');
     const firstRunGhRecord = join(directory, 'first-run-gh-calls');
@@ -138,6 +174,7 @@ describe('native review executable', () => {
         openDiff: ['d'],
         runReviewCommand: ['c'],
         composeReviewSubmission: ['s'],
+        togglePullRequestList: ['m'],
         refresh: ['r'],
         pagePrevious: ['ctrl+u'],
         pageNext: ['ctrl+d'],

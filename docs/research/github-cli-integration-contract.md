@@ -32,7 +32,7 @@ gh search prs \
   <configured-search-argument>...
 
 # Once for each returned URL, with bounded concurrency:
-gh pr view <pull-request-url> --json additions,deletions,changedFiles
+gh pr view <pull-request-url> --json additions,deletions,changedFiles,reviewDecision,statusCheckRollup
 ```
 
 For example, `review-requested:@me state:open` must become two arguments. Passing that complete string as one argument makes GitHub CLI quote it as one qualifier value and produces a different, invalid query. The tokenizer must preserve intentionally quoted terms but must not perform variable, command, glob, or redirection expansion. The configuration contract must specify the exact quoting rules.
@@ -59,7 +59,7 @@ The command emits one JSON array. Use these fields:
 - `state`, `createdAt`, and `updatedAt`: state and stable timestamps for display or ordering.
 - `labels` and `commentsCount`: metadata shown on every row.
 
-The search exporter does not provide file count, additions, or deletions. Enrich every complete search result with `gh pr view` by canonical URL. Run at most eight enrichment processes at once, preserve search order, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
+The search exporter does not provide file count, additions, deletions, or review decision. Enrich every complete search result with `gh pr view` by canonical URL. Both lists request the check rollup in that call. Run at most eight enrichment processes at once, preserve search order, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
 
 GitHub CLI documents all available search fields as `assignees`, `author`, `authorAssociation`, `body`, `closedAt`, `commentsCount`, `createdAt`, `id`, `isDraft`, `isLocked`, `isPullRequest`, `labels`, `number`, `repository`, `state`, `title`, `updatedAt`, and `url`.[^gh-search-prs] In GitHub CLI 2.97.0, `repository` is normalized to `{name, nameWithOwner}` and `author` includes `login`; this is part of the command's JSON exporter rather than the raw REST response.[^gh-search-export]
 

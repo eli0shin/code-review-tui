@@ -11,6 +11,7 @@ export const queueActions = [
   'openDiff',
   'runReviewCommand',
   'composeReviewSubmission',
+  'togglePullRequestList',
   'refresh',
   'pagePrevious',
   'pageNext',
@@ -62,6 +63,7 @@ const defaultKeyBindings = {
   openDiff: ['d'],
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
+  togglePullRequestList: ['m'],
   refresh: ['r'],
   pagePrevious: ['ctrl+u'],
   pageNext: ['ctrl+d'],
@@ -414,6 +416,10 @@ function validateKeyBindings(
       composeReviewSubmission: getEffectiveBindings(
         effective,
         'composeReviewSubmission'
+      ),
+      togglePullRequestList: getEffectiveBindings(
+        effective,
+        'togglePullRequestList'
       ),
       refresh: getEffectiveBindings(effective, 'refresh'),
       pagePrevious: getEffectiveBindings(effective, 'pagePrevious'),

@@ -15,12 +15,15 @@ import type {
   GitHubFailure,
   GitHubOperation,
   GitHubResult,
+  PullRequestList,
 } from './types.ts';
 
 const queueFields =
   'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount';
-const queueStatsFields = 'additions,deletions,changedFiles';
+const queueStatsFields =
+  'additions,deletions,changedFiles,reviewDecision,statusCheckRollup';
 const queueEnrichmentConcurrency = 8;
+const authoredSearch = ['is:pr', 'author:@me', 'state:open'] as const;
 const detailFields =
   'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests';
 const reviewThreadQuery = `
@@ -82,7 +85,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   const searchArguments = [...search];
 
   return {
-    async loadReviewQueue(signal) {
+    async loadReviewQueue(signal, list: PullRequestList = 'reviewQueue') {
       const processResult = await runGh(
         [
           'search',
@@ -92,7 +95,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
           '--limit',
           '1000',
           '--',
-          ...searchArguments,
+          ...(list === 'authored' ? authoredSearch : searchArguments),
         ],
         '',
         'reviewQueue',
@@ -551,6 +554,8 @@ function addSummaryStats(
     additions: integer(stats.additions, '$.additions'),
     deletions: integer(stats.deletions, '$.deletions'),
     changedFiles: integer(stats.changedFiles, '$.changedFiles'),
+    reviewDecision: string(stats.reviewDecision, '$.reviewDecision'),
+    checks: parseChecks(stats),
   };
 }
 

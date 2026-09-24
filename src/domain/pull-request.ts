@@ -13,6 +13,8 @@ export type PullRequestSummary = {
   readonly changedFiles: number;
   readonly labels: readonly string[];
   readonly commentsCount: number;
+  readonly reviewDecision?: string;
+  readonly checks?: readonly PullRequestCheck[];
 };
 
 export type PullRequestReview = {

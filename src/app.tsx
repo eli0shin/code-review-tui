@@ -47,6 +47,7 @@ import type {
   GitHub,
   GitHubFailure,
   PullRequestDetailSources,
+  PullRequestList,
 } from './github/types.ts';
 import { runReviewRuntime } from './runtime.ts';
 import { createHerdrCliAdapter } from './tools/herdr-adapter.ts';
@@ -138,6 +139,8 @@ function ReviewQueue({
   const terminal = useTerminalDimensions();
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
+  const [list, setList] = useState<PullRequestList>('reviewQueue');
+  const listName = list === 'reviewQueue' ? 'Review Queue' : 'My PRs';
   const [draft, setDraft] = useState<SubmissionDraft>();
   const [modalTarget, setModalTarget] = useState<PullRequestSummary>();
   const [detailErrorsOpen, setDetailErrorsOpen] = useState(false);
@@ -149,7 +152,7 @@ function ReviewQueue({
   const editorRef = useRef<TextareaRenderable>(null);
   const failureViewerRef = useRef<ScrollBoxRenderable>(null);
   const detailsViewportRef = useRef<ScrollBoxRenderable>(null);
-  const queueSuccessSequenceRef = useRef(0);
+  const queueSuccessSequenceRef = useRef({ reviewQueue: 0, authored: 0 });
   const draftOpenRef = useRef(false);
   const submissionActiveRef = useRef(false);
   const submissionIdRef = useRef(0);
@@ -157,18 +160,18 @@ function ReviewQueue({
     undefined
   );
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
-    queryKey: ['reviewQueue'],
+    queryKey: ['reviewQueue', list],
     async queryFn({ signal }) {
-      const result = await github.loadReviewQueue(signal);
+      const result = await github.loadReviewQueue(signal, list);
       if (!result.ok) throw result.failure;
-      queueSuccessSequenceRef.current += 1;
+      queueSuccessSequenceRef.current[list] += 1;
       return result.value;
     },
     refetchInterval: refreshIntervalMs,
   });
   const queue = queueQuery.data ?? emptyReviewQueue;
   const rememberedRefreshFailure =
-    notice?.queueSuccessSequence === queueSuccessSequenceRef.current
+    notice?.queueSuccessSequence === queueSuccessSequenceRef.current[list]
       ? notice.refreshFailure
       : undefined;
   const queueFailure = queueQuery.error ?? rememberedRefreshFailure ?? null;
@@ -215,7 +218,7 @@ function ReviewQueue({
         ? `${failureMessage(queueFailure)} · ${formatBindings(
             keyBindings.refresh
           )} retry`
-        : `Review Queue not refreshed: ${failureMessage(queueFailure)}`,
+        : `${listName} not refreshed: ${failureMessage(queueFailure)}`,
       queue.length === 0 ? terminal.width : queueStatusWidth,
       queue.length === 0 ? terminal.height - 2 : 3 - occupiedQueueStatusRows
     ) &&
@@ -224,8 +227,8 @@ function ReviewQueue({
           key: githubFailureKey(queueFailure),
           title:
             queue.length === 0
-              ? 'Review Queue unavailable'
-              : 'Review Queue not refreshed',
+              ? `${listName} unavailable`
+              : `${listName} not refreshed`,
           message: failureMessage(queueFailure),
         }
       : undefined;
@@ -284,13 +287,13 @@ function ReviewQueue({
     const successNotice = submissionSuccessNotice(attempt.target, action);
     draftOpenRef.current = false;
     setDraft(undefined);
-    setNotice({ message: `${successNotice} Refreshing Review Queue…` });
+    setNotice({ message: `${successNotice} Refreshing ${listName}…` });
     const refresh = await queueQuery.refetch();
     if (refresh.isError) {
       setNotice({
-        message: `${successNotice} Review Queue could not be refreshed.`,
+        message: `${successNotice} ${listName} could not be refreshed.`,
         refreshFailure: refresh.error,
-        queueSuccessSequence: queueSuccessSequenceRef.current,
+        queueSuccessSequence: queueSuccessSequenceRef.current[list],
       });
     }
   };
@@ -320,6 +323,16 @@ function ReviewQueue({
     if (!result.ok) setHerdrActionFailure({ action, failure: result.failure });
   };
 
+  const toggleList = (): void => {
+    setList((current) =>
+      current === 'reviewQueue' ? 'authored' : 'reviewQueue'
+    );
+    setCursor(0);
+    setNotice(undefined);
+    setDismissedFailureKey(undefined);
+    setHerdrActionFailure(undefined);
+  };
+
   useKeyboard((key) => {
     if (draft !== undefined) {
       handleSubmissionKey(
@@ -336,9 +349,12 @@ function ReviewQueue({
       key.preventDefault();
       key.stopPropagation();
       const viewer = failureViewerRef.current;
-      if (queueActionForKey(key, keyBindings) === 'refresh') {
+      const action = queueActionForKey(key, keyBindings);
+      if (action === 'refresh') {
         setNotice(undefined);
         void queueQuery.refetch();
+      } else if (action === 'togglePullRequestList') {
+        toggleList();
       } else if (key.name === 'escape') {
         setDismissedFailureKey(activeFailure.key);
       } else if (key.name === 'up') viewer?.scrollBy(-1, 'step');
@@ -431,6 +447,10 @@ function ReviewQueue({
       void queueQuery.refetch();
       return;
     }
+    if (action === 'togglePullRequestList') {
+      toggleList();
+      return;
+    }
     if (highlightedPullRequest === undefined) return;
 
     if (action === 'openDetails') {
@@ -487,13 +507,21 @@ function ReviewQueue({
       >
         {queueQuery.status === 'pending' ? (
           <StatusView
-            title="Loading review requests…"
-            detail="Running the configured GitHub search"
+            title={
+              list === 'reviewQueue'
+                ? 'Loading review requests…'
+                : 'Loading my PRs…'
+            }
+            detail={
+              list === 'reviewQueue'
+                ? 'Running the configured GitHub search'
+                : 'Searching open PRs authored by me'
+            }
             theme={theme}
           />
         ) : initialFailure ? (
           <StatusView
-            title="Review Queue unavailable"
+            title={`${listName} unavailable`}
             detail={`${failureMessage(queueQuery.error)} · ${formatBindings(
               keyBindings.refresh
             )} retry`}
@@ -502,14 +530,18 @@ function ReviewQueue({
           />
         ) : queue.length === 0 ? (
           <StatusView
-            title="No reviews waiting"
-            detail={`Press ${formatBindings(
-              keyBindings.refresh
-            )} to refresh the configured search`}
+            title={
+              list === 'reviewQueue'
+                ? 'No reviews waiting'
+                : 'No open PRs authored by me'
+            }
+            detail={`Press ${formatBindings(keyBindings.refresh)} to refresh · ${formatBindings(keyBindings.togglePullRequestList)} switch list`}
             theme={theme}
           />
         ) : (
           <ReviewQueueContent
+            key={list}
+            list={list}
             queue={queue}
             cursorPosition={cursorPosition}
             refreshing={queueQuery.isFetching}
@@ -567,6 +599,7 @@ function ReviewQueue({
 }
 
 function ReviewQueueContent({
+  list,
   queue,
   cursorPosition,
   refreshing,
@@ -576,6 +609,7 @@ function ReviewQueueContent({
   keyBindings,
   theme,
 }: {
+  readonly list: PullRequestList;
   readonly queue: ReviewQueue;
   readonly cursorPosition: number;
   readonly refreshing: boolean;
@@ -587,20 +621,46 @@ function ReviewQueueContent({
 }) {
   const queueViewportRef = useRef<ScrollBoxRenderable>(null);
   const terminal = useTerminalDimensions();
+  const rows = useMemo(
+    () =>
+      queue.map((pullRequest) => {
+        const width = terminal.width - 6;
+        const titleHeight = charWrappedRows(
+          `● ${pullRequest.title}${list === 'authored' && pullRequest.isDraft ? ' · draft' : ''}`,
+          width
+        );
+        const statusHeight = charWrappedRows(rowStatusText(pullRequest), width);
+        const metadataHeight = charWrappedRows(
+          rowMetadataText(pullRequest),
+          width
+        );
+        return {
+          pullRequest,
+          titleHeight,
+          statusHeight,
+          metadataHeight,
+          height: 2 + titleHeight + statusHeight + metadataHeight,
+        };
+      }),
+    [queue, list, terminal.width]
+  );
   const keepCursorVisible = useCallback(
     (viewport: ScrollBoxRenderable | null = queueViewportRef.current) => {
       if (viewport === null) return;
-      const rowHeight = 4;
-      const rowTop = cursorPosition * rowHeight;
+      const rowTop = rows
+        .slice(0, cursorPosition)
+        .reduce((total, row) => total + row.height, 0);
+      const rowHeight = rows[cursorPosition]?.height ?? 0;
       const rowBottom = rowTop + rowHeight;
       const viewportTop = viewport.scrollTop;
       const viewportBottom = viewportTop + viewport.viewport.height;
-      if (rowTop < viewportTop) viewport.scrollTop = rowTop;
-      else if (rowBottom > viewportBottom) {
+      if (rowTop < viewportTop || rowHeight > viewport.viewport.height) {
+        viewport.scrollTop = rowTop;
+      } else if (rowBottom > viewportBottom) {
         viewport.scrollTop = rowBottom - viewport.viewport.height;
       }
     },
-    [cursorPosition]
+    [cursorPosition, rows]
   );
   const handleViewportSizeChange = useCallback(
     function (this: ScrollBoxRenderable) {
@@ -625,7 +685,9 @@ function ReviewQueueContent({
           justifyContent="space-between"
         >
           <text>
-            <strong>Review requests</strong>{' '}
+            <strong>
+              {list === 'reviewQueue' ? 'Review requests' : 'My PRs'}
+            </strong>{' '}
             <span attributes={TextAttributes.DIM}>{queue.length} open</span>
           </text>
           <text attributes={TextAttributes.DIM}>
@@ -652,7 +714,8 @@ function ReviewQueueContent({
               {notice !== undefined && refreshFailure !== null ? '\n' : null}
               {refreshFailure !== null ? (
                 <span fg={theme?.error}>
-                  Review Queue not refreshed: {failureMessage(refreshFailure)}
+                  {list === 'reviewQueue' ? 'Review Queue' : 'My PRs'} not
+                  refreshed: {failureMessage(refreshFailure)}
                 </span>
               ) : null}
             </text>
@@ -682,15 +745,25 @@ function ReviewQueueContent({
         viewportCulling
         contentOptions={{ flexDirection: 'column' }}
       >
-        {queue.map((pullRequest, index) => (
-          <ReviewQueueRow
-            key={pullRequest.url}
-            id={`review-queue-row-${index}`}
-            pullRequest={pullRequest}
-            underCursor={index === cursorPosition}
-            theme={theme}
-          />
-        ))}
+        {rows.map(
+          (
+            { pullRequest, height, titleHeight, metadataHeight, statusHeight },
+            index
+          ) => (
+            <ReviewQueueRow
+              key={pullRequest.url}
+              id={`review-queue-row-${index}`}
+              pullRequest={pullRequest}
+              list={list}
+              rowHeight={height}
+              titleHeight={titleHeight}
+              metadataHeight={metadataHeight}
+              statusHeight={statusHeight}
+              underCursor={index === cursorPosition}
+              theme={theme}
+            />
+          )
+        )}
       </scrollbox>
       <text flexShrink={0} attributes={TextAttributes.DIM}>
         {' '}
@@ -703,30 +776,56 @@ function ReviewQueueContent({
 function ReviewQueueRow({
   id,
   pullRequest,
+  list,
+  rowHeight,
+  titleHeight,
+  metadataHeight,
+  statusHeight,
   underCursor,
   theme,
 }: {
   readonly id: string;
   readonly pullRequest: PullRequestSummary;
+  readonly list: PullRequestList;
+  readonly rowHeight: number;
+  readonly titleHeight: number;
+  readonly metadataHeight: number;
+  readonly statusHeight: number;
   readonly underCursor: boolean;
   readonly theme: SystemTheme | undefined;
 }) {
+  const decision = pullRequest.reviewDecision;
+  const checks = checkSummary(pullRequest.checks);
   return (
     <box
       id={id}
       width="100%"
-      height={4}
+      height={rowHeight}
       paddingLeft={1}
       paddingRight={1}
+      paddingTop={1}
+      paddingBottom={1}
       flexDirection="column"
-      justifyContent="center"
       backgroundColor={underCursor ? theme?.subtleSurface : undefined}
     >
-      <text>
+      <text
+        height={titleHeight}
+        flexShrink={0}
+        wrapMode="char"
+        overflow="hidden"
+      >
         <span fg={theme?.success}>● </span>
         <strong>{pullRequest.title}</strong>
+        {list === 'authored' && pullRequest.isDraft ? (
+          <span fg={theme?.warning}> · draft</span>
+        ) : null}
       </text>
-      <text>
+      <text
+        height={metadataHeight}
+        flexShrink={0}
+        wrapMode="char"
+        overflow="hidden"
+      >
         {'  '}
         <span fg={theme?.info}>{pullRequest.repository}</span>
         <span fg={theme?.textMuted}> #{pullRequest.number} opened by </span>
@@ -738,6 +837,19 @@ function ReviewQueueRow({
         </span>
         <span fg={theme?.success}>+{pullRequest.additions}</span>{' '}
         <span fg={theme?.error}>-{pullRequest.deletions}</span>
+      </text>
+      <text
+        height={statusHeight}
+        flexShrink={0}
+        wrapMode="char"
+        overflow="hidden"
+      >
+        {'  '}
+        <span fg={reviewStateColor(decision || 'none', theme)}>
+          {reviewDecisionLabel(decision)}
+        </span>
+        <span fg={theme?.textMuted}> · </span>
+        <span fg={theme?.[checks.tone]}>{checks.label}</span>
         <span fg={theme?.textMuted}>
           {' '}
           · {pullRequest.commentsCount}{' '}
@@ -1124,6 +1236,7 @@ function reviewStateColor(
   const normalizedState = state.toUpperCase();
   if (normalizedState === 'APPROVED') return theme.success;
   if (normalizedState === 'CHANGES_REQUESTED') return theme.error;
+  if (normalizedState === 'REVIEW_REQUIRED') return theme.warning;
   if (normalizedState === 'COMMENTED' || normalizedState === 'PENDING') {
     return theme.info;
   }
@@ -1350,7 +1463,7 @@ function HelpOverlay({
       left="25%"
       top="15%"
       width="50%"
-      height={15}
+      height={16}
       zIndex={10}
       border
       borderColor={theme?.foreground}
@@ -1373,6 +1486,9 @@ function HelpOverlay({
       </text>
       <text fg={theme?.foreground}>
         {line('composeReviewSubmission', 'compose Review Submission')}
+      </text>
+      <text fg={theme?.foreground}>
+        {line('togglePullRequestList', 'switch Review Queue / My PRs')}
       </text>
       <text fg={theme?.foreground}>{line('refresh', 'refresh')}</text>
       <text fg={theme?.foreground}>{line('quit', 'quit')}</text>
@@ -1674,6 +1790,25 @@ function herdrFailureMessage(failure: HerdrFailure): string {
   return message;
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function charWrappedRows(message: string, renderedWidth: number): number {
+  const width = Math.max(renderedWidth, 1);
+  return message.split('\n').reduce((total, line) => {
+    let rows = 1;
+    let column = 0;
+    for (const { segment } of graphemes.segment(line)) {
+      const glyphWidth = Bun.stringWidth(segment === '\t' ? '  ' : segment);
+      if (column > 0 && column + glyphWidth > width) {
+        rows += 1;
+        column = 0;
+      }
+      column += glyphWidth;
+    }
+    return total + rows;
+  }, 0);
+}
+
 function renderedRows(message: string, renderedWidth: number): number {
   const width = Math.max(renderedWidth, 1);
   return message.split('\n').reduce((total, line) => {
@@ -1758,9 +1893,9 @@ function footerText(keyBindings: EffectiveKeyBindings): string {
     keyBindings.openInBrowser
   )} browser  ${formatBindings(keyBindings.openDiff)} diff  ${formatBindings(
     keyBindings.runReviewCommand
-  )} review command  ${formatBindings(
+  )} review  ${formatBindings(
     keyBindings.composeReviewSubmission
-  )} submit review  ${formatBindings(keyBindings.showHelp)} help`;
+  )} submit  ${formatBindings(keyBindings.togglePullRequestList)} lists  ${formatBindings(keyBindings.showHelp)} help`;
 }
 
 function failureMessageLines(
@@ -1772,6 +1907,49 @@ function failureMessageLines(
     offset += text.length + 1;
     return line;
   });
+}
+
+function reviewDecisionLabel(decision: string | undefined): string {
+  if (decision === 'REVIEW_REQUIRED') return 'review required';
+  if (decision === 'CHANGES_REQUESTED') return 'changes requested';
+  if (decision === 'APPROVED') return 'approved';
+  return decision || 'none';
+}
+
+function checkSummary(checks: PullRequestSummary['checks']): {
+  readonly label: string;
+  readonly tone: 'error' | 'info' | 'success' | 'textMuted';
+} {
+  if (checks === undefined || checks.length === 0) {
+    return { label: 'no checks', tone: 'textMuted' };
+  }
+  const failedStates = new Set([
+    'FAILURE',
+    'ERROR',
+    'CANCELLED',
+    'TIMED_OUT',
+    'ACTION_REQUIRED',
+    'STARTUP_FAILURE',
+  ]);
+  const passedStates = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+  const failed = checks.filter((check) =>
+    failedStates.has(check.state.toUpperCase())
+  ).length;
+  if (failed > 0) return { label: `${failed} failed`, tone: 'error' };
+  const pending = checks.filter(
+    (check) => !passedStates.has(check.state.toUpperCase())
+  ).length;
+  if (pending > 0) return { label: `${pending} pending`, tone: 'info' };
+  return { label: `${checks.length} passed`, tone: 'success' };
+}
+
+function rowStatusText(pullRequest: PullRequestSummary): string {
+  const comments = `${pullRequest.commentsCount} ${pullRequest.commentsCount === 1 ? 'comment' : 'comments'}`;
+  return `  ${reviewDecisionLabel(pullRequest.reviewDecision)} · ${checkSummary(pullRequest.checks).label} · ${comments}${pullRequest.labels.length === 0 ? '' : ` · ${pullRequest.labels.join('  ')}`}`;
+}
+
+function rowMetadataText(pullRequest: PullRequestSummary): string {
+  return `  ${pullRequest.repository} #${pullRequest.number} opened by ${pullRequest.author} · updated ${relativeAge(pullRequest.updatedAt)} · ${fileSummary(pullRequest.changedFiles)} +${pullRequest.additions} -${pullRequest.deletions}`;
 }
 
 function fileSummary(files: number): string {
