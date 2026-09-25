@@ -1,4 +1,4 @@
-# Configuration and Review Command contract
+# Configuration, Review Command, and Diff Command contract
 
 ## Decision
 
@@ -45,7 +45,7 @@ A complete example is:
 }
 ```
 
-`github.search` and `reviewCommand` are required nonblank strings. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `keyBindings` and `config` are optional. The `config` object retains the updater settings supplied by the application shell.
+`github.search` and `reviewCommand` are required nonblank strings. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `diffCommand`, `keyBindings`, and `config` are optional. When `diffCommand` is present, it must be a nonblank string. The created example omits `diffCommand`, so `openDiff` uses Lumen. The `config` object retains the updater settings supplied by the application shell.
 
 Each omitted key-binding action gets the value shown in the example. A present action replaces its complete default list; lists do not merge. Each list must contain at least one binding.
 
@@ -76,7 +76,7 @@ These rules preserve intentionally grouped GitHub search terms without evaluatin
 
 ## Key bindings
 
-The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. Its one scrolling document renders GitHub-authored bodies with OpenTUI Markdown and keeps metadata and inline code context as ordinary text. A Review Command, Lumen, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
+The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. Its one scrolling document renders GitHub-authored bodies with OpenTUI Markdown and keeps metadata and inline code context as ordinary text. A Review Command, a Diff Command, Lumen, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
 
 A descriptor is one of:
 
@@ -94,7 +94,7 @@ The actions have these meanings:
 | `selectNext`              | `j`, `down`      | Move the Cursor to the next Review Queue row.                             |
 | `openDetails`             | `enter`          | Open full-screen details for the pull request under the Cursor.           |
 | `openInBrowser`           | `b`              | Open the pull request under the Cursor in the user's default browser.     |
-| `openDiff`                | `d`              | Open the pull request under the Cursor in fixed `lumen diff`.             |
+| `openDiff`                | `d`              | Open the Diff Command, or `lumen diff` when no Diff Command is set.       |
 | `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |
 | `togglePullRequestList`   | `m`              | Switch between the Review Queue and My PRs when a list owns input.        |
@@ -141,5 +141,19 @@ For example:
 ```
 
 There is no `{{url}}` or similar template syntax. Text that looks like a template remains literal. This avoids the impossible task of inserting untrusted text safely into every shell quotation context while also preserving an opaque command's semantics.
+
+## Opaque Diff Command
+
+`diffCommand` is an optional POSIX shell command string that replaces Lumen for `openDiff`. It follows every rule of the [opaque Review Command](#opaque-review-command): the application passes the exact string as the single `/bin/sh -c` operand, inherits the user's environment, and adds the same `REVIEW_PR_*` variables for the pull request under the Cursor.
+
+The Diff Command owns its diff source, repository requirements, and output. The application does not check for a Git or Jujutsu repository and does not capture Diff Command stdout. When `diffCommand` is absent, `openDiff` opens Lumen as defined by the [external process execution contract](external-process-execution.md#lumen).
+
+Lumen compares the base branch tip with the head, not the merge base with the head. See [Lumen's base comparison](../research/lumen-diff-launch-contract.md#base-comparison). A Diff Command can show the pull request diff that GitHub shows. For example:
+
+```json
+{
+  "diffCommand": "gh pr diff \"$REVIEW_PR_URL\" --color always | less -R"
+}
+```
 
 [^xdg]: [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/latest/).

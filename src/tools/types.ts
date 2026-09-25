@@ -14,6 +14,6 @@ export type HerdrResult =
   | { readonly ok: false; readonly failure: HerdrFailure };
 
 export type Herdr = {
-  openLumen(pullRequest: PullRequestSummary): Promise<HerdrResult>;
+  openDiff(pullRequest: PullRequestSummary): Promise<HerdrResult>;
   openReviewCommand(pullRequest: PullRequestSummary): Promise<HerdrResult>;
 };

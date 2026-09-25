@@ -15,7 +15,7 @@ Load the Review Queue in these cases only:
 3. every 60 seconds while the page is mounted; and
 4. immediately after a successful Review Submission.
 
-Returning from Lumen or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
+Returning from Lumen, a Diff Command, or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
 
 Use the `gh search prs` invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI. Do not sort or filter results in the application.
 

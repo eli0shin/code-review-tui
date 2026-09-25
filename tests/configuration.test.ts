@@ -91,6 +91,7 @@ describe('Review configuration contract', () => {
       value: {
         githubSearch: ['review-requested:@me', 'state:open'],
         reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
+        diffCommand: undefined,
         keyBindings: {
           selectPrevious: ['k', 'up'],
           selectNext: ['j', 'down'],
@@ -134,16 +135,18 @@ describe('Review configuration contract', () => {
     ]);
   });
 
-  test('preserves the opaque Review Command and tokenizes grouped search terms', async () => {
+  test('preserves the opaque Review and Diff Commands and tokenizes grouped search terms', async () => {
     const { file, environment } = await makeEnvironment();
     const reviewCommand =
       'printf \'{{url}} %s\\n\' "$REVIEW_PR_TITLE" | tee >review.txt';
+    const diffCommand = 'fish -c \'pr "$REVIEW_PR_URL"\' || read -r _';
     await writeConfiguration(file, {
       ...completeConfiguration,
       github: {
         search: 'label:"needs review" \'fix login\' author:octo\\ cat ""',
       },
       reviewCommand,
+      diffCommand,
       keyBindings: { openDiff: ['A'], selectNext: ['ctrl+alt+shift+j'] },
       config: { updateBehavior: 'notify', updateCheckIntervalHours: 12 },
     });
@@ -158,6 +161,7 @@ describe('Review configuration contract', () => {
           '',
         ],
         reviewCommand,
+        diffCommand,
         keyBindings: {
           selectPrevious: ['k', 'up'],
           selectNext: ['ctrl+alt+j'],
@@ -190,6 +194,7 @@ describe('Review configuration contract', () => {
       value: {
         githubSearch: ['is:pr', 'review-requested:@me', 'state:open'],
         reviewCommand: generatedConfiguration.reviewCommand,
+        diffCommand: undefined,
         keyBindings: generatedConfiguration.keyBindings,
         update: generatedConfiguration.config,
       },
@@ -289,6 +294,18 @@ describe('Review configuration contract', () => {
       value: { ...completeConfiguration, reviewCommand: ' \t\n' },
       field: 'reviewCommand',
       problem: /blank|non-whitespace/i,
+    },
+    {
+      name: 'blank Diff Command',
+      value: { ...completeConfiguration, diffCommand: ' \t\n' },
+      field: 'diffCommand',
+      problem: /non-whitespace/i,
+    },
+    {
+      name: 'wrong Diff Command type',
+      value: { ...completeConfiguration, diffCommand: ['pr'] },
+      field: 'diffCommand',
+      problem: /string/i,
     },
     {
       name: 'empty binding list',
