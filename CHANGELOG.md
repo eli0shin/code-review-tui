@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.4.0
+
+### Minor Changes
+
+- [#56](https://github.com/eli0shin/code-review-tui/pull/56) [`fc2bbc8`](https://github.com/eli0shin/code-review-tui/commit/fc2bbc8d4ec1f5b39a09857af5c0a36d3fca12c4) Thanks [@eli0shin](https://github.com/eli0shin)! - Add an optional `diffCommand` setting that replaces Lumen for `openDiff`. The Diff Command runs through `/bin/sh -c` in a Herdr tab and receives the same `REVIEW_PR_*` variables as the Review Command. Use it to show the merge-base pull request diff, because Lumen compares the base branch tip with the head.
+
 ## 0.3.0
 
 ### Minor Changes
