@@ -582,6 +582,73 @@ describe('Review Queue list switching', () => {
 });
 
 describe('Review Queue page loading', () => {
+  test('centers each line of a wrapped error detail', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return {
+          ok: false as const,
+          failure: {
+            kind: 'exit' as const,
+            operation: 'reviewQueue' as const,
+            exitCode: 1,
+            stderr:
+              'A long GitHub search error that must wrap across several lines',
+          },
+        };
+      },
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 40,
+      height: 24,
+    });
+    await view.waitForFrame((frame) =>
+      frame.includes('Review Queue unavailable')
+    );
+    const lines = view
+      .captureCharFrame()
+      .split('\n')
+      .filter((line) => line.trim());
+    expect(lines.length).toBeGreaterThan(2);
+    for (const line of lines) {
+      expect(line.indexOf(line.trim())).toBe(
+        Math.floor((40 - Bun.stringWidth(line.trim())) / 2)
+      );
+    }
+    view.renderer.destroy();
+  });
+
+  test('shows only the centered My PRs title while that list loads', async () => {
+    const authoredLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
+    const github = {
+      async loadReviewQueue(_signal: AbortSignal, list = 'reviewQueue') {
+        return list === 'reviewQueue' ? success([]) : authoredLoad.promise;
+      },
+      loadPullRequestDetails: pendingDetails,
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 80,
+      height: 24,
+    });
+    await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+    await act(async () => view.mockInput.pressKey('m'));
+    await view.waitForFrame((frame) => frame.includes('Fetching my PRs…'));
+    const lines = view.captureCharFrame().split('\n');
+    const title = 'Fetching my PRs…';
+    expect(lines.filter((line) => line.trim() !== '')).toHaveLength(1);
+    expect(lines.find((line) => line.includes(title))?.indexOf(title)).toBe(
+      Math.floor((80 - title.length) / 2)
+    );
+    await act(async () => authoredLoad.resolve(success([])));
+    view.renderer.destroy();
+  });
+
   test('loads on mount, r, and the configured interval and cancels on unmount', async () => {
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
@@ -628,7 +695,15 @@ describe('Review Queue page loading', () => {
       );
     });
     await view.renderOnce();
-    expect(view.captureCharFrame()).toContain('Loading review requests');
+    const loadingLines = view.captureCharFrame().split('\n');
+    const reviewTitle = 'Fetching PRs to review…';
+    expect(loadingLines.filter((line) => line.trim() !== '')).toHaveLength(1);
+    expect(loadingLines.some((line) => line.trim() === reviewTitle)).toBe(true);
+    expect(
+      loadingLines
+        .find((line) => line.includes(reviewTitle))
+        ?.indexOf(reviewTitle)
+    ).toBe(Math.floor((80 - reviewTitle.length) / 2));
     expect(loadReviewQueue).toHaveBeenCalledTimes(1);
 
     await act(async () => initialQueue.resolve(success([])));
@@ -1843,14 +1918,19 @@ describe.each(terminalPalettes)(
       const background = '#00000000';
 
       await view.waitFor(() =>
-        spanContaining(view.captureSpans(), 'Running the configured').fg.equals(
-          RGBA.fromHex(muted)
+        spanContaining(view.captureSpans(), 'Fetching PRs to review').fg.equals(
+          RGBA.fromHex(foreground)
         )
       );
       let frame = view.captureSpans();
-      expectColor(spanContaining(frame, 'Loading review').fg, foreground);
-      expectColor(spanContaining(frame, 'Loading review').bg, background);
-      expectColor(spanContaining(frame, 'Running the configured').fg, muted);
+      expectColor(
+        spanContaining(frame, 'Fetching PRs to review').fg,
+        foreground
+      );
+      expectColor(
+        spanContaining(frame, 'Fetching PRs to review').bg,
+        background
+      );
 
       await act(async () => initialLoad.resolve(success([])));
       await view.waitForFrame((characters) =>
@@ -1886,6 +1966,15 @@ describe.each(terminalPalettes)(
         background
       );
       expectColor(spanContaining(frame, 'search unavailable').fg, muted);
+      const errorLines = view.captureCharFrame().split('\n');
+      const errorLine = errorLines.find((line) =>
+        line.includes('search unavailable')
+      );
+      if (errorLine === undefined) throw new Error('Expected error detail');
+      expect(errorLine.trim().startsWith('search unavailable')).toBe(true);
+      expect(errorLine.indexOf(errorLine.trim())).toBe(
+        Math.floor((100 - errorLine.trim().length) / 2)
+      );
       view.renderer.destroy();
     });
 
