@@ -55,7 +55,6 @@ import type { Herdr, HerdrFailure, HerdrResult } from './tools/types.ts';
 
 environmentManager.setIsServer(() => false);
 
-const refreshIntervalMs = 60_000;
 const detailsQueryKey = ['pullRequestDetails'] as const;
 const emptyReviewQueue: ReviewQueue = [];
 
@@ -72,6 +71,7 @@ type ReviewQueuePageProps = {
   readonly github: GitHub;
   readonly herdr: Herdr;
   readonly keyBindings: EffectiveKeyBindings;
+  readonly refreshIntervalMinutes: number;
   readonly onQuit: () => void;
 };
 
@@ -105,6 +105,7 @@ export function ReviewQueuePage({
   github,
   herdr,
   keyBindings,
+  refreshIntervalMinutes,
   onQuit,
 }: ReviewQueuePageProps) {
   const [queryClient] = useState(
@@ -122,6 +123,7 @@ export function ReviewQueuePage({
         github={github}
         herdr={herdr}
         keyBindings={keyBindings}
+        refreshIntervalMinutes={refreshIntervalMinutes}
         onQuit={onQuit}
       />
     </QueryClientProvider>
@@ -132,6 +134,7 @@ function ReviewQueue({
   github,
   herdr,
   keyBindings,
+  refreshIntervalMinutes,
   onQuit,
 }: ReviewQueuePageProps) {
   const theme = useSystemTheme();
@@ -167,7 +170,7 @@ function ReviewQueue({
       queueSuccessSequenceRef.current[list] += 1;
       return result.value;
     },
-    refetchInterval: refreshIntervalMs,
+    refetchInterval: refreshIntervalMinutes * 60_000,
   });
   const queue = queueQuery.data ?? emptyReviewQueue;
   const rememberedRefreshFailure =
@@ -1665,8 +1668,13 @@ export function App() {
 export async function launchApplication(
   configuration: ReviewConfiguration
 ): Promise<void> {
-  const { githubSearch, reviewCommand, diffCommand, keyBindings } =
-    configuration;
+  const {
+    githubSearch,
+    refreshIntervalMinutes,
+    reviewCommand,
+    diffCommand,
+    keyBindings,
+  } = configuration;
   const herdr = createHerdrCliAdapter({
     reviewCommand,
     diffCommand,
@@ -1685,6 +1693,7 @@ export async function launchApplication(
         github={github}
         herdr={herdr}
         keyBindings={keyBindings}
+        refreshIntervalMinutes={refreshIntervalMinutes}
         onQuit={onQuit}
       />
     );

@@ -4,7 +4,7 @@
 
 Keep true external dependencies behind two deep ports: `GitHub` and `Herdr`. Use production CLI adapters for GitHub and Herdr. Keep configuration, OpenTUI presentation, composition, and release operations outside those adapters.
 
-The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local numeric Cursor and one temporary full-screen detail modal target. Its queue query loads on mount and polls every 60 seconds. Its details query loads independent source results on every modal opening and explicit refresh.
+The OpenTUI React Review Queue page owns its temporary presentation behavior. TanStack React Query owns remote Review Queue and detail data, status, polling, caching, and cancellation. The page keeps one local numeric Cursor and one temporary full-screen detail modal target. Its queue query loads on mount and polls at the configured interval (default: 5 minutes). Its details query loads independent source results on every modal opening and explicit refresh.
 
 Do not add a session module, store, controller, event bus, state machine, scheduler service, queue, request-generation protocol, coalescing protocol, or presentation subscription interface. Add no coordination seam between the page and the external ports.
 

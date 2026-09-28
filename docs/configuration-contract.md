@@ -17,7 +17,8 @@ A complete example is:
 ```json
 {
   "github": {
-    "search": "is:pr review-requested:@me state:open"
+    "search": "is:pr review-requested:@me state:open",
+    "refreshIntervalMinutes": 5
   },
   "reviewCommand": "pi \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
@@ -45,7 +46,7 @@ A complete example is:
 }
 ```
 
-`github.search` and `reviewCommand` are required nonblank strings. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `diffCommand`, `keyBindings`, and `config` are optional. When `diffCommand` is present, it must be a nonblank string. The created example omits `diffCommand`, so `openDiff` uses Lumen. The `config` object retains the updater settings supplied by the application shell.
+`github.search` and `reviewCommand` are required nonblank strings. `github.refreshIntervalMinutes` is optional and defaults to 5. It must be an integer from 1 to 35791 minutes (the timer limit). It controls automatic polling of the active list, not details or update checks. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `diffCommand`, `keyBindings`, and `config` are optional. When `diffCommand` is present, it must be a nonblank string. The created example omits `diffCommand`, so `openDiff` uses Lumen. The `config` object retains the updater settings supplied by the application shell.
 
 Each omitted key-binding action gets the value shown in the example. A present action replaces its complete default list; lists do not merge. Each list must contain at least one binding.
 
