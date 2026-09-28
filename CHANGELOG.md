@@ -1,5 +1,17 @@
 # code-review-tui
 
+## 0.5.0
+
+### Minor Changes
+
+- [#61](https://github.com/eli0shin/code-review-tui/pull/61) [`d7af9c2`](https://github.com/eli0shin/code-review-tui/commit/d7af9c2a5c63633b208834e1c7442d57ad9d19e3) Thanks [@eli0shin](https://github.com/eli0shin)! - Make the active pull request list refresh interval configurable with `github.refreshIntervalMinutes`. The default is five minutes instead of one minute to reduce GitHub API requests for large Review Queues.
+
+### Patch Changes
+
+- [#60](https://github.com/eli0shin/code-review-tui/pull/60) [`b75689f`](https://github.com/eli0shin/code-review-tui/commit/b75689ff9d30820c9c1bb84889d824d310c80fe4) Thanks [@eli0shin](https://github.com/eli0shin)! - Show one centered fetching message while the Review Queue or My PRs loads, and center status details when a list is empty or unavailable.
+
+- [#58](https://github.com/eli0shin/code-review-tui/pull/58) [`0d5d69d`](https://github.com/eli0shin/code-review-tui/commit/0d5d69d0607349992957808c6a99c81a966fb319) Thanks [@eli0shin](https://github.com/eli0shin)! - Show `Diff` and `Review` instead of `Diff Command` and `Review Command` in Herdr tab labels.
+
 ## 0.4.0
 
 ### Minor Changes
