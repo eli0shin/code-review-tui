@@ -512,13 +512,8 @@ function ReviewQueue({
           <StatusView
             title={
               list === 'reviewQueue'
-                ? 'Loading review requests…'
-                : 'Loading my PRs…'
-            }
-            detail={
-              list === 'reviewQueue'
-                ? 'Running the configured GitHub search'
-                : 'Searching open PRs authored by me'
+                ? 'Fetching PRs to review…'
+                : 'Fetching my PRs…'
             }
             theme={theme}
           />
@@ -1371,10 +1366,11 @@ function StatusView({
   error = false,
 }: {
   readonly title: string;
-  readonly detail: string;
+  readonly detail?: string;
   readonly theme: SystemTheme | undefined;
   readonly error?: boolean;
 }) {
+  const terminal = useTerminalDimensions();
   return (
     <box
       flexGrow={1}
@@ -1386,9 +1382,15 @@ function StatusView({
       <text fg={error ? theme?.error : undefined}>
         <strong>{title}</strong>
       </text>
-      <text width="100%" wrapMode="char" fg={theme?.textMuted}>
-        {detail}
-      </text>
+      {detail !== undefined ? (
+        <box flexDirection="column" alignItems="center" width="100%">
+          {centeredStatusLines(detail, terminal.width).map(({ key, text }) => (
+            <text key={key} fg={theme?.textMuted}>
+              {text}
+            </text>
+          ))}
+        </box>
+      ) : null}
     </box>
   );
 }
@@ -1802,6 +1804,30 @@ function herdrFailureMessage(failure: HerdrFailure): string {
 }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function centeredStatusLines(
+  message: string,
+  renderedWidth: number
+): { key: number; text: string }[] {
+  const width = Math.max(1, renderedWidth);
+  const lines: { key: number; text: string }[] = [];
+  for (const part of message.split('\n')) {
+    let line = '';
+    let column = 0;
+    for (const { segment } of graphemes.segment(part)) {
+      const glyphWidth = Bun.stringWidth(segment === '\t' ? '  ' : segment);
+      if (column > 0 && column + glyphWidth > width) {
+        lines.push({ key: lines.length, text: line });
+        line = '';
+        column = 0;
+      }
+      line += segment;
+      column += glyphWidth;
+    }
+    lines.push({ key: lines.length, text: line });
+  }
+  return lines;
+}
 
 function charWrappedRows(message: string, renderedWidth: number): number {
   const width = Math.max(renderedWidth, 1);
