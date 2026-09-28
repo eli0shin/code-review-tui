@@ -34,6 +34,7 @@ export type UpdateConfiguration = {
 
 export type ReviewConfiguration = {
   readonly githubSearch: readonly string[];
+  readonly refreshIntervalMinutes: number;
   readonly reviewCommand: string;
   readonly diffCommand: string | undefined;
   readonly keyBindings: EffectiveKeyBindings;
@@ -76,7 +77,10 @@ const defaultKeyBindings = {
 } satisfies EffectiveKeyBindings;
 
 const defaultReviewConfigurationDocument = {
-  github: { search: 'is:pr review-requested:@me state:open' },
+  github: {
+    search: 'is:pr review-requested:@me state:open',
+    refreshIntervalMinutes: 5,
+  },
   reviewCommand:
     'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
   keyBindings: defaultKeyBindings,
@@ -293,7 +297,10 @@ function validateReviewConfiguration(
   if (!isRecord(value.github)) {
     return failure(file, 'github', 'Value must be an object');
   }
-  const githubUnknown = rejectUnknownFields(value.github, ['search']);
+  const githubUnknown = rejectUnknownFields(value.github, [
+    'search',
+    'refreshIntervalMinutes',
+  ]);
   if (githubUnknown !== undefined) {
     return failure(file, `github.${githubUnknown}`, 'Unknown field');
   }
@@ -310,6 +317,22 @@ function validateReviewConfiguration(
   }
   const search = tokenizeSearch(githubSearch);
   if (!search.ok) return failure(file, 'github.search', search.problem);
+  const refreshIntervalMinutes =
+    value.github.refreshIntervalMinutes === undefined
+      ? 5
+      : value.github.refreshIntervalMinutes;
+  if (
+    typeof refreshIntervalMinutes !== 'number' ||
+    !Number.isInteger(refreshIntervalMinutes) ||
+    refreshIntervalMinutes < 1 ||
+    refreshIntervalMinutes > 35791
+  ) {
+    return failure(
+      file,
+      'github.refreshIntervalMinutes',
+      'Value must be an integer from 1 to 35791 minutes'
+    );
+  }
 
   if (value.reviewCommand === undefined) {
     return failure(file, 'reviewCommand', 'Required field is missing');
@@ -343,6 +366,7 @@ function validateReviewConfiguration(
     ok: true,
     value: {
       githubSearch: search.value,
+      refreshIntervalMinutes,
       reviewCommand,
       diffCommand,
       keyBindings: bindings.value,

@@ -12,7 +12,7 @@ Load the Review Queue in these cases only:
 
 1. when the Review Queue page mounts or the user switches lists with `m`;
 2. when the user requests a refresh with `r`;
-3. every 60 seconds while the page is mounted; and
+3. at the configured `github.refreshIntervalMinutes` (default: 5 minutes) while the page is mounted; and
 4. immediately after a successful Review Submission.
 
 Returning from Lumen, a Diff Command, or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.

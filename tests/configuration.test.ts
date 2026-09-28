@@ -15,7 +15,10 @@ const completeConfiguration = {
 };
 
 const generatedConfiguration = {
-  github: { search: 'is:pr review-requested:@me state:open' },
+  github: {
+    search: 'is:pr review-requested:@me state:open',
+    refreshIntervalMinutes: 5,
+  },
   reviewCommand:
     'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
   keyBindings: {
@@ -90,6 +93,7 @@ describe('Review configuration contract', () => {
       ok: true,
       value: {
         githubSearch: ['review-requested:@me', 'state:open'],
+        refreshIntervalMinutes: 5,
         reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
         diffCommand: undefined,
         keyBindings: {
@@ -144,6 +148,7 @@ describe('Review configuration contract', () => {
       ...completeConfiguration,
       github: {
         search: 'label:"needs review" \'fix login\' author:octo\\ cat ""',
+        refreshIntervalMinutes: 10,
       },
       reviewCommand,
       diffCommand,
@@ -160,6 +165,7 @@ describe('Review configuration contract', () => {
           'author:octo cat',
           '',
         ],
+        refreshIntervalMinutes: 10,
         reviewCommand,
         diffCommand,
         keyBindings: {
@@ -193,6 +199,7 @@ describe('Review configuration contract', () => {
       ok: true,
       value: {
         githubSearch: ['is:pr', 'review-requested:@me', 'state:open'],
+        refreshIntervalMinutes: 5,
         reviewCommand: generatedConfiguration.reviewCommand,
         diffCommand: undefined,
         keyBindings: generatedConfiguration.keyBindings,
@@ -313,6 +320,18 @@ describe('Review configuration contract', () => {
       field: 'keyBindings.quit',
       problem: /at least one/i,
     },
+    ...[0, -1, 0.5, '5', null, 35792].map((interval) => ({
+      name: `invalid refresh interval ${String(interval)}`,
+      value: {
+        ...completeConfiguration,
+        github: {
+          ...completeConfiguration.github,
+          refreshIntervalMinutes: interval,
+        },
+      },
+      field: 'github.refreshIntervalMinutes',
+      problem: /integer from 1 to 35791/i,
+    })),
     {
       name: 'wrong updater setting type',
       value: {

@@ -163,7 +163,10 @@ describe('native review executable', () => {
         await Bun.file(join(firstRunConfigHome, 'review', 'config.json')).text()
       )
     ).toEqual({
-      github: { search: 'is:pr review-requested:@me state:open' },
+      github: {
+        search: 'is:pr review-requested:@me state:open',
+        refreshIntervalMinutes: 5,
+      },
       reviewCommand:
         'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
       keyBindings: {

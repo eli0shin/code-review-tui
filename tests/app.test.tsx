@@ -128,7 +128,8 @@ function reviewQueuePage(
   github: GitHub,
   herdr: Herdr = unusedHerdr,
   keyBindings: EffectiveKeyBindings = defaultKeyBindings,
-  onQuit: () => void = () => undefined
+  onQuit: () => void = () => undefined,
+  refreshIntervalMinutes = 5
 ) {
   return (
     <ReviewQueuePage
@@ -139,6 +140,7 @@ function reviewQueuePage(
       }}
       herdr={herdr}
       keyBindings={keyBindings}
+      refreshIntervalMinutes={refreshIntervalMinutes}
       onQuit={onQuit}
     />
   );
@@ -580,7 +582,7 @@ describe('Review Queue list switching', () => {
 });
 
 describe('Review Queue page loading', () => {
-  test('loads on mount, r, and 60 seconds and cancels on unmount', async () => {
+  test('loads on mount, r, and the configured interval and cancels on unmount', async () => {
     Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
       configurable: true,
       value: true,
@@ -615,7 +617,15 @@ describe('Review Queue page loading', () => {
     const view = await createTestRenderer({ width: 80, height: 24 });
     const root = createRoot(view.renderer);
     act(() => {
-      root.render(reviewQueuePage(github));
+      root.render(
+        reviewQueuePage(
+          github,
+          unusedHerdr,
+          defaultKeyBindings,
+          () => undefined,
+          7
+        )
+      );
     });
     await view.renderOnce();
     expect(view.captureCharFrame()).toContain('Loading review requests');
@@ -628,7 +638,7 @@ describe('Review Queue page loading', () => {
     await act(async () => manualQueue.resolve(success([])));
 
     const intervalCall = intervalSpy.mock.calls.find(
-      ([, delay]) => delay === 60_000
+      ([, delay]) => delay === 7 * 60_000
     );
     expect(intervalCall).toBeDefined();
     const intervalCallback = intervalCall?.[0];

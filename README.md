@@ -36,7 +36,8 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 ```json
 {
   "github": {
-    "search": "is:pr review-requested:@me state:open"
+    "search": "is:pr review-requested:@me state:open",
+    "refreshIntervalMinutes": 5
   },
   "reviewCommand": "pi \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
@@ -64,7 +65,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 }
 ```
 
-`github.search` contains GitHub pull request search terms, not extra `gh` flags. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
+`github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
 See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
 
