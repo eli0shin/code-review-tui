@@ -26,7 +26,7 @@ type TabAction =
   | { readonly kind: 'lumen' }
   | {
       readonly kind: 'command';
-      readonly name: 'Diff Command' | 'Review Command';
+      readonly name: 'Diff' | 'Review';
       readonly command: string;
     };
 
@@ -42,11 +42,11 @@ export function createHerdrCliAdapter(options: AdapterOptions): Herdr {
   const diff = (
     options.diffCommand === undefined
       ? { kind: 'lumen' }
-      : { kind: 'command', name: 'Diff Command', command: options.diffCommand }
+      : { kind: 'command', name: 'Diff', command: options.diffCommand }
   ) satisfies TabAction;
   const review = {
     kind: 'command',
-    name: 'Review Command',
+    name: 'Review',
     command: options.reviewCommand,
   } satisfies TabAction;
 

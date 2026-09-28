@@ -49,7 +49,7 @@ When the configuration has a `diffCommand`, `openDiff` runs it instead of Lumen 
 /bin/sh -c CONFIGURED_DIFF_COMMAND
 ```
 
-Apply every Review Command rule below to the Diff Command: the exact configured string is the one `-c` operand, the tab uses the startup working directory, and it receives the same `REVIEW_PR_*` values. Do not check for a repository, capture stdout, or save comments. The Herdr tab label starts with `Diff Command`.
+Apply every Review Command rule below to the Diff Command: the exact configured string is the one `-c` operand, the tab uses the startup working directory, and it receives the same `REVIEW_PR_*` values. Do not check for a repository, capture stdout, or save comments. The Herdr tab label is `Diff <repository>#<number>`.
 
 ## Review Command
 
@@ -61,7 +61,7 @@ Run the configured Review Command through this command in the new Herdr tab:
 
 The configured string is the one `-c` operand. Do not tokenize, rewrite, concatenate pull request values into, or separately evaluate it.
 
-Use the startup working directory. Inherit the parent environment and replace the `REVIEW_PR_*` values defined by the [configuration contract](configuration-contract.md#opaque-review-command) for this Herdr tab only. Do not change the parent environment.
+Use the startup working directory. Inherit the parent environment and replace the `REVIEW_PR_*` values defined by the [configuration contract](configuration-contract.md#opaque-review-command) for this Herdr tab only. Do not change the parent environment. The Herdr tab label is `Review <repository>#<number>`.
 
 ## Terminal ownership and return focus
 
