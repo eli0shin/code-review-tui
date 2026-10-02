@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.6.0
+
+### Minor Changes
+
+- [#62](https://github.com/eli0shin/code-review-tui/pull/62) [`d78b03a`](https://github.com/eli0shin/code-review-tui/commit/d78b03a7fe465a1f60c143d87f16af1492569e56) Thanks [@eli0shin](https://github.com/eli0shin)! - Press `/` in the Review Queue to edit its active GitHub search for the current TUI session. Enter applies and immediately refetches; Escape cancels. Refreshes keep using the override, My PRs stays unchanged, and restarting restores the configured query without saving edits.
+
 ## 0.5.0
 
 ### Minor Changes
