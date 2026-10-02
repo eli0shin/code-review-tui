@@ -86,6 +86,10 @@
           "$ref": "#/$defs/bindingList",
           "default": ["s"]
         },
+        "editReviewQueueSearch": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["/"]
+        },
         "togglePullRequestList": {
           "$ref": "#/$defs/bindingList",
           "default": ["m"]

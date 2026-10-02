@@ -49,6 +49,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
     "togglePullRequestList": ["m"],
+    "editReviewQueueSearch": ["/"],
     "refresh": ["r"],
     "pagePrevious": ["ctrl+u"],
     "pageNext": ["ctrl+d"],
@@ -81,9 +82,12 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 | `c`          | Run the configured Review Command in a Herdr tab. |
 | `s`          | Compose a Review Submission.                      |
 | `m`          | Switch between the Review Queue and My PRs.       |
+| `/`          | Edit the Review Queue query for this session.     |
 | `r`          | Refresh the current list.                         |
 | `?`          | Show the effective Review Queue keys.             |
 | `q`/`escape` | Quit.                                             |
+
+Press `/` in the Review Queue to edit its active GitHub search. `Enter` applies the query and immediately refetches; `Escape` cancels. Manual and automatic refreshes use the edited query, even after switching to My PRs and back. My PRs is unchanged and does not offer query editing. Nothing is saved to configuration: restarting `review` restores `github.search`. Invalid quotes, incomplete escapes, and empty queries keep the editor open with a diagnostic.
 
 Each row shows the title, then repository and change details, then the review decision, check status, comment count, and labels. My PRs also marks drafts. Pull request details include reviewers, checks, the rendered Markdown description, and the complete review conversation. Descriptions, issue comments, submitted review bodies, and inline review comment bodies use OpenTUI's Markdown renderer. Metadata and inline code context stay ordinary text. Drag across text to copy the selection to the clipboard. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged list.
 

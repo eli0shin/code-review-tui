@@ -85,7 +85,11 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   const searchArguments = [...search];
 
   return {
-    async loadReviewQueue(signal, list: PullRequestList = 'reviewQueue') {
+    async loadReviewQueue(
+      signal,
+      list: PullRequestList = 'reviewQueue',
+      search = searchArguments
+    ) {
       const processResult = await runGh(
         [
           'search',
@@ -95,7 +99,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
           '--limit',
           '1000',
           '--',
-          ...(list === 'authored' ? authoredSearch : searchArguments),
+          ...(list === 'authored' ? authoredSearch : search),
         ],
         '',
         'reviewQueue',

@@ -30,6 +30,7 @@ const generatedConfiguration = {
     runReviewCommand: ['c'],
     composeReviewSubmission: ['s'],
     togglePullRequestList: ['m'],
+    editReviewQueueSearch: ['/'],
     refresh: ['r'],
     pagePrevious: ['ctrl+u'],
     pageNext: ['ctrl+d'],
@@ -93,6 +94,7 @@ describe('Review configuration contract', () => {
       ok: true,
       value: {
         githubSearch: ['review-requested:@me', 'state:open'],
+        githubSearchText: completeConfiguration.github.search,
         refreshIntervalMinutes: 5,
         reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
         diffCommand: undefined,
@@ -105,6 +107,7 @@ describe('Review configuration contract', () => {
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
           togglePullRequestList: ['m'],
+          editReviewQueueSearch: ['/'],
           refresh: ['r'],
           pagePrevious: ['ctrl+u'],
           pageNext: ['ctrl+d'],
@@ -165,6 +168,8 @@ describe('Review configuration contract', () => {
           'author:octo cat',
           '',
         ],
+        githubSearchText:
+          'label:"needs review" \'fix login\' author:octo\\ cat ""',
         refreshIntervalMinutes: 10,
         reviewCommand,
         diffCommand,
@@ -177,6 +182,7 @@ describe('Review configuration contract', () => {
           runReviewCommand: ['c'],
           composeReviewSubmission: ['s'],
           togglePullRequestList: ['m'],
+          editReviewQueueSearch: ['/'],
           refresh: ['r'],
           pagePrevious: ['ctrl+u'],
           pageNext: ['ctrl+d'],
@@ -199,6 +205,7 @@ describe('Review configuration contract', () => {
       ok: true,
       value: {
         githubSearch: ['is:pr', 'review-requested:@me', 'state:open'],
+        githubSearchText: generatedConfiguration.github.search,
         refreshIntervalMinutes: 5,
         reviewCommand: generatedConfiguration.reviewCommand,
         diffCommand: undefined,

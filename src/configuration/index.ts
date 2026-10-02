@@ -12,6 +12,7 @@ export const queueActions = [
   'runReviewCommand',
   'composeReviewSubmission',
   'togglePullRequestList',
+  'editReviewQueueSearch',
   'refresh',
   'pagePrevious',
   'pageNext',
@@ -34,6 +35,7 @@ export type UpdateConfiguration = {
 
 export type ReviewConfiguration = {
   readonly githubSearch: readonly string[];
+  readonly githubSearchText: string;
   readonly refreshIntervalMinutes: number;
   readonly reviewCommand: string;
   readonly diffCommand: string | undefined;
@@ -66,6 +68,7 @@ const defaultKeyBindings = {
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
   togglePullRequestList: ['m'],
+  editReviewQueueSearch: ['/'],
   refresh: ['r'],
   pagePrevious: ['ctrl+u'],
   pageNext: ['ctrl+d'],
@@ -366,6 +369,7 @@ function validateReviewConfiguration(
     ok: true,
     value: {
       githubSearch: search.value,
+      githubSearchText: githubSearch,
       refreshIntervalMinutes,
       reviewCommand,
       diffCommand,
@@ -458,6 +462,10 @@ function validateKeyBindings(
         effective,
         'togglePullRequestList'
       ),
+      editReviewQueueSearch: getEffectiveBindings(
+        effective,
+        'editReviewQueueSearch'
+      ),
       refresh: getEffectiveBindings(effective, 'refresh'),
       pagePrevious: getEffectiveBindings(effective, 'pagePrevious'),
       pageNext: getEffectiveBindings(effective, 'pageNext'),
@@ -526,7 +534,7 @@ function validateUpdateConfiguration(
   };
 }
 
-function tokenizeSearch(
+export function tokenizeSearch(
   input: string
 ):
   | { readonly ok: true; readonly value: readonly string[] }

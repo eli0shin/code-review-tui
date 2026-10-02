@@ -69,7 +69,8 @@ export type GitHubResult<Value> =
 export type GitHub = {
   loadReviewQueue(
     signal: AbortSignal,
-    list?: PullRequestList
+    list?: PullRequestList,
+    search?: readonly string[]
   ): Promise<GitHubResult<ReviewQueue>>;
   loadPullRequestDetails(
     url: string,

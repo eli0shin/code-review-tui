@@ -1,0 +1,362 @@
+import { afterEach, beforeEach, expect, jest, test } from 'bun:test';
+import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { testRender } from '@opentui/react/test-utils';
+import { notifyManager } from '@tanstack/react-query';
+import { act } from 'react';
+import { ReviewQueuePage } from '../src/app.tsx';
+import { loadReviewConfiguration } from '../src/configuration/index.ts';
+import { createGitHubCliAdapter } from '../src/github/cli-adapter.ts';
+import type { Herdr } from '../src/tools/types.ts';
+
+notifyManager.setScheduler(queueMicrotask);
+notifyManager.setNotifyFunction(act);
+
+const configuredSearch = 'is:pr review-requested:@me state:open -is:draft';
+const editedSearch = 'is:pr state:open is:draft label:"needs review"';
+const editedArguments = [
+  'is:pr',
+  'state:open',
+  'is:draft',
+  'label:needs review',
+];
+const unusedHerdr = {
+  async openDiff() {
+    throw new Error('No diff expected');
+  },
+  async openReviewCommand() {
+    throw new Error('No Review Command expected');
+  },
+} satisfies Herdr;
+
+let directory: string;
+let originalPath: string | undefined;
+const views: Awaited<ReturnType<typeof testRender>>[] = [];
+
+beforeEach(async () => {
+  directory = await mkdtemp(join(tmpdir(), 'review-search-'));
+  originalPath = process.env.PATH;
+  const executable = join(directory, 'gh');
+  await Bun.write(
+    executable,
+    `#!/usr/bin/env bun
+import { appendFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+if (argv[0] === 'search') {
+  const search = argv.slice(argv.indexOf('--') + 1);
+  appendFileSync(${JSON.stringify(join(directory, 'searches.jsonl'))}, JSON.stringify(search) + '\\n');
+  if (search.includes('slow:test')) await Bun.sleep(30_000);
+  if (search.includes('empty:test')) {
+    console.log('[]');
+    process.exit(0);
+  }
+  if (search.includes('bad:query')) {
+    console.error('Unsupported search qualifier');
+    process.exit(1);
+  }
+  console.log(JSON.stringify([{
+    number: 7, title: search.includes('author:@me') ? 'Authored PR' : search.includes('is:draft') ? 'Draft PR' : 'Configured PR',
+    author: { login: 'octocat' }, isDraft: search.includes('is:draft'), state: 'open',
+    createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-21T10:00:00Z',
+    url: 'https://github.com/acme/widgets/pull/7', repository: { nameWithOwner: 'acme/widgets' },
+    labels: [], commentsCount: 0
+  }]));
+} else {
+  console.log(JSON.stringify({ additions: 1, deletions: 0, changedFiles: 1, reviewDecision: '', statusCheckRollup: [] }));
+}
+`
+  );
+  await chmod(executable, 0o755);
+  process.env.PATH = `${directory}:${originalPath ?? ''}`;
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search: configuredSearch },
+      reviewCommand: 'unused',
+      config: { updateBehavior: 'off' },
+    })
+  );
+});
+
+afterEach(async () => {
+  act(() => {
+    for (const view of views.splice(0)) view.renderer.destroy();
+  });
+  jest.restoreAllMocks();
+  if (originalPath === undefined) delete process.env.PATH;
+  else process.env.PATH = originalPath;
+  await rm(directory, { recursive: true, force: true });
+  Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+});
+
+async function renderQueue() {
+  const loaded = await loadReviewConfiguration({ XDG_CONFIG_HOME: directory });
+  if (!loaded.ok) throw new Error(loaded.failure.problem);
+  const config = loaded.value;
+  const adapter = createGitHubCliAdapter(config.githubSearch);
+  const loadReviewQueue = jest.fn(adapter.loadReviewQueue);
+  const onQuit = jest.fn();
+  const view = await testRender(
+    <ReviewQueuePage
+      github={{ ...adapter, loadReviewQueue }}
+      githubSearchText={config.githubSearchText}
+      herdr={unusedHerdr}
+      keyBindings={config.keyBindings}
+      refreshIntervalMinutes={config.refreshIntervalMinutes}
+      onQuit={onQuit}
+    />,
+    { width: 100, height: 24, exitOnCtrlC: false }
+  );
+  // The real child processes need wall-clock time, not just renderer flushes.
+  view.waitForFrame = async (predicate) => {
+    for (let pass = 0; pass < 200; pass += 1) {
+      await act(async () => {
+        await Bun.sleep(5);
+        await view.renderOnce();
+      });
+      const frame = view.captureCharFrame();
+      if (await predicate(frame)) return frame;
+    }
+    throw new Error(
+      `Timed out waiting for gh and renderer:\n${view.captureCharFrame()}`
+    );
+  };
+  views.push(view);
+  return { view, onQuit, loadReviewQueue };
+}
+
+async function searches(): Promise<string[][]> {
+  return (await Bun.file(join(directory, 'searches.jsonl')).text())
+    .trim()
+    .split('\n')
+    .map((line) => {
+      const search: unknown = JSON.parse(line);
+      if (
+        !Array.isArray(search) ||
+        !search.every((term: unknown) => typeof term === 'string')
+      ) {
+        throw new Error('Expected recorded search arguments');
+      }
+      return search;
+    });
+}
+
+async function replaceQuery(
+  view: Awaited<ReturnType<typeof testRender>>,
+  query: string
+) {
+  await act(async () => view.mockInput.pressKey('a', { ctrl: true }));
+  await act(async () => view.mockInput.pressKey('k', { ctrl: true }));
+  await act(async () => view.mockInput.typeText(query));
+}
+
+async function finishRefresh(view: Awaited<ReturnType<typeof testRender>>) {
+  await view.waitForFrame(
+    (frame) => frame.includes('updated') && !frame.includes('refreshing…')
+  );
+}
+
+test('edits the real gh query for this session, refreshes with it, preserves it across My PRs, and never saves it', async () => {
+  const file = Bun.file(join(directory, 'review', 'config.json'));
+  const originalConfig = await file.text();
+  const intervalSpy = jest.spyOn(globalThis, 'setInterval');
+  const { view, onQuit } = await renderQueue();
+  await view.waitForFrame((frame) => frame.includes('Configured PR'));
+  await act(async () => view.mockInput.pressKey('/'));
+  const editor = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(editor).toContain(configuredSearch);
+  await replaceQuery(view, editedSearch);
+  expect(onQuit).not.toHaveBeenCalled();
+  expect(await searches()).toHaveLength(1);
+  await act(view.mockInput.pressEnter);
+  const edited = await view.waitForFrame((frame) => frame.includes('Draft PR'));
+  expect(edited).not.toContain('Review Queue query');
+  expect(edited).not.toContain('Configured PR');
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+
+  await act(async () => view.mockInput.pressKey('r'));
+  await finishRefresh(view);
+  expect(await searches()).toHaveLength(3);
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+  const intervalCallback = intervalSpy.mock.calls.findLast(
+    ([, delay]) => delay === 5 * 60_000
+  )?.[0];
+  if (typeof intervalCallback !== 'function')
+    throw new Error('Missing polling callback');
+  await act(async () => {
+    intervalCallback();
+    await Promise.resolve();
+  });
+  await finishRefresh(view);
+  expect(await searches()).toHaveLength(4);
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+
+  await act(async () => view.mockInput.pressKey('/'));
+  const reopened = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(reopened).toContain(editedSearch);
+  await act(view.mockInput.pressEnter);
+  await finishRefresh(view);
+  expect(await searches()).toHaveLength(5);
+
+  await act(async () => view.mockInput.pressKey('m'));
+  await view.waitForFrame((frame) => frame.includes('Authored PR'));
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'author:@me',
+    'state:open',
+  ]);
+  await act(async () => view.mockInput.pressKey('/'));
+  expect(view.captureCharFrame()).not.toContain('Review Queue query');
+  await act(async () => view.mockInput.pressKey('r'));
+  await finishRefresh(view);
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'author:@me',
+    'state:open',
+  ]);
+  await act(async () => view.mockInput.pressKey('m'));
+  await finishRefresh(view);
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+  await act(async () => view.mockInput.pressKey('/'));
+  const preserved = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(preserved).toContain(editedSearch);
+  await act(view.mockInput.pressEscape);
+  expect(onQuit).not.toHaveBeenCalled();
+  expect(await file.text()).toBe(originalConfig);
+
+  act(() => {
+    view.renderer.destroy();
+    views.splice(views.indexOf(view), 1);
+  });
+  const restarted = await renderQueue();
+  await restarted.view.waitForFrame((frame) => frame.includes('Configured PR'));
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'review-requested:@me',
+    'state:open',
+    '-is:draft',
+  ]);
+  expect(await file.text()).toBe(originalConfig);
+});
+
+test('Escape discards edits and invalid tokenization keeps the modal open without fetching', async () => {
+  const { view, onQuit } = await renderQueue();
+  await view.waitForFrame((frame) => frame.includes('Configured PR'));
+  await act(async () => view.mockInput.pressKey('/'));
+  await view.waitForFrame((frame) => frame.includes('Review Queue query'));
+  await replaceQuery(view, '');
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame((frame) =>
+    frame.includes('Search must produce a nonempty argument')
+  );
+  await replaceQuery(view, 'label:"unfinished');
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame((frame) =>
+    frame.includes('Search has an unclosed double quote')
+  );
+  await replaceQuery(view, editedSearch);
+  await act(view.mockInput.pressEscape);
+  await view.waitForFrame((frame) => !frame.includes('Review Queue query'));
+  expect(await searches()).toHaveLength(1);
+  expect(onQuit).not.toHaveBeenCalled();
+  await act(async () => view.mockInput.pressKey('/'));
+  const reopened = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(reopened).toContain(configuredSearch);
+});
+
+test('supports a remapped editor key, multiline queries, and an empty Review Queue', async () => {
+  const search = 'is:pr\nstate:open empty:test';
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search },
+      reviewCommand: 'unused',
+      keyBindings: { editReviewQueueSearch: ['f'] },
+    })
+  );
+  const { view } = await renderQueue();
+  await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+  await act(async () => view.mockInput.pressKey('/'));
+  await view.renderOnce();
+  expect(view.captureCharFrame()).not.toContain('Review Queue query');
+  await act(async () => view.mockInput.pressKey('f'));
+  const editor = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(editor).toContain('state:open empty:test');
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame(
+    (frame) =>
+      !frame.includes('Review Queue query') &&
+      frame.includes('No reviews waiting')
+  );
+  await view.waitForFrame(async () => (await searches()).length === 2);
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'state:open',
+    'empty:test',
+  ]);
+});
+
+test('changing the query aborts an obsolete fetch and cannot display its results', async () => {
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search: 'is:pr slow:test' },
+      reviewCommand: 'unused',
+    })
+  );
+  const { view, loadReviewQueue } = await renderQueue();
+  await view.waitForFrame(
+    async (frame) =>
+      frame.includes('Fetching PRs to review') &&
+      (await Bun.file(join(directory, 'searches.jsonl')).exists())
+  );
+  const oldSignal = loadReviewQueue.mock.calls[0][0];
+  expect(oldSignal.aborted).toBe(false);
+  await act(async () => view.mockInput.pressKey('/'));
+  await view.waitForFrame((frame) => frame.includes('Review Queue query'));
+  await replaceQuery(view, editedSearch);
+  await act(view.mockInput.pressEnter);
+  expect(oldSignal.aborted).toBe(true);
+  const updated = await view.waitForFrame((frame) =>
+    frame.includes('Draft PR')
+  );
+  expect(updated).not.toContain('Configured PR');
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+});
+
+test('a GitHub query error stays active for retry and can be repaired in the editor', async () => {
+  const { view } = await renderQueue();
+  await view.waitForFrame((frame) => frame.includes('Configured PR'));
+  await act(async () => view.mockInput.pressKey('/'));
+  await view.waitForFrame((frame) => frame.includes('Review Queue query'));
+  await replaceQuery(view, 'bad:query');
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame((frame) =>
+    frame.includes('Unsupported search qualifier')
+  );
+  await act(async () => view.mockInput.pressKey('r'));
+  await view.waitForFrame((frame) =>
+    frame.includes('Unsupported search qualifier')
+  );
+  // Opening the editor also verifies it works when the queue has no rows.
+  await act(async () => view.mockInput.pressKey('/'));
+  const editor = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(editor).toContain('bad:query');
+  await replaceQuery(view, editedSearch);
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame((frame) => frame.includes('Draft PR'));
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+});

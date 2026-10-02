@@ -30,6 +30,7 @@ A complete example is:
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
     "togglePullRequestList": ["m"],
+    "editReviewQueueSearch": ["/"],
     "refresh": ["r"],
     "pagePrevious": ["ctrl+u"],
     "pageNext": ["ctrl+d"],
@@ -75,9 +76,11 @@ Examples:
 
 These rules preserve intentionally grouped GitHub search terms without evaluating the query as shell text.
 
+The Review Queue query editor uses the same tokenization rules. It opens with the current active query; `Enter` validates and applies it, then immediately refetches. Invalid input remains in the editor with a diagnostic; `Escape` discards it. The override exists only in memory for the TUI session and is used by every subsequent Review Queue fetch, including manual and automatic refreshes and refresh after a Review Submission. Switching to My PRs and back preserves the override, but My PRs keeps its fixed query and cannot open the editor. No configuration file is written; the next startup uses `github.search` again.
+
 ## Key bindings
 
-The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. Its one scrolling document renders GitHub-authored bodies with OpenTUI Markdown and keeps metadata and inline code context as ordinary text. A Review Command, a Diff Command, Lumen, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
+The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. Its one scrolling document renders GitHub-authored bodies with OpenTUI Markdown and keeps metadata and inline code context as ordinary text. A Review Command, a Diff Command, Lumen, the query editor, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
 
 A descriptor is one of:
 
@@ -99,6 +102,7 @@ The actions have these meanings:
 | `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |
 | `togglePullRequestList`   | `m`              | Switch between the Review Queue and My PRs when a list owns input.        |
+| `editReviewQueueSearch`   | `/`              | Edit the active Review Queue query for this session, not My PRs.          |
 | `refresh`                 | `r`              | Refresh the active list or details modal.                                 |
 | `pagePrevious`            | `ctrl+u`         | Scroll details up by half of the current visible viewport.                |
 | `pageNext`                | `ctrl+d`         | Scroll details down by half of the current visible viewport.              |

@@ -114,6 +114,7 @@ const defaultKeyBindings = {
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
   togglePullRequestList: ['m'],
+  editReviewQueueSearch: ['/'],
   refresh: ['r'],
   pagePrevious: ['ctrl+u'],
   pageNext: ['ctrl+d'],
@@ -141,6 +142,7 @@ function reviewQueuePage(
       herdr={herdr}
       keyBindings={keyBindings}
       refreshIntervalMinutes={refreshIntervalMinutes}
+      githubSearchText="is:pr review-requested:@me state:open"
       onQuit={onQuit}
     />
   );
