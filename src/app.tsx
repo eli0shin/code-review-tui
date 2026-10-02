@@ -32,6 +32,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   normalizeKeyDescriptor,
+  tokenizeSearch,
   queueActions,
   type EffectiveKeyBindings,
   type ReviewConfiguration,
@@ -72,6 +73,7 @@ type ReviewQueuePageProps = {
   readonly herdr: Herdr;
   readonly keyBindings: EffectiveKeyBindings;
   readonly refreshIntervalMinutes: number;
+  readonly githubSearchText: string;
   readonly onQuit: () => void;
 };
 
@@ -106,6 +108,7 @@ export function ReviewQueuePage({
   herdr,
   keyBindings,
   refreshIntervalMinutes,
+  githubSearchText,
   onQuit,
 }: ReviewQueuePageProps) {
   const [queryClient] = useState(
@@ -124,6 +127,7 @@ export function ReviewQueuePage({
         herdr={herdr}
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
+        githubSearchText={githubSearchText}
         onQuit={onQuit}
       />
     </QueryClientProvider>
@@ -135,6 +139,7 @@ function ReviewQueue({
   herdr,
   keyBindings,
   refreshIntervalMinutes,
+  githubSearchText,
   onQuit,
 }: ReviewQueuePageProps) {
   const theme = useSystemTheme();
@@ -143,6 +148,15 @@ function ReviewQueue({
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
   const [list, setList] = useState<PullRequestList>('reviewQueue');
+  const [searchText, setSearchText] = useState(githubSearchText);
+  const search = useMemo(() => {
+    const parsed = tokenizeSearch(searchText);
+    if (!parsed.ok) throw new Error(parsed.problem);
+    return parsed.value;
+  }, [searchText]);
+  const [searchDraft, setSearchDraft] = useState<string>();
+  const [searchValidation, setSearchValidation] = useState<string>();
+  const searchEditorRef = useRef<TextareaRenderable>(null);
   const listName = list === 'reviewQueue' ? 'Review Queue' : 'My PRs';
   const [draft, setDraft] = useState<SubmissionDraft>();
   const [modalTarget, setModalTarget] = useState<PullRequestSummary>();
@@ -163,9 +177,13 @@ function ReviewQueue({
     undefined
   );
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
-    queryKey: ['reviewQueue', list],
+    queryKey: ['reviewQueue', list, list === 'reviewQueue' ? search : null],
     async queryFn({ signal }) {
-      const result = await github.loadReviewQueue(signal, list);
+      const result = await github.loadReviewQueue(
+        signal,
+        list,
+        list === 'reviewQueue' ? search : undefined
+      );
       if (!result.ok) throw result.failure;
       queueSuccessSequenceRef.current[list] += 1;
       return result.value;
@@ -214,6 +232,7 @@ function ReviewQueue({
           queueStatusWidth
         ));
   const activeFailure =
+    searchDraft === undefined &&
     modalTarget === undefined &&
     queueFailure !== null &&
     requiresFailureOverlay(
@@ -336,7 +355,43 @@ function ReviewQueue({
     setHerdrActionFailure(undefined);
   };
 
+  const openSearchEditor = (): void => {
+    if (list !== 'reviewQueue') return;
+    setSearchValidation(undefined);
+    setSearchDraft(searchText);
+  };
+
+  const closeSearchEditor = (): void => {
+    setSearchDraft(undefined);
+    setSearchValidation(undefined);
+  };
+
   useKeyboard((key) => {
+    if (searchDraft !== undefined) {
+      if (key.name === 'escape') {
+        stopKey(key);
+        closeSearchEditor();
+      } else if (key.name === 'return' || key.name === 'enter') {
+        stopKey(key);
+        const text = searchEditorRef.current?.plainText ?? searchDraft;
+        const parsed = tokenizeSearch(text);
+        if (!parsed.ok) {
+          setSearchValidation(parsed.problem);
+          return;
+        }
+        setSearchText(text);
+        setCursor(0);
+        setNotice(undefined);
+        setDismissedFailureKey(undefined);
+        setHerdrActionFailure(undefined);
+        closeSearchEditor();
+        if (JSON.stringify(parsed.value) === JSON.stringify(search)) {
+          void queueQuery.refetch();
+        }
+      }
+      return;
+    }
+
     if (draft !== undefined) {
       handleSubmissionKey(
         key,
@@ -358,6 +413,8 @@ function ReviewQueue({
         void queueQuery.refetch();
       } else if (action === 'togglePullRequestList') {
         toggleList();
+      } else if (action === 'editReviewQueueSearch') {
+        openSearchEditor();
       } else if (key.name === 'escape') {
         setDismissedFailureKey(activeFailure.key);
       } else if (key.name === 'up') viewer?.scrollBy(-1, 'step');
@@ -454,6 +511,10 @@ function ReviewQueue({
       toggleList();
       return;
     }
+    if (action === 'editReviewQueueSearch') {
+      openSearchEditor();
+      return;
+    }
     if (highlightedPullRequest === undefined) return;
 
     if (action === 'openDetails') {
@@ -495,6 +556,7 @@ function ReviewQueue({
 
   const initialFailure = queueQuery.status === 'error' && queue.length === 0;
   const queueOwnsInput =
+    searchDraft === undefined &&
     draft === undefined &&
     modalTarget === undefined &&
     !showHelp &&
@@ -533,7 +595,7 @@ function ReviewQueue({
                 ? 'No reviews waiting'
                 : 'No open PRs authored by me'
             }
-            detail={`Press ${formatBindings(keyBindings.refresh)} to refresh · ${formatBindings(keyBindings.togglePullRequestList)} switch list`}
+            detail={`Press ${formatBindings(keyBindings.refresh)} to refresh · ${formatBindings(keyBindings.togglePullRequestList)} switch list${list === 'reviewQueue' ? ` · ${formatBindings(keyBindings.editReviewQueueSearch)} edit query` : ''}`}
             theme={theme}
           />
         ) : (
@@ -562,7 +624,7 @@ function ReviewQueue({
         />
       ) : null}
       {showHelp ? (
-        <HelpOverlay keyBindings={keyBindings} theme={theme} />
+        <HelpOverlay list={list} keyBindings={keyBindings} theme={theme} />
       ) : null}
       {activeFailure !== undefined ? (
         <FailureOverlay
@@ -579,6 +641,20 @@ function ReviewQueue({
           message={detailFailures
             .map(({ label, failure }) => `${label}: ${failureMessage(failure)}`)
             .join('\n\n')}
+          theme={theme}
+        />
+      ) : null}
+      {searchDraft !== undefined ? (
+        <SearchModal
+          text={searchDraft}
+          validation={searchValidation}
+          editorRef={searchEditorRef}
+          onInput={(text) => {
+            setSearchDraft(text);
+            setSearchValidation(undefined);
+          }}
+          onClose={closeSearchEditor}
+          terminal={terminal}
           theme={theme}
         />
       ) : null}
@@ -1454,9 +1530,11 @@ function FailureOverlay({
 }
 
 function HelpOverlay({
+  list,
   keyBindings,
   theme,
 }: {
+  readonly list: PullRequestList;
   readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
 }) {
@@ -1468,7 +1546,7 @@ function HelpOverlay({
       left="25%"
       top="15%"
       width="50%"
-      height={16}
+      height={17}
       zIndex={10}
       border
       borderColor={theme?.foreground}
@@ -1495,11 +1573,76 @@ function HelpOverlay({
       <text fg={theme?.foreground}>
         {line('togglePullRequestList', 'switch Review Queue / My PRs')}
       </text>
+      {list === 'reviewQueue' ? (
+        <text fg={theme?.foreground}>
+          {line('editReviewQueueSearch', 'edit Review Queue query')}
+        </text>
+      ) : null}
       <text fg={theme?.foreground}>{line('refresh', 'refresh')}</text>
       <text fg={theme?.foreground}>{line('quit', 'quit')}</text>
       <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
         Esc close
       </text>
+    </box>
+  );
+}
+
+function SearchModal({
+  text,
+  validation,
+  editorRef,
+  onInput,
+  onClose,
+  terminal,
+  theme,
+}: {
+  readonly text: string;
+  readonly validation: string | undefined;
+  readonly editorRef: React.RefObject<TextareaRenderable | null>;
+  readonly onInput: (text: string) => void;
+  readonly onClose: () => void;
+  readonly terminal: { readonly width: number; readonly height: number };
+  readonly theme: SystemTheme | undefined;
+}) {
+  const width = Math.max(1, Math.min(90, terminal.width - 2));
+  const height = Math.max(1, Math.min(9, terminal.height));
+  return (
+    <box
+      position="absolute"
+      left={Math.max(0, Math.floor((terminal.width - width) / 2))}
+      top={Math.max(0, Math.floor((terminal.height - height) / 2))}
+      width={width}
+      height={height}
+      zIndex={20}
+      border
+      borderColor={theme?.foreground}
+      backgroundColor={theme?.background}
+      paddingLeft={1}
+      paddingRight={1}
+      flexDirection="column"
+    >
+      <text fg={theme?.foreground}>
+        <strong>Review Queue query</strong>
+      </text>
+      <text fg={theme?.textMuted}>Applies only to this session.</text>
+      <textarea
+        ref={editorRef}
+        initialValue={text}
+        focused
+        flexGrow={1}
+        textColor={theme?.foreground}
+        backgroundColor={theme?.background}
+        focusedTextColor={theme?.foreground}
+        focusedBackgroundColor={theme?.background}
+        onContentChange={() => onInput(editorRef.current?.plainText ?? '')}
+        onKeyDown={(key) => {
+          if (key.name !== 'escape') return;
+          stopKey(key);
+          onClose();
+        }}
+      />
+      <text fg={theme?.error}>{validation ?? ' '}</text>
+      <text fg={theme?.textMuted}>Enter apply · Esc cancel</text>
     </box>
   );
 }
@@ -1672,6 +1815,7 @@ export async function launchApplication(
 ): Promise<void> {
   const {
     githubSearch,
+    githubSearchText,
     refreshIntervalMinutes,
     reviewCommand,
     diffCommand,
@@ -1696,6 +1840,7 @@ export async function launchApplication(
         herdr={herdr}
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
+        githubSearchText={githubSearchText}
         onQuit={onQuit}
       />
     );
