@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.7.0
+
+### Minor Changes
+
+- Add a configurable `l` toggle to scope the Review Queue and My PRs to the GitHub repository where Review launched. Scope starts off and stays separate from saved and session-edited queries.
+
 ## 0.6.0
 
 ### Minor Changes

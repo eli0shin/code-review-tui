@@ -90,6 +90,10 @@
           "$ref": "#/$defs/bindingList",
           "default": ["/"]
         },
+        "toggleRepositoryScope": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["l"]
+        },
         "togglePullRequestList": {
           "$ref": "#/$defs/bindingList",
           "default": ["m"]

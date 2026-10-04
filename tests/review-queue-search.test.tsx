@@ -8,6 +8,7 @@ import { act } from 'react';
 import { ReviewQueuePage } from '../src/app.tsx';
 import { loadReviewConfiguration } from '../src/configuration/index.ts';
 import { createGitHubCliAdapter } from '../src/github/cli-adapter.ts';
+import type { CurrentRepositoryResult } from '../src/github/current-repository.ts';
 import type { Herdr } from '../src/tools/types.ts';
 
 notifyManager.setScheduler(queueMicrotask);
@@ -44,9 +45,11 @@ beforeEach(async () => {
 import { appendFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
 if (argv[0] === 'search') {
-  const search = argv.slice(argv.indexOf('--') + 1);
+  const query = argv.slice(argv.indexOf('--') + 1);
+  const repository = argv.includes('--repo') ? argv[argv.indexOf('--repo') + 1] : undefined;
+  const search = [...query, ...(repository ? ['repo:' + repository] : [])];
   appendFileSync(${JSON.stringify(join(directory, 'searches.jsonl'))}, JSON.stringify(search) + '\\n');
-  if (search.includes('slow:test')) await Bun.sleep(30_000);
+  if (search.includes('slow:test') && !search.includes('repo:acme/widgets')) await Bun.sleep(30_000);
   if (search.includes('empty:test')) {
     console.log('[]');
     process.exit(0);
@@ -56,7 +59,7 @@ if (argv[0] === 'search') {
     process.exit(1);
   }
   console.log(JSON.stringify([{
-    number: 7, title: search.includes('author:@me') ? 'Authored PR' : search.includes('is:draft') ? 'Draft PR' : 'Configured PR',
+    number: 7, title: (search.includes('repo:acme/widgets') ? 'Scoped ' : '') + (search.includes('author:@me') ? 'Authored PR' : search.includes('is:draft') ? 'Draft PR' : 'Configured PR'),
     author: { login: 'octocat' }, isDraft: search.includes('is:draft'), state: 'open',
     createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-21T10:00:00Z',
     url: 'https://github.com/acme/widgets/pull/7', repository: { nameWithOwner: 'acme/widgets' },
@@ -90,7 +93,11 @@ afterEach(async () => {
   Reflect.deleteProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
 });
 
-async function renderQueue() {
+async function renderQueue(
+  loadCurrentRepository?: (
+    signal: AbortSignal
+  ) => Promise<CurrentRepositoryResult>
+) {
   const loaded = await loadReviewConfiguration({ XDG_CONFIG_HOME: directory });
   if (!loaded.ok) throw new Error(loaded.failure.problem);
   const config = loaded.value;
@@ -101,6 +108,7 @@ async function renderQueue() {
     <ReviewQueuePage
       github={{ ...adapter, loadReviewQueue }}
       githubSearchText={config.githubSearchText}
+      loadCurrentRepository={loadCurrentRepository}
       herdr={unusedHerdr}
       keyBindings={config.keyBindings}
       refreshIntervalMinutes={config.refreshIntervalMinutes}
@@ -156,6 +164,189 @@ async function finishRefresh(view: Awaited<ReturnType<typeof testRender>>) {
     (frame) => frame.includes('updated') && !frame.includes('refreshing…')
   );
 }
+
+test('repo scope is shared by both lists and refreshes, separate from edits, and resets on restart', async () => {
+  const file = Bun.file(join(directory, 'review', 'config.json'));
+  const originalConfig = await file.text();
+  const loadCurrentRepository = jest.fn(async () => ({
+    ok: true as const,
+    repository: { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+  }));
+  const intervalSpy = jest.spyOn(globalThis, 'setInterval');
+  const { view } = await renderQueue(loadCurrentRepository);
+  await view.waitForFrame((frame) => frame.includes('Configured PR'));
+  expect(loadCurrentRepository).not.toHaveBeenCalled();
+  expect(view.captureCharFrame()).toContain('All repositories');
+  await act(async () => view.mockInput.pressKey('l'));
+  await view.waitForFrame((frame) => frame.includes('Scoped Configured PR'));
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'review-requested:@me',
+    'state:open',
+    '-is:draft',
+    'repo:acme/widgets',
+  ]);
+  await act(async () => view.mockInput.pressKey('/'));
+  const originalEditor = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(originalEditor).toContain(configuredSearch);
+  expect(originalEditor).not.toContain('repo:acme/widgets');
+  await replaceQuery(view, editedSearch);
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame((frame) => frame.includes('Scoped Draft PR'));
+  expect((await searches()).at(-1)).toEqual([
+    ...editedArguments,
+    'repo:acme/widgets',
+  ]);
+
+  await act(async () => view.mockInput.pressKey('r'));
+  await finishRefresh(view);
+  expect((await searches()).at(-1)).toEqual([
+    ...editedArguments,
+    'repo:acme/widgets',
+  ]);
+  const intervalCallback = intervalSpy.mock.calls.findLast(
+    ([, delay]) => delay === 5 * 60_000
+  )?.[0];
+  if (typeof intervalCallback !== 'function')
+    throw new Error('Missing polling callback');
+  await act(async () => {
+    intervalCallback();
+    await Promise.resolve();
+  });
+  await finishRefresh(view);
+  expect((await searches()).at(-1)).toEqual([
+    ...editedArguments,
+    'repo:acme/widgets',
+  ]);
+
+  await act(async () => view.mockInput.pressKey('m'));
+  await view.waitForFrame((frame) => frame.includes('Scoped Authored PR'));
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'author:@me',
+    'state:open',
+    'repo:acme/widgets',
+  ]);
+  await act(async () => view.mockInput.pressKey('l'));
+  await finishRefresh(view);
+  expect(view.captureCharFrame()).toContain('All repositories');
+  expect(view.captureCharFrame()).not.toContain('Scoped Authored PR');
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'author:@me',
+    'state:open',
+  ]);
+  await act(async () => view.mockInput.pressKey('m'));
+  await finishRefresh(view);
+  expect((await searches()).at(-1)).toEqual(editedArguments);
+  await act(async () => view.mockInput.pressKey('/'));
+  const editor = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(editor).toContain(editedSearch);
+  await act(view.mockInput.pressEscape);
+  await act(async () => view.mockInput.pressKey('l'));
+  await finishRefresh(view);
+  expect(loadCurrentRepository).toHaveBeenCalledTimes(1);
+  expect(await file.text()).toBe(originalConfig);
+
+  act(() => {
+    view.renderer.destroy();
+    views.splice(views.indexOf(view), 1);
+  });
+  const restarted = await renderQueue(loadCurrentRepository);
+  await restarted.view.waitForFrame((frame) => frame.includes('Configured PR'));
+  expect(restarted.view.captureCharFrame()).toContain('All repositories');
+  expect((await searches()).at(-1)).not.toContain('repo:acme/widgets');
+  expect(await file.text()).toBe(originalConfig);
+});
+
+test('scope supports remapping and empty lists, while resolution failure leaves queries unscoped and can be retried', async () => {
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search: 'is:pr empty:test' },
+      reviewCommand: 'unused',
+      keyBindings: { toggleRepositoryScope: ['f'] },
+    })
+  );
+  let attempts = 0;
+  const loadCurrentRepository = jest.fn(
+    async (): Promise<CurrentRepositoryResult> => {
+      attempts += 1;
+      return attempts === 1
+        ? { ok: false, diagnostic: 'No GitHub remote for launch repository' }
+        : {
+            ok: true,
+            repository: {
+              nameWithOwner: 'acme/widgets',
+              hostname: 'github.com',
+            },
+          };
+    }
+  );
+  const { view } = await renderQueue(loadCurrentRepository);
+  await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+  await act(async () => view.mockInput.pressKey('l'));
+  expect(loadCurrentRepository).not.toHaveBeenCalled();
+  await act(async () => view.mockInput.pressKey('f'));
+  await view.waitForFrame((frame) => frame.includes('No GitHub remote'));
+  expect(view.captureCharFrame()).toContain('All repositories');
+  expect(await searches()).toHaveLength(1);
+  await act(async () => view.mockInput.pressKey('f'));
+  await view.waitForFrame(
+    async (frame) =>
+      frame.includes('acme/widgets · f repo scope') &&
+      (await searches()).length === 2
+  );
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'empty:test',
+    'repo:acme/widgets',
+  ]);
+  await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
+  expect(view.captureCharFrame()).not.toContain('No GitHub remote');
+  await act(async () => view.mockInput.pressKey('?'));
+  await view.waitForFrame((frame) =>
+    frame.includes('f  toggle launch repository scope')
+  );
+});
+
+test('scoping aborts an obsolete unscoped fetch and editors own the l key', async () => {
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search: 'is:pr slow:test' },
+      reviewCommand: 'unused',
+    })
+  );
+  const loadCurrentRepository = jest.fn(async () => ({
+    ok: true as const,
+    repository: { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+  }));
+  const { view, loadReviewQueue } = await renderQueue(loadCurrentRepository);
+  await view.waitForFrame(
+    async () => await Bun.file(join(directory, 'searches.jsonl')).exists()
+  );
+  const oldSignal = loadReviewQueue.mock.calls[0][0];
+  await act(async () => view.mockInput.pressKey('/'));
+  await view.waitForFrame((frame) => frame.includes('Review Queue query'));
+  await act(async () => view.mockInput.pressKey('l'));
+  expect(loadCurrentRepository).not.toHaveBeenCalled();
+  await view.waitForFrame((frame) => frame.includes('lis:pr slow:test'));
+  await act(view.mockInput.pressEscape);
+  await view.waitForFrame((frame) => !frame.includes('Review Queue query'));
+  await act(async () => view.mockInput.pressKey('l'));
+  await view.waitForFrame((frame) => frame.includes('Scoped Configured PR'));
+  expect(oldSignal.aborted).toBe(true);
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'slow:test',
+    'repo:acme/widgets',
+  ]);
+});
 
 test('edits the real gh query for this session, refreshes with it, preserves it across My PRs, and never saves it', async () => {
   const file = Bun.file(join(directory, 'review', 'config.json'));

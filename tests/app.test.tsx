@@ -20,7 +20,9 @@ import type {
 import type {
   GitHub as ProductionGitHub,
   GitHubResult,
+  GitHubRepository,
   PullRequestDetailSources,
+  PullRequestList,
 } from '../src/github/types.ts';
 import type { Herdr, HerdrResult } from '../src/tools/types.ts';
 
@@ -114,6 +116,7 @@ const defaultKeyBindings = {
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
   togglePullRequestList: ['m'],
+  toggleRepositoryScope: ['l'],
   editReviewQueueSearch: ['/'],
   refresh: ['r'],
   pagePrevious: ['ctrl+u'],
@@ -613,6 +616,7 @@ describe('Review Queue page loading', () => {
     const lines = view
       .captureCharFrame()
       .split('\n')
+      .slice(1) // The scope indicator is separate from the centered status.
       .filter((line) => line.trim());
     expect(lines.length).toBeGreaterThan(2);
     for (const line of lines) {
@@ -623,7 +627,7 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('shows only the centered My PRs title while that list loads', async () => {
+  test('shows the scope indicator and centered My PRs title while that list loads', async () => {
     const authoredLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
     const github = {
       async loadReviewQueue(_signal: AbortSignal, list = 'reviewQueue') {
@@ -643,7 +647,8 @@ describe('Review Queue page loading', () => {
     await view.waitForFrame((frame) => frame.includes('Fetching my PRs…'));
     const lines = view.captureCharFrame().split('\n');
     const title = 'Fetching my PRs…';
-    expect(lines.filter((line) => line.trim() !== '')).toHaveLength(1);
+    expect(lines[0]).toContain('All repositories');
+    expect(lines.filter((line) => line.trim() !== '')).toHaveLength(2);
     expect(lines.find((line) => line.includes(title))?.indexOf(title)).toBe(
       Math.floor((80 - title.length) / 2)
     );
@@ -699,7 +704,8 @@ describe('Review Queue page loading', () => {
     await view.renderOnce();
     const loadingLines = view.captureCharFrame().split('\n');
     const reviewTitle = 'Fetching PRs to review…';
-    expect(loadingLines.filter((line) => line.trim() !== '')).toHaveLength(1);
+    expect(loadingLines[0]).toContain('All repositories');
+    expect(loadingLines.filter((line) => line.trim() !== '')).toHaveLength(2);
     expect(loadingLines.some((line) => line.trim() === reviewTitle)).toBe(true);
     expect(
       loadingLines
@@ -1458,6 +1464,69 @@ describe('Review Queue Herdr actions', () => {
 });
 
 describe('Review Submission', () => {
+  test('details and submission own the scope key, and submission refresh keeps repo scope', async () => {
+    const loadReviewQueue = jest.fn(
+      async (
+        _signal: AbortSignal,
+        _list?: PullRequestList,
+        _search?: readonly string[],
+        _repository?: GitHubRepository
+      ) => success([pullRequest])
+    );
+    const submitReview = jest.fn(async () => success(undefined));
+    const view = await testRender(
+      <ReviewQueuePage
+        github={{
+          loadReviewQueue,
+          loadPullRequestDetails: async () =>
+            detailSources(pullRequestDetails('Scoped details')),
+          openPullRequestInBrowser: unusedOpenPullRequestInBrowser,
+          submitReview,
+        }}
+        herdr={unusedHerdr}
+        keyBindings={defaultKeyBindings}
+        refreshIntervalMinutes={5}
+        githubSearchText="is:pr review-requested:@me state:open"
+        loadCurrentRepository={async () => ({
+          ok: true,
+          repository: { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+        })}
+        onQuit={() => undefined}
+      />,
+      { width: 100, height: 30 }
+    );
+    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+    await act(async () => view.mockInput.pressKey('l'));
+    await view.waitForFrame((frame) =>
+      frame.includes('acme/widgets · l repo scope')
+    );
+    await act(view.mockInput.pressEnter);
+    await view.waitForFrame((frame) => frame.includes('Scoped details'));
+    await act(async () => view.mockInput.pressKey('l'));
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    await act(view.mockInput.pressEscape);
+    await view.waitForFrame((frame) => !frame.includes('Scoped details'));
+    await act(async () => view.mockInput.pressKey('s'));
+    await view.waitForFrame((frame) => frame.includes('Ctrl+A Approve'));
+    await act(async () => view.mockInput.typeText('local feedback'));
+    await view.waitForFrame((frame) => frame.includes('local feedback'));
+    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+    await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
+    const completed = await view.waitForFrame((frame) =>
+      frame.includes('Commented on acme/widgets #7.')
+    );
+    expect(completed).toContain('acme/widgets · l repo scope');
+    expect(completed).not.toContain('Ctrl+A Approve');
+    expect(submitReview).toHaveBeenCalledTimes(1);
+    expect(loadReviewQueue).toHaveBeenCalledTimes(3);
+    expect(loadReviewQueue).toHaveBeenLastCalledWith(
+      expect.any(AbortSignal),
+      'reviewQueue',
+      ['is:pr', 'review-requested:@me', 'state:open'],
+      { nameWithOwner: 'acme/widgets', hostname: 'github.com' }
+    );
+    view.renderer.destroy();
+  });
   test('submits an exact multiline comment to the captured target and refreshes', async () => {
     const submission = Promise.withResolvers<GitHubResult<void>>();
     const loadReviewQueue = jest.fn(async () =>

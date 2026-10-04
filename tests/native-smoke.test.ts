@@ -178,6 +178,7 @@ describe('native review executable', () => {
         runReviewCommand: ['c'],
         composeReviewSubmission: ['s'],
         togglePullRequestList: ['m'],
+        toggleRepositoryScope: ['l'],
         editReviewQueueSearch: ['/'],
         refresh: ['r'],
         pagePrevious: ['ctrl+u'],

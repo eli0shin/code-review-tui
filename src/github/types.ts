@@ -10,6 +10,11 @@ import type {
 
 export type PullRequestList = 'reviewQueue' | 'authored';
 
+export type GitHubRepository = {
+  readonly nameWithOwner: string;
+  readonly hostname: string;
+};
+
 export type GitHubOperation =
   | 'reviewQueue'
   | 'pullRequestMetadata'
@@ -70,7 +75,8 @@ export type GitHub = {
   loadReviewQueue(
     signal: AbortSignal,
     list?: PullRequestList,
-    search?: readonly string[]
+    search?: readonly string[],
+    repository?: GitHubRepository
   ): Promise<GitHubResult<ReviewQueue>>;
   loadPullRequestDetails(
     url: string,

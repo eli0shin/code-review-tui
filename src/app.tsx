@@ -44,9 +44,14 @@ import type {
   ReviewQueue,
 } from './domain/pull-request.ts';
 import { createGitHubCliAdapter } from './github/cli-adapter.ts';
+import {
+  resolveCurrentRepository,
+  type CurrentRepositoryResult,
+} from './github/current-repository.ts';
 import type {
   GitHub,
   GitHubFailure,
+  GitHubRepository,
   PullRequestDetailSources,
   PullRequestList,
 } from './github/types.ts';
@@ -74,6 +79,9 @@ type ReviewQueuePageProps = {
   readonly keyBindings: EffectiveKeyBindings;
   readonly refreshIntervalMinutes: number;
   readonly githubSearchText: string;
+  readonly loadCurrentRepository?: (
+    signal: AbortSignal
+  ) => Promise<CurrentRepositoryResult>;
   readonly onQuit: () => void;
 };
 
@@ -109,6 +117,7 @@ export function ReviewQueuePage({
   keyBindings,
   refreshIntervalMinutes,
   githubSearchText,
+  loadCurrentRepository,
   onQuit,
 }: ReviewQueuePageProps) {
   const [queryClient] = useState(
@@ -128,6 +137,7 @@ export function ReviewQueuePage({
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
         githubSearchText={githubSearchText}
+        loadCurrentRepository={loadCurrentRepository}
         onQuit={onQuit}
       />
     </QueryClientProvider>
@@ -140,6 +150,7 @@ function ReviewQueue({
   keyBindings,
   refreshIntervalMinutes,
   githubSearchText,
+  loadCurrentRepository,
   onQuit,
 }: ReviewQueuePageProps) {
   const theme = useSystemTheme();
@@ -148,6 +159,26 @@ function ReviewQueue({
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
   const [list, setList] = useState<PullRequestList>('reviewQueue');
+  const [currentRepository, setCurrentRepository] =
+    useState<GitHubRepository>();
+  const [repositoryScoped, setRepositoryScoped] = useState(false);
+  const [scopeDiagnostic, setScopeDiagnostic] = useState<string>();
+  const [resolvingRepository, setResolvingRepository] = useState(false);
+  const repositoryControllerRef = useRef<AbortController | undefined>(
+    undefined
+  );
+  const scopedRepository = repositoryScoped ? currentRepository : undefined;
+  const scopeLabel =
+    scopedRepository === undefined
+      ? 'All repositories'
+      : `${scopedRepository.hostname === 'github.com' ? '' : `${scopedRepository.hostname}/`}${scopedRepository.nameWithOwner}`;
+  const scopeStatusText = ` ${scopeLabel} · ${formatBindings(keyBindings.toggleRepositoryScope)} repo scope${resolvingRepository ? ' · resolving launch repository…' : ''}`;
+  const scopeStatusRows =
+    renderedRows(scopeStatusText, terminal.width) +
+    (scopeDiagnostic === undefined
+      ? 0
+      : renderedRows(scopeDiagnostic, terminal.width));
+  useEffect(() => () => repositoryControllerRef.current?.abort(), []);
   const [searchText, setSearchText] = useState(githubSearchText);
   const search = useMemo(() => {
     const parsed = tokenizeSearch(searchText);
@@ -177,12 +208,18 @@ function ReviewQueue({
     undefined
   );
   const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
-    queryKey: ['reviewQueue', list, list === 'reviewQueue' ? search : null],
+    queryKey: [
+      'reviewQueue',
+      list,
+      list === 'reviewQueue' ? search : null,
+      scopedRepository,
+    ],
     async queryFn({ signal }) {
       const result = await github.loadReviewQueue(
         signal,
         list,
-        list === 'reviewQueue' ? search : undefined
+        list === 'reviewQueue' ? search : undefined,
+        scopedRepository
       );
       if (!result.ok) throw result.failure;
       queueSuccessSequenceRef.current[list] += 1;
@@ -242,7 +279,9 @@ function ReviewQueue({
           )} retry`
         : `${listName} not refreshed: ${failureMessage(queueFailure)}`,
       queue.length === 0 ? terminal.width : queueStatusWidth,
-      queue.length === 0 ? terminal.height - 2 : 3 - occupiedQueueStatusRows
+      queue.length === 0
+        ? terminal.height - 2 - scopeStatusRows
+        : 3 - occupiedQueueStatusRows
     ) &&
     githubFailureKey(queueFailure) !== dismissedFailureKey
       ? {
@@ -355,6 +394,37 @@ function ReviewQueue({
     setHerdrActionFailure(undefined);
   };
 
+  const toggleRepositoryScope = async (): Promise<void> => {
+    if (repositoryControllerRef.current !== undefined) return;
+    setScopeDiagnostic(undefined);
+    if (currentRepository !== undefined) {
+      setRepositoryScoped((current) => !current);
+    } else if (loadCurrentRepository === undefined) {
+      setScopeDiagnostic(
+        'Repository scope requires review to start inside a Git repository.'
+      );
+      return;
+    } else {
+      const controller = new AbortController();
+      repositoryControllerRef.current = controller;
+      setResolvingRepository(true);
+      const result = await loadCurrentRepository(controller.signal);
+      if (controller.signal.aborted) return;
+      repositoryControllerRef.current = undefined;
+      setResolvingRepository(false);
+      if (!result.ok) {
+        setScopeDiagnostic(result.diagnostic);
+        return;
+      }
+      setCurrentRepository(result.repository);
+      setRepositoryScoped(true);
+    }
+    setCursor(0);
+    setNotice(undefined);
+    setDismissedFailureKey(undefined);
+    setHerdrActionFailure(undefined);
+  };
+
   const openSearchEditor = (): void => {
     if (list !== 'reviewQueue') return;
     setSearchValidation(undefined);
@@ -413,6 +483,8 @@ function ReviewQueue({
         void queueQuery.refetch();
       } else if (action === 'togglePullRequestList') {
         toggleList();
+      } else if (action === 'toggleRepositoryScope') {
+        void toggleRepositoryScope();
       } else if (action === 'editReviewQueueSearch') {
         openSearchEditor();
       } else if (key.name === 'escape') {
@@ -511,6 +583,10 @@ function ReviewQueue({
       toggleList();
       return;
     }
+    if (action === 'toggleRepositoryScope') {
+      void toggleRepositoryScope();
+      return;
+    }
     if (action === 'editReviewQueueSearch') {
       openSearchEditor();
       return;
@@ -570,6 +646,14 @@ function ReviewQueue({
         flexGrow={1}
         flexDirection="column"
       >
+        <text flexShrink={0} attributes={TextAttributes.DIM} wrapMode="char">
+          {scopeStatusText}
+        </text>
+        {scopeDiagnostic !== undefined ? (
+          <text flexShrink={0} fg={theme.error} wrapMode="char">
+            {scopeDiagnostic}
+          </text>
+        ) : null}
         {queueQuery.status === 'pending' ? (
           <StatusView
             title={
@@ -1546,7 +1630,7 @@ function HelpOverlay({
       left="25%"
       top="15%"
       width="50%"
-      height={17}
+      height={18}
       zIndex={10}
       border
       borderColor={theme?.foreground}
@@ -1572,6 +1656,9 @@ function HelpOverlay({
       </text>
       <text fg={theme?.foreground}>
         {line('togglePullRequestList', 'switch Review Queue / My PRs')}
+      </text>
+      <text fg={theme?.foreground}>
+        {line('toggleRepositoryScope', 'toggle launch repository scope')}
       </text>
       {list === 'reviewQueue' ? (
         <text fg={theme?.foreground}>
@@ -1821,10 +1908,11 @@ export async function launchApplication(
     diffCommand,
     keyBindings,
   } = configuration;
+  const workingDirectory = process.cwd();
   const herdr = createHerdrCliAdapter({
     reviewCommand,
     diffCommand,
-    workingDirectory: process.cwd(),
+    workingDirectory,
     environment: process.env,
   });
   const github = createGitHubCliAdapter(githubSearch);
@@ -1841,6 +1929,9 @@ export async function launchApplication(
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
         githubSearchText={githubSearchText}
+        loadCurrentRepository={(signal) =>
+          resolveCurrentRepository(workingDirectory, signal)
+        }
         onQuit={onQuit}
       />
     );

@@ -12,6 +12,7 @@ export const queueActions = [
   'runReviewCommand',
   'composeReviewSubmission',
   'togglePullRequestList',
+  'toggleRepositoryScope',
   'editReviewQueueSearch',
   'refresh',
   'pagePrevious',
@@ -68,6 +69,7 @@ const defaultKeyBindings = {
   runReviewCommand: ['c'],
   composeReviewSubmission: ['s'],
   togglePullRequestList: ['m'],
+  toggleRepositoryScope: ['l'],
   editReviewQueueSearch: ['/'],
   refresh: ['r'],
   pagePrevious: ['ctrl+u'],
@@ -461,6 +463,10 @@ function validateKeyBindings(
       togglePullRequestList: getEffectiveBindings(
         effective,
         'togglePullRequestList'
+      ),
+      toggleRepositoryScope: getEffectiveBindings(
+        effective,
+        'toggleRepositoryScope'
       ),
       editReviewQueueSearch: getEffectiveBindings(
         effective,

@@ -30,6 +30,7 @@ A complete example is:
     "runReviewCommand": ["c"],
     "composeReviewSubmission": ["s"],
     "togglePullRequestList": ["m"],
+    "toggleRepositoryScope": ["l"],
     "editReviewQueueSearch": ["/"],
     "refresh": ["r"],
     "pagePrevious": ["ctrl+u"],
@@ -78,6 +79,8 @@ These rules preserve intentionally grouped GitHub search terms without evaluatin
 
 The Review Queue query editor uses the same tokenization rules. It opens with the current active query; `Enter` validates and applies it, then immediately refetches. Invalid input remains in the editor with a diagnostic; `Escape` discards it. The override exists only in memory for the TUI session and is used by every subsequent Review Queue fetch, including manual and automatic refreshes and refresh after a Review Submission. Switching to My PRs and back preserves the override, but My PRs keeps its fixed query and cannot open the editor. No configuration file is written; the next startup uses `github.search` again.
 
+Repository scope is a separate session-only toggle, initially off. When enabled, both lists and their manual, automatic, and post-submission refreshes are restricted to the GitHub repository resolved from the launch directory. It does not edit the saved query or the query editor's text. The raw query, including `repo:` terms and nested Boolean expressions, stays intact. Scope is added as a structured `gh search prs --repo` qualifier, allowing `gh` to group the query before applying it. Scope is visible even when the list is empty, loading, or unavailable. Resolution requires a Git repository and uses `gh repo view` from the launch directory (ignoring `GH_REPO`); failures leave the list unscoped and show a diagnostic. The canonical repository URL determines the GitHub host for scoped searches, including Enterprise hosts. Turning scope off restores the normal search host. For GitHub Enterprise Server, resolution checks `/meta` and requires version 3.18 or newer: older servers use legacy search that ORs repository qualifiers and cannot safely intersect the intact query, so the toggle remains off with a diagnostic. Restarting restores unscoped queries.
+
 ## Key bindings
 
 The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. Its one scrolling document renders GitHub-authored bodies with OpenTUI Markdown and keeps metadata and inline code context as ordinary text. A Review Command, a Diff Command, Lumen, the query editor, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
@@ -102,6 +105,7 @@ The actions have these meanings:
 | `runReviewCommand`        | `c`              | Start the Review Command for the pull request under the Cursor.           |
 | `composeReviewSubmission` | `s`              | Open Review Submission composition for the pull request under the Cursor. |
 | `togglePullRequestList`   | `m`              | Switch between the Review Queue and My PRs when a list owns input.        |
+| `toggleRepositoryScope`   | `l`              | Toggle launch-repository scope for both lists when a list owns input.     |
 | `editReviewQueueSearch`   | `/`              | Edit the active Review Queue query for this session, not My PRs.          |
 | `refresh`                 | `r`              | Refresh the active list or details modal.                                 |
 | `pagePrevious`            | `ctrl+u`         | Scroll details up by half of the current visible viewport.                |

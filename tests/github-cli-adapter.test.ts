@@ -175,6 +175,7 @@ appendFileSync(record, JSON.stringify({
   argv,
   stdin,
   marker: process.env.REVIEW_TEST_MARKER,
+  ...(argv.includes('--repo') ? { host: process.env.GH_HOST } : {}),
 }) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
@@ -273,6 +274,84 @@ describe('GitHub CLI adapter contract', () => {
         marker: 'inherited',
       },
     ]);
+  });
+
+  test('adds repo scope as a structured qualifier without rewriting raw or Boolean queries', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const repository = {
+      nameWithOwner: 'acme/widgets',
+      hostname: 'github.example',
+    };
+    const queries = [
+      ['is:pr', 'repo:other/project', 'repo:ACME/widgets', 'label:review'],
+      ['is:pr', '(', 'repo:other/project', 'OR', 'label:bug', ')'],
+      ['is:pr', '(', 'repo:acme/widgets', 'OR', 'label:bug', ')'],
+    ];
+    const github = createGitHubCliAdapter(queries[0]);
+    for (const query of queries) {
+      const scoped = await github.loadReviewQueue(
+        new AbortController().signal,
+        'reviewQueue',
+        query,
+        repository
+      );
+      expect(scoped.ok && scoped.value.length).toBe(1);
+      const records = await readRecords();
+      expect(records.at(-2)?.argv.slice(-(query.length + 3))).toEqual([
+        '--repo',
+        'acme/widgets',
+        '--',
+        ...query,
+      ]);
+    }
+    await github.loadReviewQueue(
+      new AbortController().signal,
+      'authored',
+      undefined,
+      repository
+    );
+    expect((await readRecords()).at(-2)?.argv.slice(-6)).toEqual([
+      '--repo',
+      'acme/widgets',
+      '--',
+      'is:pr',
+      'author:@me',
+      'state:open',
+    ]);
+    await github.loadReviewQueue(new AbortController().signal);
+    expect((await readRecords()).at(-2)?.argv.slice(-5)).toEqual([
+      '--',
+      ...queries[0],
+    ]);
+  });
+
+  test('repo scope preserves negative qualifiers and confines the query and results to the resolved host', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify([
+      ...queueJson,
+      { ...queueJson[0], repository: { nameWithOwner: 'other/project' } },
+      { ...queueJson[0], url: 'https://github.com/acme/widgets/pull/42' },
+    ]);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const github = createGitHubCliAdapter(['is:pr', '-repo:other/project']);
+    const scoped = await github.loadReviewQueue(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      { nameWithOwner: 'acme/widgets', hostname: 'github.example' }
+    );
+    expect(scoped.ok && scoped.value.length).toBe(1);
+    const records = await readRecords();
+    expect(records).toHaveLength(2);
+    expect(records[0].argv.slice(-5)).toEqual([
+      '--repo',
+      'acme/widgets',
+      '--',
+      'is:pr',
+      '-repo:other/project',
+    ]);
+    expect(records[0]).toHaveProperty('host', 'github.example');
+    expect(records[1].argv[2]).toBe(queueJson[0].url);
   });
 
   test('searches open PRs authored by the active GitHub user without changing the configured search', async () => {

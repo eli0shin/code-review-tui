@@ -14,6 +14,7 @@ import type {
   GitHub,
   GitHubFailure,
   GitHubOperation,
+  GitHubRepository,
   GitHubResult,
   PullRequestList,
 } from './types.ts';
@@ -88,8 +89,12 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
     async loadReviewQueue(
       signal,
       list: PullRequestList = 'reviewQueue',
-      search = searchArguments
+      search = searchArguments,
+      repository?: GitHubRepository
     ) {
+      const listSearch = list === 'authored' ? authoredSearch : search;
+      // gh groups the intact query before intersecting structured qualifiers,
+      // so nested Boolean expressions keep their original meaning.
       const processResult = await runGh(
         [
           'search',
@@ -98,13 +103,19 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
           queueFields,
           '--limit',
           '1000',
+          ...(repository === undefined
+            ? []
+            : ['--repo', repository.nameWithOwner]),
           '--',
-          ...(list === 'authored' ? authoredSearch : search),
+          ...listSearch,
         ],
         '',
         'reviewQueue',
         undefined,
-        signal
+        signal,
+        repository === undefined
+          ? process.env
+          : { ...process.env, GH_HOST: repository.hostname }
       );
       if (!processResult.ok) return processResult;
       const parsed = parseOutput(
@@ -113,7 +124,19 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         parseReviewQueue
       );
       if (!parsed.ok) return parsed;
-      return enrichReviewQueue(parsed.value, signal);
+      return enrichReviewQueue(
+        repository === undefined
+          ? parsed.value
+          : parsed.value.filter(
+              (pullRequest) =>
+                pullRequest.repository.toLowerCase() ===
+                  repository.nameWithOwner.toLowerCase() &&
+                pullRequest.url
+                  .toLowerCase()
+                  .startsWith(`https://${repository.hostname.toLowerCase()}/`)
+            ),
+        signal
+      );
     },
 
     async loadPullRequestDetails(url, signal) {
@@ -320,7 +343,8 @@ async function runGh(
   stdin: string,
   operation: GitHubOperation,
   url: string | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  environment: Readonly<NodeJS.ProcessEnv> = process.env
 ): Promise<GitHubResult<ProcessOutput>> {
   if (signal.aborted) {
     return failure({
@@ -333,7 +357,7 @@ async function runGh(
   }
 
   const subprocess = spawn('gh', [...arguments_], {
-    env: process.env,
+    env: environment,
     shell: false,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
