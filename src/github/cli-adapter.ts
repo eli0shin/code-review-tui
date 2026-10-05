@@ -18,10 +18,24 @@ import type {
   GitHubRepository,
   GitHubResult,
   PullRequestList,
+  PullRequestPage,
+  PullRequestPageRequest,
 } from './types.ts';
 
-const queueFields =
-  'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount';
+const queueQuery = `
+query($searchQuery:String!,$size:Int!,$after:String) {
+  search(query:$searchQuery,type:ISSUE_ADVANCED,first:$size,after:$after) {
+    nodes {
+      ... on PullRequest {
+        number title author { login } isDraft state createdAt updatedAt url
+        repository { nameWithOwner }
+        labels(first:100) { nodes { name } }
+        comments { totalCount }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
 const queueStatsFields =
   'additions,deletions,changedFiles,reviewDecision,statusCheckRollup';
 const queueEnrichmentConcurrency = 8;
@@ -97,24 +111,27 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
       signal,
       list: PullRequestList = 'reviewQueue',
       search = searchArguments,
-      repository?: GitHubRepository
+      repository?: GitHubRepository,
+      page: PullRequestPageRequest = { size: 25 }
     ) {
       const listSearch = list === 'authored' ? authoredSearch : search;
-      // gh groups the intact query before intersecting structured qualifiers,
-      // so nested Boolean expressions keep their original meaning.
+      // Match gh search's keyword quoting and intersect the intact query with
+      // PR type and scope outside its Boolean expression.
+      const query = `( ${listSearch.map(searchTerm).join(' ')} ) type:pr${repository === undefined ? '' : ` repo:${repository.nameWithOwner}`}`;
       const processResult = await runGh(
         [
-          'search',
-          'prs',
-          '--json',
-          queueFields,
-          '--limit',
-          '1000',
+          'api',
+          'graphql',
           ...(repository === undefined
             ? []
-            : ['--repo', repository.nameWithOwner]),
-          '--',
-          ...listSearch,
+            : ['--hostname', repository.hostname]),
+          '-f',
+          `query=${queueQuery}`,
+          '-f',
+          `searchQuery=${query}`,
+          '-F',
+          `size=${page.size}`,
+          ...(page.after === undefined ? [] : ['-f', `after=${page.after}`]),
         ],
         '',
         'reviewQueue',
@@ -128,13 +145,13 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
       const parsed = parseOutput(
         processResult.value,
         'reviewQueue',
-        parseReviewQueue
+        parseQueuePage
       );
       if (!parsed.ok) return parsed;
-      return enrichReviewQueue(
+      const enriched = await enrichReviewQueue(
         repository === undefined
-          ? parsed.value
-          : parsed.value.filter(
+          ? parsed.value.queue
+          : parsed.value.queue.filter(
               (pullRequest) =>
                 pullRequest.repository.toLowerCase() ===
                   repository.nameWithOwner.toLowerCase() &&
@@ -144,6 +161,15 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
             ),
         signal
       );
+      return enriched.ok
+        ? {
+            ok: true,
+            value: {
+              queue: enriched.value,
+              nextCursor: parsed.value.nextCursor,
+            },
+          }
+        : enriched;
     },
 
     async loadPullRequestDetails(url, signal) {
@@ -594,9 +620,49 @@ function addSummaryStats(
   };
 }
 
-function parseReviewQueue(value: unknown): ReviewQueue {
-  const items = array(value, '$');
-  return items.map((item, index) => parseSummary(item, `$[${index}]`));
+function searchTerm(term: string): string {
+  const colon = term.indexOf(':');
+  const prefix = colon < 0 ? '' : term.slice(0, colon + 1);
+  const value = term.slice(colon + 1);
+  return prefix + (/\s|"/.test(value) ? JSON.stringify(value) : value);
+}
+
+function parseQueuePage(value: unknown): PullRequestPage {
+  const root = record(value, '$');
+  if (root.errors !== undefined) {
+    throw new CompatibilityError('GitHub CLI returned GraphQL search errors');
+  }
+  const data = record(root.data, '$.data');
+  const search = record(data.search, '$.data.search');
+  const pageInfo = record(search.pageInfo, '$.data.search.pageInfo');
+  const hasNextPage = boolean(
+    pageInfo.hasNextPage,
+    '$.data.search.pageInfo.hasNextPage'
+  );
+  const nextCursor = hasNextPage
+    ? string(pageInfo.endCursor, '$.data.search.pageInfo.endCursor')
+    : null;
+  if (nextCursor === '')
+    throw new CompatibilityError('GitHub search returned an empty next cursor');
+  const queue = array(search.nodes, '$.data.search.nodes').map(
+    (value, index) => {
+      const path = `$.data.search.nodes[${index}]`;
+      const item = record(value, path);
+      const labels = record(item.labels, `${path}.labels`);
+      const comments = record(item.comments, `${path}.comments`);
+      return parseSummary(
+        {
+          ...item,
+          author: item.author === null ? { login: 'ghost' } : item.author,
+          state: string(item.state, `${path}.state`).toLowerCase(),
+          labels: labels.nodes,
+          commentsCount: comments.totalCount,
+        },
+        path
+      );
+    }
+  );
+  return { queue, nextCursor };
 }
 
 function parseSummary(value: unknown, path: string): PullRequestSummary {

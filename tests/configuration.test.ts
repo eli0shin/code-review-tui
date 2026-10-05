@@ -18,6 +18,7 @@ const generatedConfiguration = {
   github: {
     search: 'is:pr review-requested:@me state:open',
     refreshIntervalMinutes: 5,
+    pageSize: 25,
   },
   reviewCommand:
     'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
@@ -33,6 +34,8 @@ const generatedConfiguration = {
     toggleRepositoryScope: ['l'],
     editReviewQueueSearch: ['/'],
     refresh: ['r'],
+    previousPullRequestPage: ['p'],
+    nextPullRequestPage: ['n'],
     pagePrevious: ['ctrl+u'],
     pageNext: ['ctrl+d'],
     scrollStart: ['g', 'home'],
@@ -87,6 +90,36 @@ afterEach(async () => {
 });
 
 describe('Review configuration contract', () => {
+  test('accepts bounded page sizes and configurable page keys', async () => {
+    const { file, environment } = await makeEnvironment();
+    for (const pageSize of [1, 40, 100]) {
+      await writeConfiguration(file, {
+        ...completeConfiguration,
+        github: { ...completeConfiguration.github, pageSize },
+        keyBindings: {
+          previousPullRequestPage: ['['],
+          nextPullRequestPage: [']'],
+        },
+      });
+      const result = await loadReviewConfiguration(environment);
+      expect(result.ok && result.value.pageSize).toBe(pageSize);
+      expect(result.ok && result.value.keyBindings.nextPullRequestPage).toEqual(
+        [']']
+      );
+    }
+    for (const pageSize of [0, -1, 101, 1.5, '25', null, true]) {
+      await writeConfiguration(file, {
+        ...completeConfiguration,
+        github: { ...completeConfiguration.github, pageSize },
+      });
+      expectFailure(
+        await loadReviewConfiguration(environment),
+        file,
+        'github.pageSize',
+        /integer from 1 to 100/
+      );
+    }
+  });
   test('loads complete XDG configuration and applies omitted defaults', async () => {
     const { file, environment } = await makeEnvironment();
     await writeConfiguration(file, completeConfiguration);
@@ -97,6 +130,7 @@ describe('Review configuration contract', () => {
         githubSearch: ['review-requested:@me', 'state:open'],
         githubSearchText: completeConfiguration.github.search,
         refreshIntervalMinutes: 5,
+        pageSize: 25,
         reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
         diffCommand: undefined,
         keyBindings: {
@@ -111,6 +145,8 @@ describe('Review configuration contract', () => {
           toggleRepositoryScope: ['l'],
           editReviewQueueSearch: ['/'],
           refresh: ['r'],
+          previousPullRequestPage: ['p'],
+          nextPullRequestPage: ['n'],
           pagePrevious: ['ctrl+u'],
           pageNext: ['ctrl+d'],
           scrollStart: ['g', 'home'],
@@ -173,6 +209,7 @@ describe('Review configuration contract', () => {
         githubSearchText:
           'label:"needs review" \'fix login\' author:octo\\ cat ""',
         refreshIntervalMinutes: 10,
+        pageSize: 25,
         reviewCommand,
         diffCommand,
         keyBindings: {
@@ -187,6 +224,8 @@ describe('Review configuration contract', () => {
           toggleRepositoryScope: ['l'],
           editReviewQueueSearch: ['/'],
           refresh: ['r'],
+          previousPullRequestPage: ['p'],
+          nextPullRequestPage: ['n'],
           pagePrevious: ['ctrl+u'],
           pageNext: ['ctrl+d'],
           scrollStart: ['g', 'home'],
@@ -210,6 +249,7 @@ describe('Review configuration contract', () => {
         githubSearch: ['is:pr', 'review-requested:@me', 'state:open'],
         githubSearchText: generatedConfiguration.github.search,
         refreshIntervalMinutes: 5,
+        pageSize: 25,
         reviewCommand: generatedConfiguration.reviewCommand,
         diffCommand: undefined,
         keyBindings: generatedConfiguration.keyBindings,

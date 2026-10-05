@@ -32,7 +32,7 @@ beforeAll(async () => {
   herdrRecord = join(directory, 'herdr-calls');
   await writeExecutable(
     join(bin, 'gh'),
-    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$FAKE_GH_RECORD"\nif [ -n "$FAKE_GH_HANG" ]; then\n  printf '%s' "$$" > "$FAKE_GH_HANG"\n  trap '' TERM\n  while :; do sleep 1; done\nfi\nprintf '[]'\n`
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$FAKE_GH_RECORD"\nif [ -n "$FAKE_GH_HANG" ]; then\n  printf '%s' "$$" > "$FAKE_GH_HANG"\n  trap '' TERM\n  while :; do sleep 1; done\nfi\nprintf '{"data":{"search":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}'\n`
   );
   await writeExecutable(
     join(bin, 'herdr'),
@@ -90,7 +90,7 @@ describe('native review executable', () => {
     expect(stripTerminalControls(await stdout)).toContain('No reviews waiting');
     expect(await stderr).toBe('');
     expect(await Bun.file(ghRecord).text()).toContain(
-      'search prs --json number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount --limit 1000 -- review-requested:@me state:open'
+      'searchQuery=( review-requested:@me state:open ) type:pr -F size=25'
     );
     expect(await Bun.file(herdrRecord).exists()).toBe(false);
   });
@@ -127,7 +127,7 @@ describe('native review executable', () => {
     );
     expect(await stderr).toBe('');
     expect(await Bun.file(record).text()).toContain(
-      'search prs --json number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount --limit 1000 -- is:pr author:@me state:open'
+      'searchQuery=( is:pr author:@me state:open ) type:pr -F size=25'
     );
   });
 
@@ -166,6 +166,7 @@ describe('native review executable', () => {
       github: {
         search: 'is:pr review-requested:@me state:open',
         refreshIntervalMinutes: 5,
+        pageSize: 25,
       },
       reviewCommand:
         'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
@@ -181,6 +182,8 @@ describe('native review executable', () => {
         toggleRepositoryScope: ['l'],
         editReviewQueueSearch: ['/'],
         refresh: ['r'],
+        previousPullRequestPage: ['p'],
+        nextPullRequestPage: ['n'],
         pagePrevious: ['ctrl+u'],
         pageNext: ['ctrl+d'],
         scrollStart: ['g', 'home'],

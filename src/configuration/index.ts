@@ -15,6 +15,8 @@ export const queueActions = [
   'toggleRepositoryScope',
   'editReviewQueueSearch',
   'refresh',
+  'previousPullRequestPage',
+  'nextPullRequestPage',
   'pagePrevious',
   'pageNext',
   'scrollStart',
@@ -38,6 +40,7 @@ export type ReviewConfiguration = {
   readonly githubSearch: readonly string[];
   readonly githubSearchText: string;
   readonly refreshIntervalMinutes: number;
+  readonly pageSize: number;
   readonly reviewCommand: string;
   readonly diffCommand: string | undefined;
   readonly keyBindings: EffectiveKeyBindings;
@@ -72,6 +75,8 @@ const defaultKeyBindings = {
   toggleRepositoryScope: ['l'],
   editReviewQueueSearch: ['/'],
   refresh: ['r'],
+  previousPullRequestPage: ['p'],
+  nextPullRequestPage: ['n'],
   pagePrevious: ['ctrl+u'],
   pageNext: ['ctrl+d'],
   scrollStart: ['g', 'home'],
@@ -85,6 +90,7 @@ const defaultReviewConfigurationDocument = {
   github: {
     search: 'is:pr review-requested:@me state:open',
     refreshIntervalMinutes: 5,
+    pageSize: 25,
   },
   reviewCommand:
     'pi "review the changes in this pr and report your findings to me: $REVIEW_PR_URL"',
@@ -305,6 +311,7 @@ function validateReviewConfiguration(
   const githubUnknown = rejectUnknownFields(value.github, [
     'search',
     'refreshIntervalMinutes',
+    'pageSize',
   ]);
   if (githubUnknown !== undefined) {
     return failure(file, `github.${githubUnknown}`, 'Unknown field');
@@ -336,6 +343,21 @@ function validateReviewConfiguration(
       file,
       'github.refreshIntervalMinutes',
       'Value must be an integer from 1 to 35791 minutes'
+    );
+  }
+
+  const pageSize =
+    value.github.pageSize === undefined ? 25 : value.github.pageSize;
+  if (
+    typeof pageSize !== 'number' ||
+    !Number.isInteger(pageSize) ||
+    pageSize < 1 ||
+    pageSize > 100
+  ) {
+    return failure(
+      file,
+      'github.pageSize',
+      'Value must be an integer from 1 to 100'
     );
   }
 
@@ -373,6 +395,7 @@ function validateReviewConfiguration(
       githubSearch: search.value,
       githubSearchText: githubSearch,
       refreshIntervalMinutes,
+      pageSize,
       reviewCommand,
       diffCommand,
       keyBindings: bindings.value,
@@ -473,6 +496,14 @@ function validateKeyBindings(
         'editReviewQueueSearch'
       ),
       refresh: getEffectiveBindings(effective, 'refresh'),
+      previousPullRequestPage: getEffectiveBindings(
+        effective,
+        'previousPullRequestPage'
+      ),
+      nextPullRequestPage: getEffectiveBindings(
+        effective,
+        'nextPullRequestPage'
+      ),
       pagePrevious: getEffectiveBindings(effective, 'pagePrevious'),
       pageNext: getEffectiveBindings(effective, 'pageNext'),
       scrollStart: getEffectiveBindings(effective, 'scrollStart'),

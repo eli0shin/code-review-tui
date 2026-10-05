@@ -6,15 +6,15 @@ Research date: 2026-08-21. Validated against the installed GitHub CLI 2.97.0.
 
 Use GitHub CLI as the complete GitHub boundary:
 
-| Operation                              | Command                           |
-| -------------------------------------- | --------------------------------- |
-| Load the cross-repository Review Queue | `gh search prs`                   |
-| Load pull request details              | `gh pr view <pull-request-url>`   |
-| Create a Review Submission             | `gh pr review <pull-request-url>` |
+| Operation                         | Command                           |
+| --------------------------------- | --------------------------------- |
+| Load one cross-repository PR page | `gh api graphql`                  |
+| Load pull request details         | `gh pr view <pull-request-url>`   |
+| Create a Review Submission        | `gh pr review <pull-request-url>` |
 
 Use the pull request `url` from the Review Queue as the identity passed to all later commands. A number is only unique inside one repository. The URL also contains the host, owner, repository, and number.
 
-Do not call `gh auth`, read GitHub CLI configuration, supply `--hostname` or `--repo`, or set any `GH_*` authentication variable. Inherit the user's environment and let `gh` select its default host and active account. `GH_HOST`, when the user has set it, selects a host where the command cannot infer one. `gh auth switch` controls the active account for a host.[^gh-environment][^gh-auth-switch]
+Do not call `gh auth`, read GitHub CLI configuration, or set authentication variables. Unscoped search inherits GitHub CLI's default host; scoped search supplies the resolved repository host with `--hostname`. Inherit the user's environment and let `gh` select its default host and active account. `GH_HOST`, when the user has set it, selects a host where the command cannot infer one. `gh auth switch` controls the active account for a host.[^gh-environment][^gh-auth-switch]
 
 This gives one cross-repository queue on the one host selected by GitHub CLI. A single GitHub search does not combine results from multiple hosts.
 
@@ -22,22 +22,25 @@ This gives one cross-repository queue on the one host selected by GitHub CLI. A 
 
 ### Invocation
 
-Tokenize the configured search into query arguments, place them after `--`, and do not evaluate them as a shell command:
+Tokenize the configured search and serialize its terms using GitHub CLI's keyword quoting. Group the intact query before intersecting `type:pr` and optional repository scope. Do not evaluate it as a shell command.
 
 ```text
-gh search prs \
-  --json number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount \
-  --limit 1000 \
-  -- \
-  <configured-search-argument>...
+gh api graphql \
+  [--hostname <resolved-repository-host>] \
+  -f query='<search connection query>' \
+  -f 'searchQuery=( <serialized-search> ) type:pr [repo:OWNER/REPO]' \
+  -F size=25 \
+  [-f after=<page-start-cursor>]
 
-# Once for each returned URL, with bounded concurrency:
+# Once for each URL on this page only, with bounded concurrency:
 gh pr view <pull-request-url> --json additions,deletions,changedFiles,reviewDecision,statusCheckRollup
 ```
 
-For example, `review-requested:@me state:open` must become two arguments. Passing that complete string as one argument makes GitHub CLI quote it as one qualifier value and produces a different, invalid query. The tokenizer must preserve intentionally quoted terms but must not perform variable, command, glob, or redirection expansion. The configuration contract must specify the exact quoting rules.
+The GraphQL query uses `search(query:$searchQuery,type:ISSUE_ADVANCED,first:$size,after:$after)` and asks for summary nodes plus `pageInfo { hasNextPage endCursor }`. The page size is configured, from 1 to 100. `after` is omitted on page 1. My PRs substitutes `is:pr author:@me state:open`. GitHub Enterprise Server requires 3.18 or newer for advanced search.
 
-`gh search prs` searches pull requests across the selected GitHub host. It accepts GitHub issue and pull request search syntax and adds the pull request type itself. Repository scope is optional, so the configured search can cover repositories from different owners.[^gh-search-prs]
+For example, `label:"needs review"` tokenizes to `label:needs review` and serializes back to `label:"needs review"`. Terms without a colon are quoted as a whole when they contain whitespace or double quotes. Preserve intentionally grouped terms without variable, command, glob, or redirection expansion. The configuration contract specifies the tokenizer's quoting rules.
+
+GraphQL search searches pull requests across the selected GitHub host. It accepts GitHub issue and pull request search syntax; the adapter intersects the query with the pull request type. Repository scope is optional, so the configured search can cover repositories from different owners.[^gh-search-prs]
 
 A useful initial search is:
 
@@ -47,37 +50,30 @@ review-requested:@me state:open
 
 `review-requested:@me` includes requests to the active user and requests to a team that contains that user. GitHub removes a matching review request after that user or team reviews. If the intended queue must contain only direct requests, use `user-review-requested:@me` instead.[^github-pr-search]
 
-The configured value is a search query, not extra `gh` options. It can contain terms, qualifiers, negated qualifiers, and supported Boolean syntax. Passing it after `--` also permits a query that starts with a negated qualifier such as `-label:wip`.[^gh-search]
+The configured value is a search query, not extra `gh` options. It can contain terms, qualifiers, negated qualifiers, and supported Boolean syntax. Passing it as the value of `searchQuery` also permits a query that starts with a negated qualifier such as `-label:wip`.[^gh-search]
 
 ### JSON contract
 
-The command emits one JSON array. Use these fields:
+The command emits one GraphQL response. Validate `data.search.nodes` and `data.search.pageInfo` atomically; reject GraphQL errors and missing page metadata. Use these summary node fields:
 
 - `url`: canonical cross-repository and cross-host identity.
 - `repository.nameWithOwner`: display repository, for example `cli/cli`.
 - `number`, `title`, `author.login`, and `isDraft`: main row content.
 - `state`, `createdAt`, and `updatedAt`: state and stable timestamps for display or ordering.
-- `labels` and `commentsCount`: metadata shown on every row.
+- `labels(first:100).nodes` and `comments.totalCount`: metadata shown on every row.
+- `state`: normalize GraphQL's uppercase state to the existing lowercase row contract.
 
-The search exporter does not provide file count, additions, deletions, or review decision. Enrich every complete search result with `gh pr view` by canonical URL. Both lists request the check rollup in that call. Run at most eight enrichment processes at once, preserve search order, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
+The summary query does not request file count, additions, deletions, or review decision. Enrich only this page with `gh pr view` by canonical URL. Both lists request the check rollup in that call. Run at most eight enrichment processes at once, preserve search order, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
 
-GitHub CLI documents all available search fields as `assignees`, `author`, `authorAssociation`, `body`, `closedAt`, `commentsCount`, `createdAt`, `id`, `isDraft`, `isLocked`, `isPullRequest`, `labels`, `number`, `repository`, `state`, `title`, `updatedAt`, and `url`.[^gh-search-prs] In GitHub CLI 2.97.0, `repository` is normalized to `{name, nameWithOwner}` and `author` includes `login`; this is part of the command's JSON exporter rather than the raw REST response.[^gh-search-export]
-
-Do not parse the command's human-readable output. `--json` is GitHub CLI's supported machine-readable output mode.[^gh-formatting]
+Do not parse human-readable output. `gh api graphql` supplies the API JSON response and remains responsible for authentication and host selection.
 
 ### Pagination and limits
 
-`--limit` is the total result limit, not a page size. Its default is 30 and its accepted range is 1 through 1,000. GitHub CLI requests up to 100 items per REST page and follows the API's `Link` header until it reaches the requested limit or there is no next page.[^gh-search-prs-source][^gh-searcher-source] GitHub Search exposes no more than 1,000 results for one search.[^github-rest-search]
+The previous `gh search prs --limit 1000` command eagerly traversed REST pages and emitted a flat array with no page metadata. Its limit is a total result cap, not a page size.[^gh-search-prs-source][^gh-searcher-source] It cannot implement bounded navigation without re-fetching earlier results, so paged loading uses GraphQL search through `gh api` instead.
 
-Therefore:
+Use GitHub's opaque end cursor only when `hasNextPage` is true. Reject missing or empty next cursors. Keep visited start cursors for previous-page navigation; never prefetch. Automatic refresh reuses the page start and manual refresh omits it. If a later page becomes empty, return to page 1. Only the active page's rows are enriched.
 
-- Use `--limit 1000` to get the largest Review Queue snapshot that this command can provide.
-- Treat stdout as one complete array. Do not implement page or cursor controls around this command.
-- A queue with more than 1,000 matches is truncated by the GitHub Search boundary. A narrower configured search is the remedy.
-- The `gh search prs --json` exporter emits only result items. It does not emit the REST response's `total_count` or `incomplete_results`, so the application cannot reliably mark a snapshot as truncated or timed out.[^gh-search-output-source]
-- Search is rate-limited separately, and GitHub can return partial results after a search timeout. Refresh behavior must keep and report command failures as specified by the later refresh contract.[^github-rest-search]
-
-Do not replace this with `gh pr list`: that command lists one repository. Do not replace it with raw `gh api search/issues` unless the application needs search response metadata enough to own raw API normalization and pagination.
+GraphQL search exposes at most 1,000 results; pagination does not bypass this boundary. Narrower queries are the remedy. See [GraphQL search](https://docs.github.com/en/graphql/reference/queries#search) and [advanced API search support](https://github.blog/changelog/2025-03-06-github-issues-projects-api-support-for-issues-advanced-search-and-more/). Do not replace this with `gh pr list`: that command lists one repository.
 
 ## Pull request details
 
@@ -138,7 +134,7 @@ The application must:
 
 1. Start `gh` from `PATH`.
 2. Inherit the user's environment.
-3. Pass the tokenized configured search and the pull request URL under the Cursor only as data arguments.
+3. Pass the serialized configured search, page cursor, and the pull request URL under the Cursor only as data arguments.
 4. Parse stdout only after exit status 0.
 5. Show actionable command startup, authentication, API, parsing, and submission errors without trying to repair GitHub CLI configuration.
 

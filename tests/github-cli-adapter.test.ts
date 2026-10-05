@@ -179,7 +179,7 @@ appendFileSync(record, JSON.stringify({
   argv,
   stdin,
   marker: process.env.REVIEW_TEST_MARKER,
-  ...(argv.includes('--repo') ? { host: process.env.GH_HOST } : {}),
+  ...(argv.includes('--hostname') ? { host: process.env.GH_HOST } : {}),
 }) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
@@ -192,7 +192,12 @@ const stdout = argv.some((value) => value.startsWith('threadId=')) && process.en
   : argv[0] === 'pr' && argv[1] === 'view' && process.env.FAKE_GH_STATS_STDOUT
     ? process.env.FAKE_GH_STATS_STDOUT
     : process.env.FAKE_GH_STDOUT;
-if (stdout) await Bun.stdout.write(stdout);
+if (stdout) {
+  if (argv.some((value) => value.startsWith('searchQuery=')) && stdout.startsWith('[')) {
+    const nodes = JSON.parse(stdout).map((item) => ({ ...item, labels: { nodes: item.labels }, comments: { totalCount: item.commentsCount } }));
+    await Bun.stdout.write(JSON.stringify({ data: { search: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } }));
+  } else await Bun.stdout.write(stdout);
+}
 process.exit(process.env.FAKE_GH_MODE === 'close-input' ? 29 : Number(process.env.FAKE_GH_MODE || 0));
 `
   );
@@ -217,6 +222,125 @@ afterEach(async () => {
 });
 
 describe('GitHub CLI adapter contract', () => {
+  test('fetches exactly one requested page and enriches only its rows in search order', async () => {
+    const nodes = [42, 43].map((number) => ({
+      ...queueJson[0],
+      number,
+      url: `https://github.example/acme/widgets/pull/${number}`,
+      state: 'OPEN',
+      labels: { nodes: queueJson[0].labels },
+      comments: { totalCount: 4 },
+    }));
+    process.env.FAKE_GH_STDOUT = JSON.stringify({
+      data: {
+        search: {
+          nodes,
+          pageInfo: { hasNextPage: true, endCursor: 'next-page' },
+        },
+      },
+    });
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const result = await createGitHubCliAdapter([
+      'is:pr',
+      '-label:wip',
+      'label:needs review',
+    ]).loadReviewQueue(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      undefined,
+      { size: 2, after: 'page-start' }
+    );
+    expect(result.ok && result.value.nextCursor).toBe('next-page');
+    expect(result.ok && result.value.queue.map((row) => row.number)).toEqual([
+      42, 43,
+    ]);
+    expect(result.ok && result.value.queue[0]?.state).toBe('open');
+    const records = await readRecords();
+    expect(records).toHaveLength(3);
+    expect(records[0].argv.slice(4)).toEqual([
+      '-f',
+      'searchQuery=( is:pr -label:wip label:"needs review" ) type:pr',
+      '-F',
+      'size=2',
+      '-f',
+      'after=page-start',
+    ]);
+    expect(
+      records
+        .slice(1)
+        .map((item) => item.argv[2])
+        .sort()
+    ).toEqual(nodes.map((node) => node.url));
+  });
+
+  test('keeps a page available when a PR author account has been deleted', async () => {
+    const node = {
+      ...queueJson[0],
+      author: null,
+      labels: { nodes: queueJson[0].labels },
+      comments: { totalCount: 4 },
+    };
+    process.env.FAKE_GH_STDOUT = JSON.stringify({
+      data: {
+        search: {
+          nodes: [node],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    });
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: { queue: [{ author: 'ghost', number: 42 }], nextCursor: null },
+    });
+  });
+
+  for (const response of [
+    { data: { search: { nodes: [] } } },
+    {
+      data: {
+        search: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } },
+      },
+    },
+    {
+      data: {
+        search: { nodes: [], pageInfo: { hasNextPage: true, endCursor: '' } },
+      },
+    },
+    {
+      data: {
+        search: {
+          nodes: [null],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    },
+    {
+      errors: [{ message: 'Search failed' }],
+      data: {
+        search: {
+          nodes: [],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    },
+  ]) {
+    test(`rejects incompatible page responses before enrichment: ${JSON.stringify(response)}`, async () => {
+      process.env.FAKE_GH_STDOUT = JSON.stringify(response);
+      const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+        new AbortController().signal
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        failure: { kind: 'incompatibleData', operation: 'reviewQueue' },
+      });
+      expect(await readRecords()).toHaveLength(1);
+    });
+  }
   test('loads the Review Queue with exact argv, inherited environment, and domain conversion', async () => {
     process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
     process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
@@ -229,43 +353,43 @@ describe('GitHub CLI adapter contract', () => {
 
     expect(result).toEqual({
       ok: true,
-      value: [
-        {
-          number: 42,
-          title: 'Keep exact process data',
-          author: 'octocat',
-          isDraft: false,
-          state: 'open',
-          createdAt: '2026-08-20T10:00:00Z',
-          updatedAt: '2026-08-21T11:00:00Z',
-          url: 'https://github.example/acme/widgets/pull/42',
-          repository: 'acme/widgets',
-          additions: 12,
-          deletions: 3,
-          changedFiles: 2,
-          labels: ['review'],
-          commentsCount: 4,
-          reviewDecision: 'REVIEW_REQUIRED',
-          checks: [{ name: 'build', state: 'SUCCESS' }],
-        },
-      ],
-    });
-    expect(await readRecords()).toEqual([
-      {
-        argv: [
-          'search',
-          'prs',
-          '--json',
-          'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount',
-          '--limit',
-          '1000',
-          '--',
-          'review-requested:@me',
-          'team:platform reviewers',
+      value: {
+        nextCursor: null,
+        queue: [
+          {
+            number: 42,
+            title: 'Keep exact process data',
+            author: 'octocat',
+            isDraft: false,
+            state: 'open',
+            createdAt: '2026-08-20T10:00:00Z',
+            updatedAt: '2026-08-21T11:00:00Z',
+            url: 'https://github.example/acme/widgets/pull/42',
+            repository: 'acme/widgets',
+            additions: 12,
+            deletions: 3,
+            changedFiles: 2,
+            labels: ['review'],
+            commentsCount: 4,
+            reviewDecision: 'REVIEW_REQUIRED',
+            checks: [{ name: 'build', state: 'SUCCESS' }],
+          },
         ],
-        stdin: '',
-        marker: 'inherited',
       },
+    });
+    const records = await readRecords();
+    expect(records[0].argv[0]).toBe('api');
+    expect(records[0].argv[1]).toBe('graphql');
+    expect(records[0].argv[3]).toContain('type:ISSUE_ADVANCED');
+    expect(records[0].argv.slice(4)).toEqual([
+      '-f',
+      'searchQuery=( review-requested:@me team:"platform reviewers" ) type:pr',
+      '-F',
+      'size=25',
+    ]);
+    expect(records[0].stdin).toBe('');
+    expect(records[0].marker).toBe('inherited');
+    expect(records.slice(1)).toEqual([
       {
         argv: [
           'pr',
@@ -300,13 +424,14 @@ describe('GitHub CLI adapter contract', () => {
         query,
         repository
       );
-      expect(scoped.ok && scoped.value.length).toBe(1);
+      expect(scoped.ok && scoped.value.queue.length).toBe(1);
       const records = await readRecords();
-      expect(records.at(-2)?.argv.slice(-(query.length + 3))).toEqual([
-        '--repo',
-        'acme/widgets',
-        '--',
-        ...query,
+      expect(records.at(-2)?.argv).toContain(
+        `searchQuery=( ${query.join(' ')} ) type:pr repo:acme/widgets`
+      );
+      expect(records.at(-2)?.argv.slice(2, 4)).toEqual([
+        '--hostname',
+        'github.example',
       ]);
     }
     await github.loadReviewQueue(
@@ -315,19 +440,13 @@ describe('GitHub CLI adapter contract', () => {
       undefined,
       repository
     );
-    expect((await readRecords()).at(-2)?.argv.slice(-6)).toEqual([
-      '--repo',
-      'acme/widgets',
-      '--',
-      'is:pr',
-      'author:@me',
-      'state:open',
-    ]);
+    expect((await readRecords()).at(-2)?.argv).toContain(
+      'searchQuery=( is:pr author:@me state:open ) type:pr repo:acme/widgets'
+    );
     await github.loadReviewQueue(new AbortController().signal);
-    expect((await readRecords()).at(-2)?.argv.slice(-5)).toEqual([
-      '--',
-      ...queries[0],
-    ]);
+    expect((await readRecords()).at(-2)?.argv).toContain(
+      `searchQuery=( ${queries[0].join(' ')} ) type:pr`
+    );
   });
 
   test('repo scope preserves negative qualifiers and confines the query and results to the resolved host', async () => {
@@ -344,16 +463,12 @@ describe('GitHub CLI adapter contract', () => {
       undefined,
       { nameWithOwner: 'acme/widgets', hostname: 'github.example' }
     );
-    expect(scoped.ok && scoped.value.length).toBe(1);
+    expect(scoped.ok && scoped.value.queue.length).toBe(1);
     const records = await readRecords();
     expect(records).toHaveLength(2);
-    expect(records[0].argv.slice(-5)).toEqual([
-      '--repo',
-      'acme/widgets',
-      '--',
-      'is:pr',
-      '-repo:other/project',
-    ]);
+    expect(records[0].argv).toContain(
+      'searchQuery=( is:pr -repo:other/project ) type:pr repo:acme/widgets'
+    );
     expect(records[0]).toHaveProperty('host', 'github.example');
     expect(records[1].argv[2]).toBe(queueJson[0].url);
   });
@@ -378,53 +493,38 @@ describe('GitHub CLI adapter contract', () => {
     );
     expect(authored).toMatchObject({
       ok: true,
-      value: [
-        {
-          reviewDecision: 'REVIEW_REQUIRED',
-          checks: [{ name: 'build', state: 'FAILURE' }],
-        },
-      ],
+      value: {
+        queue: [
+          {
+            reviewDecision: 'REVIEW_REQUIRED',
+            checks: [{ name: 'build', state: 'FAILURE' }],
+          },
+        ],
+      },
     });
     const queue = await github.loadReviewQueue(new AbortController().signal);
     expect(queue).toMatchObject({
       ok: true,
-      value: [{ reviewDecision: 'REVIEW_REQUIRED' }],
+      value: { queue: [{ reviewDecision: 'REVIEW_REQUIRED' }] },
     });
     expect(queue).toMatchObject({
       ok: true,
-      value: [{ checks: [{ name: 'build', state: 'FAILURE' }] }],
+      value: { queue: [{ checks: [{ name: 'build', state: 'FAILURE' }] }] },
     });
     const records = await readRecords();
-    expect(records.map((record) => record.argv)).toEqual([
-      [
-        'search',
-        'prs',
-        '--json',
-        'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount',
-        '--limit',
-        '1000',
-        '--',
-        'is:pr',
-        'author:@me',
-        'state:open',
-      ],
+    expect(records[0].argv).toContain(
+      'searchQuery=( is:pr author:@me state:open ) type:pr'
+    );
+    expect(records[2].argv).toContain(
+      'searchQuery=( review-requested:@me state:open ) type:pr'
+    );
+    expect([records[1].argv, records[3].argv]).toEqual([
       [
         'pr',
         'view',
         queueJson[0].url,
         '--json',
         'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
-      ],
-      [
-        'search',
-        'prs',
-        '--json',
-        'number,title,author,isDraft,state,createdAt,updatedAt,url,repository,labels,commentsCount',
-        '--limit',
-        '1000',
-        '--',
-        'review-requested:@me',
-        'state:open',
       ],
       [
         'pr',

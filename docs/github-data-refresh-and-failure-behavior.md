@@ -10,14 +10,14 @@ The Cursor is temporary interface state. It is a numeric position that highlight
 
 Load the Review Queue in these cases only:
 
-1. when the Review Queue page mounts or the user switches lists with `m`;
-2. when the user requests a refresh with `r`;
+1. when the Review Queue page mounts, the user switches lists with `m`, or changes PR pages with `p` / `n`;
+2. when the user requests a refresh with `r` (starting again at page 1);
 3. at the configured `github.refreshIntervalMinutes` (default: 5 minutes) while the page is mounted; and
 4. immediately after a successful Review Submission.
 
 Returning from Lumen, a Diff Command, or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
 
-Use the `gh search prs` invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI. Do not sort or filter results in the application.
+Use the paged `gh api graphql` search invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI. Do not sort or filter results in the application.
 
 TanStack React Query owns request deduplication, polling, status, caching, and cancellation. Do not add an application refresh queue, pending-load state, or request coordination.
 
@@ -59,9 +59,11 @@ A submission failure does not refresh or change the Review Queue.
 
 ## Pagination and result limits
 
-Request `--limit 1000` and treat the one JSON array from `gh search prs` as one complete application-level result. GitHub CLI owns REST pagination. The application must not add page, cursor, or “load more” controls.
+Fetch and enrich only the current page, bounded by `github.pageSize` (default 25, integer 1–100). Do not prefetch. GitHub returns an opaque end cursor and `hasNextPage`; the interface retains the start cursors of visited pages so `p` can go back without fetching every earlier page. Show the current page number, effective `p` / `n` bindings, and the last-page indicator.
 
-GitHub Search and GitHub CLI do not provide enough metadata in this command output to prove that a result was truncated or partial. Do not claim that all possible matches are present and do not show an unverified truncation warning. A user whose search can exceed 1,000 matches must narrow the configured search.
+Page navigation resets the Cursor to the first row. Search, repository scope, and list changes discard the visited-page cursors and reset to page 1. Manual refresh also starts at page 1. Automatic refresh and post-submission refresh reuse the current page's start cursor; page 1 has no start cursor. An empty successful later page returns to page 1. A failed refresh keeps the last complete successful page, with diagnostics. The query key includes the list, query, repository scope, page size, and page's start cursor, keeping old-page responses separate and cancelling obsolete requests.
+
+GitHub Search exposes at most 1,000 matches. Narrow the search when more results are needed. Cursor pagination does not bypass GitHub's search limit.
 
 ## Failure presentation
 
@@ -95,6 +97,6 @@ A successful retry clears the corresponding failure. Starting a retry can clear 
 
 ## State boundary
 
-TanStack React Query keeps temporary Review Queue and detail data, status, caching, cancellation, and operation failures. The page keeps one local numeric Cursor, one temporary modal target, its scroll position, and other local interaction values that do not represent remote data. None of this records review progress.
+TanStack React Query keeps temporary Review Queue and detail data, status, caching, cancellation, and operation failures. The page keeps visited-page start cursors, one local numeric Cursor, one temporary modal target, its scroll position, and other local interaction values that do not represent remote data. None of this records review progress.
 
 Do not persist or derive application-owned states such as reviewed, ready, diff viewed, Review Command run, hidden, snoozed, or failed before. GitHub data and the configured search are the only source of Review Queue membership.

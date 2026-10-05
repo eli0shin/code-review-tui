@@ -92,8 +92,31 @@ function success<Value>(value: Value): GitHubResult<Value> {
   return { ok: true, value };
 }
 
-type GitHub = Omit<ProductionGitHub, 'openPullRequestInBrowser'> &
-  Partial<Pick<ProductionGitHub, 'openPullRequestInBrowser'>>;
+// Existing row/detail tests model a single terminal page. Pagination itself is
+// exercised through the production adapter in review-queue-search.test.tsx.
+type GitHub = Omit<
+  ProductionGitHub,
+  'openPullRequestInBrowser' | 'loadReviewQueue'
+> &
+  Partial<Pick<ProductionGitHub, 'openPullRequestInBrowser'>> & {
+    loadReviewQueue(
+      ...args: Parameters<ProductionGitHub['loadReviewQueue']>
+    ): Promise<GitHubResult<ReviewQueue>>;
+  };
+
+function withPages(github: GitHub): ProductionGitHub {
+  return {
+    ...github,
+    openPullRequestInBrowser:
+      github.openPullRequestInBrowser ?? unusedOpenPullRequestInBrowser,
+    async loadReviewQueue(...args) {
+      const result = await github.loadReviewQueue(...args);
+      return result.ok
+        ? success({ queue: result.value, nextCursor: null })
+        : result;
+    },
+  };
+}
 
 const unusedOpenPullRequestInBrowser = async (): Promise<
   GitHubResult<void>
@@ -122,6 +145,8 @@ const defaultKeyBindings = {
   toggleRepositoryScope: ['l'],
   editReviewQueueSearch: ['/'],
   refresh: ['r'],
+  previousPullRequestPage: ['p'],
+  nextPullRequestPage: ['n'],
   pagePrevious: ['ctrl+u'],
   pageNext: ['ctrl+d'],
   scrollStart: ['g', 'home'],
@@ -140,11 +165,7 @@ function reviewQueuePage(
 ) {
   return (
     <ReviewQueuePage
-      github={{
-        ...github,
-        openPullRequestInBrowser:
-          github.openPullRequestInBrowser ?? unusedOpenPullRequestInBrowser,
-      }}
+      github={withPages(github)}
       herdr={herdr}
       keyBindings={keyBindings}
       refreshIntervalMinutes={refreshIntervalMinutes}
@@ -1964,13 +1985,13 @@ describe('Review Submission', () => {
     const submitReview = jest.fn(async () => success(undefined));
     const view = await testRender(
       <ReviewQueuePage
-        github={{
+        github={withPages({
           loadReviewQueue,
           loadPullRequestDetails: async () =>
             detailSources(pullRequestDetails('Scoped details')),
           openPullRequestInBrowser: unusedOpenPullRequestInBrowser,
           submitReview,
-        }}
+        })}
         herdr={unusedHerdr}
         keyBindings={defaultKeyBindings}
         refreshIntervalMinutes={5}
@@ -2011,7 +2032,8 @@ describe('Review Submission', () => {
       expect.any(AbortSignal),
       'reviewQueue',
       ['is:pr', 'review-requested:@me', 'state:open'],
-      { nameWithOwner: 'acme/widgets', hostname: 'github.com' }
+      { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+      { size: 25 }
     );
     view.renderer.destroy();
   });
@@ -2121,8 +2143,9 @@ describe('Review Submission', () => {
     await act(async () => view.mockInput.typeText('Looks good'));
     await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
 
-    const failure = await view.waitForFrame((frame) =>
-      frame.includes('Review Queue not refreshed')
+    const failure = await view.waitForFrame(
+      (frame) =>
+        frame.includes('Review Queue not') && frame.includes('refreshed')
     );
     expect(failure).toContain('refresh-');
     await act(async () => view.mockInput.pressKey('END'));
@@ -2130,8 +2153,7 @@ describe('Review Submission', () => {
     await act(async () => view.mockInput.pressKey('r'));
     const refreshed = await view.waitForFrame(
       (frame) =>
-        !frame.includes('Review Queue not refreshed') &&
-        !frame.includes('could not be refreshed')
+        !frame.includes('refresh-') && !frame.includes('could not be refreshed')
     );
     expect(refreshed).toContain(pullRequest.title);
     expect(loadReviewQueue).toHaveBeenCalledTimes(3);
