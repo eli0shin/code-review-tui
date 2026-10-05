@@ -37,7 +37,8 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 {
   "github": {
     "search": "is:pr review-requested:@me state:open",
-    "refreshIntervalMinutes": 5
+    "refreshIntervalMinutes": 5,
+    "pageSize": 25
   },
   "reviewCommand": "pi \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
@@ -52,6 +53,8 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
     "toggleRepositoryScope": ["l"],
     "editReviewQueueSearch": ["/"],
     "refresh": ["r"],
+    "previousPullRequestPage": ["p"],
+    "nextPullRequestPage": ["n"],
     "pagePrevious": ["ctrl+u"],
     "pageNext": ["ctrl+d"],
     "scrollStart": ["g", "home"],
@@ -67,7 +70,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 }
 ```
 
-`github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
+`github.pageSize` controls how many PRs are fetched and enriched per page in either list. It defaults to 25 when omitted and accepts integers from 1 to 100. `github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
 See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
 
@@ -85,9 +88,12 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 | `m`          | Switch between the Review Queue and My PRs.       |
 | `l`          | Toggle scope to the repo where Review launched.   |
 | `/`          | Edit the Review Queue query for this session.     |
-| `r`          | Refresh the current list.                         |
+| `p` / `n`    | Go to the previous / next PR page.                |
+| `r`          | Refresh the current list from page 1.             |
 | `?`          | Show the effective Review Queue keys.             |
 | `q`/`escape` | Quit.                                             |
+
+Both lists load one page at a time, with no prefetch. The page indicator shows the current page and whether a next page exists. `p` / `n` changes pages and resets the Cursor to the first row. Changing the search, repository scope, or list also resets to page 1. Manual refresh (`r`) starts again at page 1; automatic refresh and refresh after a Review Submission reuse the current page's starting cursor (page 1 has no starting cursor). If that page becomes empty, Review returns to page 1. GitHub search exposes at most 1,000 results; narrow searches that exceed this limit. GitHub Enterprise Server requires version 3.18 or newer for paged advanced search.
 
 Press `/` in the Review Queue to edit its active GitHub search. `Enter` applies the query and immediately refetches; `Escape` cancels. Manual and automatic refreshes use the edited query, even after switching to My PRs and back. My PRs is unchanged and does not offer query editing. Nothing is saved to configuration: restarting `review` restores `github.search`. Invalid quotes, incomplete escapes, and empty queries keep the editor open with a diagnostic.
 

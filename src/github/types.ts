@@ -10,6 +10,16 @@ import type {
 
 export type PullRequestList = 'reviewQueue' | 'authored';
 
+export type PullRequestPage = {
+  readonly queue: ReviewQueue;
+  readonly nextCursor: string | null;
+};
+
+export type PullRequestPageRequest = {
+  readonly size: number;
+  readonly after?: string;
+};
+
 export type GitHubRepository = {
   readonly nameWithOwner: string;
   readonly hostname: string;
@@ -76,8 +86,9 @@ export type GitHub = {
     signal: AbortSignal,
     list?: PullRequestList,
     search?: readonly string[],
-    repository?: GitHubRepository
-  ): Promise<GitHubResult<ReviewQueue>>;
+    repository?: GitHubRepository,
+    page?: PullRequestPageRequest
+  ): Promise<GitHubResult<PullRequestPage>>;
   loadPullRequestDetails(
     url: string,
     signal: AbortSignal

@@ -59,6 +59,7 @@ import type {
   GitHubRepository,
   PullRequestDetailSources,
   PullRequestList,
+  PullRequestPage,
 } from './github/types.ts';
 import { runReviewRuntime } from './runtime.ts';
 import { createHerdrCliAdapter } from './tools/herdr-adapter.ts';
@@ -84,6 +85,7 @@ type ReviewQueuePageProps = {
   readonly keyBindings: EffectiveKeyBindings;
   readonly refreshIntervalMinutes: number;
   readonly githubSearchText: string;
+  readonly pageSize?: number;
   readonly loadCurrentRepository?: (
     signal: AbortSignal
   ) => Promise<CurrentRepositoryResult>;
@@ -122,6 +124,7 @@ export function ReviewQueuePage({
   keyBindings,
   refreshIntervalMinutes,
   githubSearchText,
+  pageSize = 25,
   loadCurrentRepository,
   onQuit,
 }: ReviewQueuePageProps) {
@@ -142,6 +145,7 @@ export function ReviewQueuePage({
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
         githubSearchText={githubSearchText}
+        pageSize={pageSize}
         loadCurrentRepository={loadCurrentRepository}
         onQuit={onQuit}
       />
@@ -155,6 +159,7 @@ function ReviewQueue({
   keyBindings,
   refreshIntervalMinutes,
   githubSearchText,
+  pageSize = 25,
   loadCurrentRepository,
   onQuit,
 }: ReviewQueuePageProps) {
@@ -163,6 +168,9 @@ function ReviewQueue({
   const terminal = useTerminalDimensions();
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
+  // Each entry is the start cursor of a visited page after page 1.
+  const [pageStarts, setPageStarts] = useState<readonly string[]>([]);
+  const after = pageStarts.at(-1);
   const [list, setList] = useState<PullRequestList>('reviewQueue');
   const [currentRepository, setCurrentRepository] =
     useState<GitHubRepository>();
@@ -210,19 +218,22 @@ function ReviewQueue({
   const submissionControllerRef = useRef<AbortController | undefined>(
     undefined
   );
-  const queueQuery = useQuery<ReviewQueue, GitHubFailure>({
+  const queueQuery = useQuery<PullRequestPage, GitHubFailure>({
     queryKey: [
       'reviewQueue',
       list,
       list === 'reviewQueue' ? search : null,
       scopedRepository,
+      pageSize,
+      after,
     ],
     async queryFn({ signal }) {
       const result = await github.loadReviewQueue(
         signal,
         list,
         list === 'reviewQueue' ? search : undefined,
-        scopedRepository
+        scopedRepository,
+        { size: pageSize, ...(after === undefined ? {} : { after }) }
       );
       if (!result.ok) throw result.failure;
       queueSuccessSequenceRef.current[list] += 1;
@@ -230,7 +241,39 @@ function ReviewQueue({
     },
     refetchInterval: refreshIntervalMinutes * 60_000,
   });
-  const queue = queueQuery.data ?? emptyReviewQueue;
+  const queue = queueQuery.data?.queue ?? emptyReviewQueue;
+  if (
+    queueQuery.isSuccess &&
+    !queueQuery.isFetching &&
+    queue.length === 0 &&
+    after !== undefined
+  ) {
+    setPageStarts([]);
+    setCursor(0);
+  }
+
+  const refreshFromStart = (): void => {
+    setNotice(undefined);
+    setCursor(0);
+    if (after === undefined) void queueQuery.refetch();
+    else setPageStarts([]);
+  };
+  const changePage = (direction: 'previous' | 'next'): void => {
+    if (direction === 'previous') {
+      if (pageStarts.length === 0) return;
+      setPageStarts(pageStarts.slice(0, -1));
+    } else {
+      if (queueQuery.isFetching) return;
+      const nextCursor = queueQuery.data?.nextCursor;
+      if (!nextCursor || pageStarts.includes(nextCursor)) return;
+      setPageStarts([...pageStarts, nextCursor]);
+    }
+    setCursor(0);
+    setNotice(undefined);
+    setDismissedFailureKey(undefined);
+    setHerdrActionFailure(undefined);
+  };
+  const pageStatusText = `Page ${pageStarts.length + 1} · ${formatBindings(keyBindings.previousPullRequestPage)} previous${queueQuery.data?.nextCursor === null ? ' · last page' : ` · ${formatBindings(keyBindings.nextPullRequestPage)} next`}`;
   const rememberedRefreshFailure =
     notice?.queueSuccessSequence === queueSuccessSequenceRef.current[list]
       ? notice.refreshFailure
@@ -392,6 +435,7 @@ function ReviewQueue({
       current === 'reviewQueue' ? 'authored' : 'reviewQueue'
     );
     setCursor(0);
+    setPageStarts([]);
     setNotice(undefined);
     setDismissedFailureKey(undefined);
     setHerdrActionFailure(undefined);
@@ -423,6 +467,7 @@ function ReviewQueue({
       setRepositoryScoped(true);
     }
     setCursor(0);
+    setPageStarts([]);
     setNotice(undefined);
     setDismissedFailureKey(undefined);
     setHerdrActionFailure(undefined);
@@ -453,12 +498,16 @@ function ReviewQueue({
           return;
         }
         setSearchText(text);
+        setPageStarts([]);
         setCursor(0);
         setNotice(undefined);
         setDismissedFailureKey(undefined);
         setHerdrActionFailure(undefined);
         closeSearchEditor();
-        if (JSON.stringify(parsed.value) === JSON.stringify(search)) {
+        if (
+          after === undefined &&
+          JSON.stringify(parsed.value) === JSON.stringify(search)
+        ) {
           void queueQuery.refetch();
         }
       }
@@ -482,8 +531,9 @@ function ReviewQueue({
       const viewer = failureViewerRef.current;
       const action = queueActionForKey(key, keyBindings);
       if (action === 'refresh') {
-        setNotice(undefined);
-        void queueQuery.refetch();
+        refreshFromStart();
+      } else if (action === 'previousPullRequestPage') {
+        changePage('previous');
       } else if (action === 'togglePullRequestList') {
         toggleList();
       } else if (action === 'toggleRepositoryScope') {
@@ -578,8 +628,14 @@ function ReviewQueue({
       return;
     }
     if (action === 'refresh') {
-      setNotice(undefined);
-      void queueQuery.refetch();
+      refreshFromStart();
+      return;
+    }
+    if (
+      action === 'previousPullRequestPage' ||
+      action === 'nextPullRequestPage'
+    ) {
+      changePage(action === 'previousPullRequestPage' ? 'previous' : 'next');
       return;
     }
     if (action === 'togglePullRequestList') {
@@ -688,6 +744,7 @@ function ReviewQueue({
             list={list}
             queue={queue}
             cursorPosition={cursorPosition}
+            pageStatusText={pageStatusText}
             scopeLabel={scopeLabel}
             scopeDiagnostic={scopeDiagnostic}
             resolvingRepository={resolvingRepository}
@@ -763,6 +820,7 @@ function ReviewQueueContent({
   list,
   queue,
   cursorPosition,
+  pageStatusText,
   scopeLabel,
   scopeDiagnostic,
   resolvingRepository,
@@ -776,6 +834,7 @@ function ReviewQueueContent({
   readonly list: PullRequestList;
   readonly queue: ReviewQueue;
   readonly cursorPosition: number;
+  readonly pageStatusText: string;
   readonly scopeLabel: string;
   readonly scopeDiagnostic: string | undefined;
   readonly resolvingRepository: boolean;
@@ -967,7 +1026,7 @@ function ReviewQueueContent({
         paddingRight={2}
       >
         {' '}
-        {footerText(keyBindings)}
+        {pageStatusText} · {footerText(keyBindings)}
       </text>
     </box>
   );
@@ -1863,7 +1922,7 @@ function HelpOverlay({
       left="37.5%"
       top="15%"
       width="25%"
-      height={list === 'reviewQueue' ? 18 : 17}
+      height={list === 'reviewQueue' ? 20 : 19}
       zIndex={10}
       border
       borderColor={theme?.foreground}
@@ -1899,6 +1958,12 @@ function HelpOverlay({
           {line('editReviewQueueSearch', 'edit Review Queue query')}
         </text>
       ) : null}
+      <text fg={theme?.foreground}>
+        {line('previousPullRequestPage', 'previous PR page')}
+      </text>
+      <text fg={theme?.foreground}>
+        {line('nextPullRequestPage', 'next PR page')}
+      </text>
       <text fg={theme?.foreground}>{line('refresh', 'refresh')}</text>
       <text fg={theme?.foreground}>{line('quit', 'quit')}</text>
       <text
@@ -2143,6 +2208,7 @@ export async function launchApplication(
     githubSearch,
     githubSearchText,
     refreshIntervalMinutes,
+    pageSize,
     reviewCommand,
     diffCommand,
     keyBindings,
@@ -2168,6 +2234,7 @@ export async function launchApplication(
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
         githubSearchText={githubSearchText}
+        pageSize={pageSize}
         loadCurrentRepository={(signal) =>
           resolveCurrentRepository(workingDirectory, signal)
         }

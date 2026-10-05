@@ -18,7 +18,8 @@ A complete example is:
 {
   "github": {
     "search": "is:pr review-requested:@me state:open",
-    "refreshIntervalMinutes": 5
+    "refreshIntervalMinutes": 5,
+    "pageSize": 25
   },
   "reviewCommand": "pi \"review the changes in this pr and report your findings to me: $REVIEW_PR_URL\"",
   "keyBindings": {
@@ -33,6 +34,8 @@ A complete example is:
     "toggleRepositoryScope": ["l"],
     "editReviewQueueSearch": ["/"],
     "refresh": ["r"],
+    "previousPullRequestPage": ["p"],
+    "nextPullRequestPage": ["n"],
     "pagePrevious": ["ctrl+u"],
     "pageNext": ["ctrl+d"],
     "scrollStart": ["g", "home"],
@@ -48,13 +51,13 @@ A complete example is:
 }
 ```
 
-`github.search` and `reviewCommand` are required nonblank strings. `github.refreshIntervalMinutes` is optional and defaults to 5. It must be an integer from 1 to 35791 minutes (the timer limit). It controls automatic polling of the active list, not details or update checks. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `diffCommand`, `keyBindings`, and `config` are optional. When `diffCommand` is present, it must be a nonblank string. The created example omits `diffCommand`, so `openDiff` uses Lumen. The `config` object retains the updater settings supplied by the application shell.
+`github.pageSize` is optional, defaults to 25, and must be an integer from 1 to 100. It bounds search and row enrichment for one page in either list. `github.search` and `reviewCommand` are required nonblank strings. `github.refreshIntervalMinutes` is optional and defaults to 5. It must be an integer from 1 to 35791 minutes (the timer limit). It controls automatic polling of the active list, not details or update checks. My PRs uses the fixed search `is:pr author:@me state:open` for the active GitHub account; it does not add or replace configuration. `diffCommand`, `keyBindings`, and `config` are optional. When `diffCommand` is present, it must be a nonblank string. The created example omits `diffCommand`, so `openDiff` uses Lumen. The `config` object retains the updater settings supplied by the application shell.
 
 Each omitted key-binding action gets the value shown in the example. A present action replaces its complete default list; lists do not merge. Each list must contain at least one binding.
 
 ## GitHub search tokenization
 
-`github.search` is query data, not a shell command and not a place for additional `gh` options. Tokenize it and place the resulting arguments after `--` in the `gh search prs` invocation defined by the [GitHub CLI integration contract](./research/github-cli-integration-contract.md).
+`github.search` is query data, not a shell command and not a place for additional `gh` options. Tokenize it and serialize each term using GitHub CLI's search keyword quoting (quote values containing whitespace or double quotes). Pass the resulting search string as the `searchQuery` variable to `gh api graphql` as defined by the [GitHub CLI integration contract](./research/github-cli-integration-contract.md).
 
 The tokenizer has three states: unquoted, single-quoted, and double-quoted.
 
@@ -79,7 +82,7 @@ These rules preserve intentionally grouped GitHub search terms without evaluatin
 
 The Review Queue query editor uses the same tokenization rules. It opens with the current active query; `Enter` validates and applies it, then immediately refetches. Invalid input remains in the editor with a diagnostic; `Escape` discards it. The override exists only in memory for the TUI session and is used by every subsequent Review Queue fetch, including manual and automatic refreshes and refresh after a Review Submission. Switching to My PRs and back preserves the override, but My PRs keeps its fixed query and cannot open the editor. No configuration file is written; the next startup uses `github.search` again.
 
-Repository scope is a separate session-only toggle, initially off. When enabled, both lists and their manual, automatic, and post-submission refreshes are restricted to the GitHub repository resolved from the launch directory. It does not edit the saved query or the query editor's text. The raw query, including `repo:` terms and nested Boolean expressions, stays intact. Scope is added as a structured `gh search prs --repo` qualifier, allowing `gh` to group the query before applying it. Resolution requires a Git repository and uses `gh repo view` from the launch directory (ignoring `GH_REPO`); failures leave the list unscoped and show a diagnostic. The canonical repository URL determines the GitHub host for scoped searches, including Enterprise hosts. Turning scope off restores the normal search host. For GitHub Enterprise Server, resolution checks `/meta` and requires version 3.18 or newer: older servers use legacy search that ORs repository qualifiers and cannot safely intersect the intact query, so the toggle remains off with a diagnostic. Restarting restores unscoped queries.
+Repository scope is a separate session-only toggle, initially off. When enabled, both lists and their manual, automatic, and post-submission refreshes are restricted to the GitHub repository resolved from the launch directory. It does not edit the saved query or the query editor's text. The raw query, including `repo:` terms and nested Boolean expressions, stays intact. The serialized query is grouped before intersecting `type:pr` and a separate `repo:` qualifier in advanced GraphQL search, preserving the query's Boolean meaning. Resolution requires a Git repository and uses `gh repo view` from the launch directory (ignoring `GH_REPO`); failures leave the list unscoped and show a diagnostic. The canonical repository URL determines the GitHub host for scoped searches, including Enterprise hosts. Turning scope off restores the normal search host. For GitHub Enterprise Server, resolution checks `/meta` and requires version 3.18 or newer: older servers use legacy search that ORs repository qualifiers and cannot safely intersect the intact query, so the toggle remains off with a diagnostic. Restarting restores unscoped queries.
 
 ## Key bindings
 
@@ -107,7 +110,9 @@ The actions have these meanings:
 | `togglePullRequestList`   | `m`              | Switch between the Review Queue and My PRs when a list owns input.        |
 | `toggleRepositoryScope`   | `l`              | Toggle launch-repository scope for both lists when a list owns input.     |
 | `editReviewQueueSearch`   | `/`              | Edit the active Review Queue query for this session, not My PRs.          |
-| `refresh`                 | `r`              | Refresh the active list or details modal.                                 |
+| `refresh`                 | `r`              | Restart the active list at page 1, or refresh the details modal.          |
+| `previousPullRequestPage` | `p`              | Load the previous PR page and reset the Cursor to the first row.          |
+| `nextPullRequestPage`     | `n`              | Load the next PR page, if available, and reset the Cursor.                |
 | `pagePrevious`            | `ctrl+u`         | Scroll details up by half of the current visible viewport.                |
 | `pageNext`                | `ctrl+d`         | Scroll details down by half of the current visible viewport.              |
 | `scrollStart`             | `g`, `home`      | Scroll details to the start.                                              |

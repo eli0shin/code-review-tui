@@ -16,6 +16,13 @@
           "pattern": "\\S",
           "description": "GitHub pull request search query. The value must contain a non-whitespace character."
         },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25,
+          "description": "Pull requests to fetch and enrich per page in either list."
+        },
         "refreshIntervalMinutes": {
           "type": "integer",
           "minimum": 1,
@@ -101,6 +108,14 @@
         "refresh": {
           "$ref": "#/$defs/bindingList",
           "default": ["r"]
+        },
+        "previousPullRequestPage": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["p"]
+        },
+        "nextPullRequestPage": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["n"]
         },
         "pagePrevious": {
           "$ref": "#/$defs/bindingList",
