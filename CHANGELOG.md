@@ -1,5 +1,15 @@
 # code-review-tui
 
+## 0.8.0
+
+### Minor Changes
+
+- [#65](https://github.com/eli0shin/code-review-tui/pull/65) [`f7c773b`](https://github.com/eli0shin/code-review-tui/commit/f7c773b3d472d1b79642477e8f641edb4cc6dfd7) Thanks [@eli0shin](https://github.com/eli0shin)! - Load pull request searches one page at a time to reduce startup time and GitHub API requests. Navigate with `n` / `p` and configure `github.pageSize` (default 25). Manual refresh starts at page 1; automatic refresh keeps the current page's start cursor and returns to page 1 if that page becomes empty.
+
+- [#64](https://github.com/eli0shin/code-review-tui/pull/64) [`a41226f`](https://github.com/eli0shin/code-review-tui/commit/a41226fa4bfe7f405ef4678fbb64e9f855f7d3d1) Thanks [@eli0shin](https://github.com/eli0shin)! - Show saved source context for inline review threads, with line numbers, colored diff gutters, and emphasized commented ranges. Keep existing source separate from suggested changes in comment bodies.
+
+  Improve Review Queue and help layout, distinguish conversation comments, add theme-based Markdown and code colors, and give code blocks full-width backgrounds with consistent spacing. Hide encoded Vercel deployment metadata without removing readable deployment content.
+
 ## 0.7.0
 
 ### Minor Changes
