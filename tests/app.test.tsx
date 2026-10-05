@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, jest, test } from 'bun:test';
 import {
   RGBA,
+  CodeRenderable,
+  type Renderable,
   type CapturedFrame,
   type CapturedSpan,
   type TerminalColors,
@@ -14,6 +16,7 @@ import { App, ReviewQueuePage } from '../src/app.tsx';
 import type { EffectiveKeyBindings } from '../src/configuration/index.ts';
 import type {
   PullRequestDetails,
+  PullRequestInlineComment,
   PullRequestSummary,
   ReviewQueue,
 } from '../src/domain/pull-request.ts';
@@ -320,14 +323,38 @@ describe('Review Queue list switching', () => {
     const metadata = lines.findIndex((line) =>
       line.includes('acme/widgets #7')
     );
-    expect(title).toBeGreaterThan(0);
+    expect(lines[0]).toContain('Review requests All repositories 1 open');
+    expect(title).toBe(3);
+    expect(lines[0]?.indexOf('Review requests')).toBe(0);
+    expect(lines[1]?.trim()).toBe('');
+    expect(lines[title]?.indexOf('●')).toBe(1);
     expect(metadata).toBe(title + 1);
     expect(status).toBe(metadata + 1);
     const spans = view.captureSpans();
     const highlighted = spanContaining(spans, 'Improve widgets').bg;
     expect(
-      spans.lines[title - 1]?.spans.some((span) => span.bg.equals(highlighted))
+      spans.lines[title - 1]?.spans.every((span) => span.bg.equals(highlighted))
     ).toBe(true);
+    expect(spans.lines[title]?.spans[0]?.bg.equals(highlighted)).toBe(true);
+    expect(spans.lines[title]?.spans.at(-1)?.bg.equals(highlighted)).toBe(true);
+    await act(async () => {
+      view.resize(200, 60);
+      view.mockInput.pressKey('?');
+    });
+    const help = await view.waitForFrame((output) =>
+      output.includes('Review Queue keys')
+    );
+    const helpLines = help.split('\n');
+    const helpTitle = helpLines.findIndex((line) =>
+      line.includes('Review Queue keys')
+    );
+    const helpClose = helpLines.findIndex((line) => line.includes('Esc close'));
+    expect(helpLines[helpTitle - 1]).toContain('┌');
+    expect(helpLines[helpTitle + 1]?.slice(77, 123).trim()).toBe('');
+    expect(helpLines[helpClose - 1]?.slice(77, 123).trim()).toBe('');
+    expect(helpLines[helpClose + 1]).toContain('└');
+    const border = helpLines[helpTitle - 1];
+    expect(border.indexOf('┐') - border.indexOf('┌') + 1).toBe(50);
     view.renderer.destroy();
   });
   test('switches between independent search results, resets the Cursor, and refreshes the active list', async () => {
@@ -376,7 +403,7 @@ describe('Review Queue list switching', () => {
     await act(async () => view.mockInput.pressKey('j'));
     await act(async () => view.mockInput.pressKey('m'));
     const authoredFrame = await view.waitForFrame((frame) =>
-      frame.includes('My PRs 1 open')
+      frame.includes('My PRs All repositories 1 open')
     );
     expect(authoredFrame).toContain('Add more widgets · draft');
     expect(authoredFrame).toContain(
@@ -396,7 +423,7 @@ describe('Review Queue list switching', () => {
     expect(loadReviewQueue.mock.calls.at(-1)?.[1]).toBe('authored');
     await act(async () => view.mockInput.pressKey('m'));
     const queueFrame = await view.waitForFrame((frame) =>
-      frame.includes('Review requests 2 open')
+      frame.includes('Review requests All repositories 2 open')
     );
     expect(queueFrame).toContain(
       'review required · 1 passed · 3 comments · review'
@@ -479,7 +506,8 @@ describe('Review Queue list switching', () => {
             ? [
                 {
                   ...pullRequest,
-                  title: 'A title that wraps across two visible lines',
+                  title:
+                    'A title that wraps across two visible lines in this pane',
                   reviewDecision: 'CHANGES_REQUESTED',
                   checks: [{ name: 'build', state: 'FAILURE' }],
                 },
@@ -501,11 +529,13 @@ describe('Review Queue list switching', () => {
     await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
     await act(async () => view.mockInput.pressKey('m'));
     const frame = await view.waitForFrame((output) =>
-      output.includes('My PRs 1 open')
+      output.includes('My PRs All repositories 1 open')
     );
-    expect(frame).toContain('A title that wraps across two visible line');
-    expect(frame).toMatch(/\n   s\s/);
-    expect(frame.indexOf('lines')).toBeLessThan(frame.indexOf('acme/widgets'));
+    expect(frame).toContain('A title that wraps across two visible lines');
+    expect(frame).toMatch(/\n  this pane\s/);
+    expect(frame.indexOf('this pane')).toBeLessThan(
+      frame.indexOf('acme/widgets')
+    );
     expect(frame).toContain('3 comments');
     expect(frame).toContain('review');
     expect(frame).toContain('changes requested');
@@ -545,7 +575,7 @@ describe('Review Queue list switching', () => {
       height: 9,
     });
     const shortFrame = await short.waitForFrame((frame) =>
-      frame.includes('Review requests 1 open')
+      frame.includes('Review requests All repositories 1 open')
     );
     expect(shortFrame).toContain('Improve widgets');
     short.renderer.destroy();
@@ -616,7 +646,6 @@ describe('Review Queue page loading', () => {
     const lines = view
       .captureCharFrame()
       .split('\n')
-      .slice(1) // The scope indicator is separate from the centered status.
       .filter((line) => line.trim());
     expect(lines.length).toBeGreaterThan(2);
     for (const line of lines) {
@@ -627,7 +656,7 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('shows the scope indicator and centered My PRs title while that list loads', async () => {
+  test('shows only the centered My PRs title while that list loads', async () => {
     const authoredLoad = Promise.withResolvers<GitHubResult<ReviewQueue>>();
     const github = {
       async loadReviewQueue(_signal: AbortSignal, list = 'reviewQueue') {
@@ -647,8 +676,9 @@ describe('Review Queue page loading', () => {
     await view.waitForFrame((frame) => frame.includes('Fetching my PRs…'));
     const lines = view.captureCharFrame().split('\n');
     const title = 'Fetching my PRs…';
-    expect(lines[0]).toContain('All repositories');
-    expect(lines.filter((line) => line.trim() !== '')).toHaveLength(2);
+    expect(view.captureCharFrame()).not.toContain('All repositories');
+    expect(view.captureCharFrame()).not.toContain('repo scope');
+    expect(lines.filter((line) => line.trim() !== '')).toHaveLength(1);
     expect(lines.find((line) => line.includes(title))?.indexOf(title)).toBe(
       Math.floor((80 - title.length) / 2)
     );
@@ -704,8 +734,8 @@ describe('Review Queue page loading', () => {
     await view.renderOnce();
     const loadingLines = view.captureCharFrame().split('\n');
     const reviewTitle = 'Fetching PRs to review…';
-    expect(loadingLines[0]).toContain('All repositories');
-    expect(loadingLines.filter((line) => line.trim() !== '')).toHaveLength(2);
+    expect(view.captureCharFrame()).not.toContain('All repositories');
+    expect(loadingLines.filter((line) => line.trim() !== '')).toHaveLength(1);
     expect(loadingLines.some((line) => line.trim() === reviewTitle)).toBe(true);
     expect(
       loadingLines
@@ -787,7 +817,7 @@ describe('Review Queue page loading', () => {
     const modal = await view.waitForFrame((frame) =>
       frame.includes('Pull request details · acme/widgets #7')
     );
-    expect(modal).not.toContain('Review requests 3 open');
+    expect(modal).not.toContain('Review requests All repositories 3 open');
     expect(loadPullRequestDetails).toHaveBeenCalledWith(
       pullRequest.url,
       expect.any(AbortSignal)
@@ -795,7 +825,7 @@ describe('Review Queue page loading', () => {
 
     await act(async () => view.mockInput.pressKey('q'));
     const returned = await view.waitForFrame((frame) =>
-      frame.includes('Review requests 3 open')
+      frame.includes('Review requests All repositories 3 open')
     );
     expect(returned).toContain('Improve widgets');
     view.renderer.destroy();
@@ -890,6 +920,462 @@ describe('Review Queue page loading', () => {
       )
     );
     expect(copy).toHaveBeenCalledTimes(2);
+    view.renderer.destroy();
+  });
+
+  test('shows saved source separately from suggestions, marks ranges, and does not repeat context for replies', async () => {
+    const inline = {
+      author: 'Copilot',
+      createdAt: '2026-08-21T10:00:00Z',
+      path: 'frontend/src/actions/update-group-action.ts',
+      line: 50,
+      startLine: null,
+      inReplyToId: null,
+      resolved: false,
+      outdated: true,
+      source: {
+        diffHunk:
+          '@@ -0,0 +44,4 @@\n+  }\n+\n+  try {\n+    await api.update_group(cleanUpdateData, {',
+        side: 'RIGHT',
+        startSide: null,
+        line: 47,
+        startLine: null,
+      },
+    } satisfies Omit<PullRequestInlineComment, 'id' | 'body'>;
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources(pullRequestDetails('Details')),
+          inlineComments: success([
+            {
+              ...inline,
+              id: 'ts',
+              body: 'Use the camelCase client.\n```suggestion\nawait api.updateGroup(cleanUpdateData, {\n```',
+            },
+            {
+              ...inline,
+              id: 'reply',
+              createdAt: '2026-08-21T10:01:00Z',
+              inReplyToId: 'ts',
+              body: 'Reply without repeated source.',
+            },
+            {
+              ...inline,
+              id: 'go',
+              createdAt: '2026-08-21T10:02:00Z',
+              path: 'backend/api/update-group.go',
+              line: 16,
+              startLine: 15,
+              source: {
+                diffHunk:
+                  '@@ -15,2 +15,2 @@\n types.Authorization\n-Id string `path:"id"`\n+Id string `uri:"id"`',
+                side: 'LEFT',
+                startSide: 'LEFT',
+                line: 16,
+                startLine: 15,
+              },
+              body: 'Use the uri tag.',
+            },
+            {
+              ...inline,
+              id: 'missing',
+              createdAt: '2026-08-21T10:03:00Z',
+              source: { ...inline.source, line: 99 },
+              body: 'Body remains visible with missing source.',
+            },
+            {
+              ...inline,
+              id: 'file',
+              createdAt: '2026-08-21T10:04:00Z',
+              line: null,
+              source: { ...inline.source, line: null },
+              body: 'File-level comment has no anchored snippet.',
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    view.resize(120, 100);
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    const frame = await view.waitForFrame((frame) =>
+      frame.includes('File-level comment has no anchored snippet.')
+    );
+    expect(frame).not.toContain('Source context · saved diff');
+    expect(frame.match(/api\.update_group/g)).toHaveLength(1);
+    expect(frame).toMatch(/>\s+47 \+\s+await api\.update_group/);
+    expect(frame.indexOf('api.update_group')).toBeLessThan(
+      frame.indexOf('Use the camelCase client.')
+    );
+    expect(frame).toContain('api.updateGroup');
+    expect(frame).toMatch(/>\s+15\s+types.Authorization/);
+    expect(frame).toMatch(/>\s+16\s+- Id string `path:"id"`/);
+    expect(frame).toContain('Source context unavailable:');
+    expect(frame).toContain('Body remains visible with missing source.');
+    const codeBlocks: CodeRenderable[] = [];
+    const collect = (node: Renderable) => {
+      if (node instanceof CodeRenderable) codeBlocks.push(node);
+      for (const child of node.getChildren()) collect(child);
+    };
+    collect(view.renderer.root);
+    await act(async () => {
+      await Promise.all(codeBlocks.map((code) => code.highlightingDone));
+    });
+    await view.renderOnce();
+    const spans = view.captureSpans();
+    expectColor(spanContaining(spans, 'try').fg, '#8a328a');
+    expect(spanContaining(spans, 'update_group').fg.intent).toBe('default');
+    expectColor(
+      spanContaining(spans, 'update_group').bg,
+      terminalPalettes[0].highlightedBackground
+    );
+    const addedLine = spans.lines.find((line) =>
+      line.spans.some((span) => span.text.includes('update_group'))
+    );
+    const addedSign = addedLine?.spans.find((span) => span.text.includes('+'));
+    expect(addedSign).toBeDefined();
+    if (addedSign === undefined) throw new Error('Expected added-line gutter');
+    expectColor(addedSign.fg, '#168216');
+    expect(spanContaining(spans, 'path:"id"').fg.intent).toBe('default');
+    view.renderer.destroy();
+  });
+
+  test('highlights tagged code and infers inline code and suggestions from the file extension across refreshes', async () => {
+    let inferredBody =
+      'Replace the client call.\n```suggestion\n    await api.updateGroup(cleanUpdateData, {\n```\n\nIndented alternative:\n\n    const indented = <span />;';
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources({
+            ...pullRequestDetails('Details'),
+            body: '```ts\nconst tagged = "hello";\n```',
+          }),
+          inlineComments: success([
+            {
+              id: 'inferred',
+              author: 'copilot',
+              createdAt: '2026-08-21T10:00:00Z',
+              body: inferredBody,
+              path: 'src/widget.tsx',
+              line: 1,
+              startLine: null,
+              inReplyToId: null,
+              resolved: false,
+              outdated: false,
+            },
+            {
+              id: 'explicit',
+              author: 'copilot',
+              createdAt: '2026-08-21T11:00:00Z',
+              body: '```js\nconst explicit = 42;\n```',
+              path: 'src/widget.py',
+              line: 1,
+              startLine: null,
+              inReplyToId: null,
+              resolved: false,
+              outdated: false,
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    view.resize(100, 80);
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    await view.waitForFrame((frame) => frame.includes('const explicit'));
+    const codeBlocks: CodeRenderable[] = [];
+    const collect = (node: Renderable) => {
+      if (node instanceof CodeRenderable && node.filetype !== 'markdown')
+        codeBlocks.push(node);
+      for (const child of node.getChildren()) collect(child);
+    };
+    collect(view.renderer.root);
+    expect(codeBlocks.map((code) => code.filetype)).toEqual([
+      'typescript',
+      'typescriptreact',
+      'typescriptreact',
+      'javascript',
+    ]);
+    await act(async () => {
+      await Promise.all(codeBlocks.map((code) => code.highlightingDone));
+    });
+    await view.renderOnce();
+    const frame = view.captureSpans();
+    expectColor(spanContaining(frame, 'const').fg, '#8a328a');
+    expectColor(
+      spanContaining(frame, 'const').bg,
+      terminalPalettes[0].highlightedBackground
+    );
+    const taggedLine = frame.lines.findIndex((line) =>
+      line.spans.some((span) => span.text.includes('tagged'))
+    );
+    for (const index of [taggedLine - 1, taggedLine, taggedLine + 1]) {
+      const coloredWidth = frame.lines[index].spans
+        .filter((span) =>
+          span.bg.equals(
+            RGBA.fromHex(terminalPalettes[0].highlightedBackground)
+          )
+        )
+        .reduce((width, span) => width + Bun.stringWidth(span.text), 0);
+      expect(coloredWidth).toBe(96);
+    }
+    expect(
+      frame.lines[taggedLine - 3].spans.map((span) => span.text).join('')
+    ).toContain('Description');
+    const suggestionLine = frame.lines.findIndex((line) =>
+      line.spans.some((span) => span.text.includes('updateGroup'))
+    );
+    expect(
+      frame.lines[suggestionLine - 3].spans.map((span) => span.text).join('')
+    ).toContain('Replace the client call.');
+    for (const index of [
+      taggedLine - 2,
+      taggedLine + 2,
+      suggestionLine - 2,
+      suggestionLine + 2,
+    ]) {
+      expect(
+        frame.lines[index].spans
+          .map((span) => span.text)
+          .join('')
+          .trim()
+      ).toBe('');
+      expect(
+        frame.lines[index].spans.some((span) =>
+          span.bg.equals(
+            RGBA.fromHex(terminalPalettes[0].highlightedBackground)
+          )
+        )
+      ).toBe(false);
+    }
+    expect(
+      frame.lines[suggestionLine + 3].spans.map((span) => span.text).join('')
+    ).toContain('Indented alternative:');
+    expectColor(spanContaining(frame, 'hello').fg, '#168216');
+    expectColor(spanContaining(frame, '42').fg, '#8a6900');
+    inferredBody = '```\nconst refreshed = <div />;\n```';
+    await act(async () => view.mockInput.pressKey('r'));
+    await view.waitForFrame((frame) => frame.includes('const refreshed'));
+    codeBlocks.length = 0;
+    collect(view.renderer.root);
+    expect(codeBlocks.map((code) => code.filetype)).toEqual([
+      'typescript',
+      'typescriptreact',
+      'javascript',
+    ]);
+    await act(async () => {
+      await Promise.all(codeBlocks.map((code) => code.highlightingDone));
+    });
+    await view.renderOnce();
+    expectColor(spanContaining(view.captureSpans(), 'refreshed').fg, '#8a6900');
+    expectColor(
+      spanContaining(view.captureSpans(), 'refreshed').bg,
+      terminalPalettes[0].highlightedBackground
+    );
+    view.renderer.destroy();
+  });
+
+  test('keeps symmetric unshaded and shaded spacing around multiple Copilot snippets', async () => {
+    const body = [
+      '<details>',
+      '<summary>Comments suppressed due to low confidence (3)</summary>',
+      '',
+      '**frontend/src/api/ts-client/index.ts:1**',
+      '* Reintroduce authentication handling.',
+      '```',
+      'import { initClient } from "@ts-rest/core";',
+      '```',
+      '**backend/api/update-group.go:32**',
+      '* Return a 403 error for unauthorized requests.',
+      '```',
+      '\t}',
+      '```',
+      '**frontend/src/app/dashboard/[group_id]/settings/page.tsx:12**',
+      '* Update the params type.',
+      '```',
+      '  params: Promise<{',
+      '```',
+      '</details>',
+    ].join('\n');
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources(pullRequestDetails('Details')),
+          reviews: success([
+            {
+              author: 'copilot-pull-request-reviewer',
+              submittedAt: '2026-08-21T10:00:00Z',
+              state: 'COMMENTED',
+              body,
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    view.resize(160, 100);
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    await view.waitForFrame((frame) => frame.includes('params: Promise<{'));
+    const findBlocks = (node: Renderable): Renderable[] =>
+      node
+        .getChildren()
+        .flatMap((child) =>
+          child.id.endsWith('-background') ? [child] : findBlocks(child)
+        );
+    const blocks = findBlocks(view.renderer.root);
+    expect(blocks).toHaveLength(3);
+    const frame = view.captureSpans();
+    const chars = view.captureCharFrame().split('\n');
+    const background = RGBA.fromHex(terminalPalettes[0].highlightedBackground);
+    for (const block of blocks) {
+      for (const index of [block.y - 1, block.y + block.height]) {
+        expect(chars[index].slice(0, -1).trim()).toBe('');
+        expect(
+          frame.lines[index].spans.some((span) => span.bg.equals(background))
+        ).toBe(false);
+      }
+      for (const index of [block.y, block.y + block.height - 1]) {
+        expect(
+          frame.lines[index].spans
+            .filter((span) => span.bg.equals(background))
+            .reduce((width, span) => width + Bun.stringWidth(span.text), 0)
+        ).toBe(block.width);
+        expect(chars[index].slice(0, -1).trim()).toBe('');
+      }
+    }
+    view.renderer.destroy();
+  });
+
+  test('does not double the trailing gap when a comment ends in code', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources(pullRequestDetails('Details')),
+          issueComments: success([
+            {
+              id: 'first',
+              author: 'first-author',
+              createdAt: '2026-08-21T10:00:00Z',
+              body: '```\nfirst snippet\n```',
+            },
+            {
+              id: 'last',
+              author: 'last-author',
+              createdAt: '2026-08-21T11:00:00Z',
+              body: '```\nlast snippet\n```',
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    view.resize(100, 80);
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    const frame = await view.waitForFrame((frame) =>
+      frame.includes('last snippet')
+    );
+    const lines = frame.split('\n');
+    const first = lines.findIndex((line) => line.includes('first snippet'));
+    const last = lines.findIndex((line) => line.includes('last snippet'));
+    // Code line, shaded padding, one unshaded gap, then the next divider/footer.
+    expect(lines[first + 2].slice(0, -1).trim()).toBe('');
+    expect(lines[first + 3]).toContain('─');
+    expect(lines[last + 2].slice(0, -1).trim()).toBe('');
+    expect(lines[last + 3]).toContain('k/up/j/down line');
+    view.renderer.destroy();
+  });
+
+  test('hides Markdown reference metadata and separates conversation comments', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources(pullRequestDetails('Details')),
+          issueComments: success([
+            {
+              id: 'bot',
+              author: 'vercel',
+              createdAt: '2026-08-21T10:00:00Z',
+              body: '[vc]: #HQUbrs6BjHgtz1RmoebhtLxO2z1FOJLFnbYAbpvO4zg=:\neyJwcm9qZWN0cyI6W119\n\nDeployment ready.',
+            },
+            {
+              id: 'human',
+              author: 'octocat',
+              createdAt: '2026-08-21T11:00:00Z',
+              body: 'Looks good.',
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 80,
+    });
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    const frame = await view.waitForFrame((frame) =>
+      frame.includes('Looks good.')
+    );
+    expect(frame).toContain('Deployment ready.');
+    expect(frame).not.toContain('[vc]:');
+    expect(frame).not.toContain('eyJwcm9qZWN0cyI6W119');
+    const lines = frame.split('\n');
+    for (const author of ['vercel', 'octocat']) {
+      const header = lines.findIndex((line) =>
+        line.includes(`Issue comment · ${author}`)
+      );
+      expect(lines[header - 1]).toContain('─');
+      expect(lines[header + 1]?.slice(0, -1).trim()).toBe('');
+    }
     view.renderer.destroy();
   });
 
@@ -1197,7 +1683,9 @@ describe('Review Queue page loading', () => {
     const firstTargetFrame = await view.waitForFrame((frame) =>
       frame.includes('First target')
     );
-    expect(firstTargetFrame).not.toContain('Review requests 2 open');
+    expect(firstTargetFrame).not.toContain(
+      'Review requests All repositories 2 open'
+    );
     await act(async () => {
       await view.mockInput.pressKey('j');
       await view.mockInput.pressKey('d');
@@ -1212,7 +1700,7 @@ describe('Review Queue page loading', () => {
       view.mockInput.pressEscape();
     });
     await view.waitForFrame((frame) =>
-      frame.includes('Review requests 2 open')
+      frame.includes('Review requests All repositories 2 open')
     );
     await act(async () => {
       view.mockInput.pressEnter();
@@ -1229,7 +1717,7 @@ describe('Review Queue page loading', () => {
       view.mockInput.pressEscape();
     });
     await view.waitForFrame((frame) =>
-      frame.includes('Review requests 2 open')
+      frame.includes('Review requests All repositories 2 open')
     );
     await act(async () => view.mockInput.pressKey('j'));
     await act(async () => {
@@ -1498,7 +1986,7 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes(pullRequest.title));
     await act(async () => view.mockInput.pressKey('l'));
     await view.waitForFrame((frame) =>
-      frame.includes('acme/widgets · l repo scope')
+      frame.includes('Review requests acme/widgets 1 open')
     );
     await act(view.mockInput.pressEnter);
     await view.waitForFrame((frame) => frame.includes('Scoped details'));
@@ -1515,7 +2003,7 @@ describe('Review Submission', () => {
     const completed = await view.waitForFrame((frame) =>
       frame.includes('Commented on acme/widgets #7.')
     );
-    expect(completed).toContain('acme/widgets · l repo scope');
+    expect(completed).toContain('Review requests acme/widgets 1 open');
     expect(completed).not.toContain('Ctrl+A Approve');
     expect(submitReview).toHaveBeenCalledTimes(1);
     expect(loadReviewQueue).toHaveBeenCalledTimes(3);
@@ -1923,7 +2411,7 @@ describe('Review Submission', () => {
       })
     );
     const closed = await view.waitForFrame((frame) =>
-      frame.includes('Review requests 1 open')
+      frame.includes('Review requests All repositories 1 open')
     );
     expect(closed).not.toContain('Review Submission');
     view.renderer.destroy();
@@ -1953,14 +2441,14 @@ test('fallback surfaces use the unchanged Review Queue terminal defaults', async
 
   await view.waitForFrame((frame) => frame.includes(pullRequest.title));
   const queueFrame = view.captureSpans();
-  const queueForeground = spanContaining(queueFrame, pullRequest.title).fg;
+  const repositoryColor = spanContaining(queueFrame, pullRequest.repository).fg;
 
   await act(async () => view.mockInput.pressKey('?'));
   await view.waitForFrame((frame) => frame.includes('Review Queue keys'));
   const helpFrame = view.captureSpans();
   const helpTitle = spanContaining(helpFrame, 'Review Queue keys');
-  expect(helpTitle.fg.toInts()).toEqual(queueForeground.toInts());
-  expect(helpTitle.fg.intent).toBe('default');
+  expect(helpTitle.fg.toInts()).toEqual(repositoryColor.toInts());
+  expect(helpTitle.fg.intent).toBe(repositoryColor.intent);
   expect(helpTitle.bg.intent).toBe('default');
   view.renderer.destroy();
 });
@@ -2115,12 +2603,14 @@ describe.each(terminalPalettes)(
         characters.includes('Review Queue keys')
       );
       frame = view.captureSpans();
-      expectColor(spanContaining(frame, 'Review Queue keys').fg, foreground);
+      expectColor(spanContaining(frame, 'Review Queue keys').fg, '#087f8c');
       expectColor(
         spanContaining(frame, 'Review Queue keys').bg,
         surfaceBackground
       );
       expectColor(spanContaining(frame, 'open details').fg, foreground);
+      expectColor(spanContaining(frame, 'q/escape').fg, '#8a328a');
+      expectColor(spanContaining(frame, 'quit').fg, foreground);
       expectColor(spanContaining(frame, 'Esc close').fg, foreground);
       await act(async () => view.mockInput.pressKey('?'));
 
@@ -2186,6 +2676,14 @@ describe.each(terminalPalettes)(
       );
       frame = view.captureSpans();
       expectColor(spanContaining(frame, 'Colored details').fg, foreground);
+      for (const title of [
+        'Reviewers',
+        'Checks',
+        'Description',
+        'Conversation',
+      ]) {
+        expectColor(spanContaining(frame, title).fg, '#087f8c');
+      }
       expectColor(spanContaining(frame, 'Ordinary description').fg, foreground);
       expectColor(spanContaining(frame, pullRequest.author).fg, '#8a328a');
       expectColor(spanContaining(frame, 'requested-reviewer').fg, '#8a328a');
@@ -2238,7 +2736,7 @@ describe.each(terminalPalettes)(
       );
       await act(async () => view.mockInput.pressKey('q'));
       await view.waitForFrame((characters) =>
-        characters.includes('Review requests 2 open')
+        characters.includes('Review requests All repositories 2 open')
       );
 
       await act(async () => view.mockInput.pressKey('s'));

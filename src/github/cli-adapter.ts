@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type {
+  DiffSide,
   PullRequestCheck,
   PullRequestDetails,
   PullRequestInlineComment,
@@ -35,6 +36,8 @@ query($owner:String!,$repository:String!,$number:Int!,$threadsCursor:String) {
         nodes {
           id
           isResolved
+          diffSide
+          startDiffSide
           comments(first:100) {
             nodes {
               databaseId
@@ -42,6 +45,7 @@ query($owner:String!,$repository:String!,$number:Int!,$threadsCursor:String) {
               createdAt
               body
               path
+              diffHunk
               line
               startLine
               originalLine
@@ -62,6 +66,8 @@ query($threadId:ID!,$commentsCursor:String) {
   node(id:$threadId) {
     ... on PullRequestReviewThread {
       isResolved
+      diffSide
+      startDiffSide
       comments(first:100,after:$commentsCursor) {
         nodes {
           databaseId
@@ -69,6 +75,7 @@ query($threadId:ID!,$commentsCursor:String) {
           createdAt
           body
           path
+          diffHunk
           line
           startLine
           originalLine
@@ -727,7 +734,11 @@ function parseReviewThreadPage(value: unknown): ReviewThreadPage {
         ...parseInlineCommentNodes(
           threadComments.nodes,
           `${threadPath}.comments.nodes`,
-          resolved
+          resolved,
+          diffSide(thread.diffSide, `${threadPath}.diffSide`),
+          thread.startDiffSide === null
+            ? null
+            : diffSide(thread.startDiffSide, `${threadPath}.startDiffSide`)
         )
       );
       const nextCommentsCursor = parseNextCursor(
@@ -761,7 +772,11 @@ function parseReviewThreadCommentPage(value: unknown): {
     comments: parseInlineCommentNodes(
       comments.nodes,
       '$.data.node.comments.nodes',
-      resolved
+      resolved,
+      diffSide(node.diffSide, '$.data.node.diffSide'),
+      node.startDiffSide === null
+        ? null
+        : diffSide(node.startDiffSide, '$.data.node.startDiffSide')
     ),
     nextCursor: parseNextCursor(
       comments.pageInfo,
@@ -773,13 +788,28 @@ function parseReviewThreadCommentPage(value: unknown): {
 function parseInlineCommentNodes(
   value: unknown,
   path: string,
-  resolved: boolean
+  resolved: boolean,
+  side: DiffSide,
+  startSide: DiffSide | null
 ): readonly PullRequestInlineComment[] {
   return array(value, path).map((commentValue, index) => {
     const commentPath = `${path}[${index}]`;
     const comment = record(commentValue, commentPath);
     const author = nullableRecord(comment.author, `${commentPath}.author`);
     const replyTo = nullableRecord(comment.replyTo, `${commentPath}.replyTo`);
+    const originalLine = nullableInteger(
+      comment.originalLine,
+      `${commentPath}.originalLine`
+    );
+    const originalStartLine = nullableInteger(
+      comment.originalStartLine,
+      `${commentPath}.originalStartLine`
+    );
+    const currentLine = nullableInteger(comment.line, `${commentPath}.line`);
+    const currentStartLine = nullableInteger(
+      comment.startLine,
+      `${commentPath}.startLine`
+    );
     return {
       id: String(integer(comment.databaseId, `${commentPath}.databaseId`)),
       author:
@@ -789,15 +819,8 @@ function parseInlineCommentNodes(
       createdAt: string(comment.createdAt, `${commentPath}.createdAt`),
       body: string(comment.body, `${commentPath}.body`),
       path: string(comment.path, `${commentPath}.path`),
-      line:
-        nullableInteger(comment.line, `${commentPath}.line`) ??
-        nullableInteger(comment.originalLine, `${commentPath}.originalLine`),
-      startLine:
-        nullableInteger(comment.startLine, `${commentPath}.startLine`) ??
-        nullableInteger(
-          comment.originalStartLine,
-          `${commentPath}.originalStartLine`
-        ),
+      line: currentLine ?? originalLine,
+      startLine: currentStartLine ?? originalStartLine,
       inReplyToId:
         replyTo === null
           ? null
@@ -806,6 +829,14 @@ function parseInlineCommentNodes(
             ),
       resolved,
       outdated: boolean(comment.outdated, `${commentPath}.outdated`),
+      source: {
+        diffHunk: string(comment.diffHunk, `${commentPath}.diffHunk`),
+        side,
+        startSide,
+        // The saved diff hunk uses the original comment coordinates, even after edits shift the current line.
+        line: originalLine ?? currentLine,
+        startLine: originalLine === null ? currentStartLine : originalStartLine,
+      },
     };
   });
 }
@@ -874,6 +905,12 @@ function nullableRecord(
   path: string
 ): Record<string, unknown> | null {
   return value === null ? null : record(value, path);
+}
+
+function diffSide(value: unknown, path: string): DiffSide {
+  if (value !== 'LEFT' && value !== 'RIGHT')
+    throw incompatible(path, 'LEFT or RIGHT');
+  return value;
 }
 
 function nullableInteger(value: unknown, path: string): number | null {
