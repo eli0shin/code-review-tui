@@ -293,13 +293,12 @@ test('scope supports remapping and empty lists, while resolution failure leaves 
   expect(loadCurrentRepository).not.toHaveBeenCalled();
   await act(async () => view.mockInput.pressKey('f'));
   await view.waitForFrame((frame) => frame.includes('No GitHub remote'));
-  expect(view.captureCharFrame()).toContain('All repositories');
+  expect(view.captureCharFrame()).not.toContain('All repositories');
   expect(await searches()).toHaveLength(1);
   await act(async () => view.mockInput.pressKey('f'));
   await view.waitForFrame(
     async (frame) =>
-      frame.includes('acme/widgets · f repo scope') &&
-      (await searches()).length === 2
+      frame.includes('No reviews waiting') && (await searches()).length === 2
   );
   expect((await searches()).at(-1)).toEqual([
     'is:pr',
@@ -308,7 +307,10 @@ test('scope supports remapping and empty lists, while resolution failure leaves 
   ]);
   await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
   expect(view.captureCharFrame()).not.toContain('No GitHub remote');
-  await act(async () => view.mockInput.pressKey('?'));
+  await act(async () => {
+    view.resize(200, 30);
+    view.mockInput.pressKey('?');
+  });
   await view.waitForFrame((frame) =>
     frame.includes('f  toggle launch repository scope')
   );

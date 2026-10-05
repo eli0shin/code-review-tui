@@ -93,6 +93,8 @@ const reviewThreadsJson = {
             {
               id: 'PRRT_thread',
               isResolved: true,
+              diffSide: 'RIGHT',
+              startDiffSide: 'RIGHT',
               comments: {
                 nodes: [
                   {
@@ -101,6 +103,7 @@ const reviewThreadsJson = {
                     createdAt: '2026-08-21T12:00:00Z',
                     body: 'Inline body',
                     path: 'src/widget.ts',
+                    diffHunk: '@@ -3,3 +3,3 @@\n one\n two\n three',
                     startLine: null,
                     line: null,
                     originalStartLine: 3,
@@ -114,6 +117,7 @@ const reviewThreadsJson = {
                     createdAt: '2026-08-21T12:05:00Z',
                     body: 'Deleted account comment',
                     path: 'src/deleted.ts',
+                    diffHunk: '@@ -8 +8 @@\n unchanged',
                     startLine: null,
                     line: 8,
                     originalStartLine: null,
@@ -499,6 +503,13 @@ describe('GitHub CLI adapter contract', () => {
           createdAt: '2026-08-21T12:00:00Z',
           body: 'Inline body',
           path: 'src/widget.ts',
+          source: {
+            diffHunk: '@@ -3,3 +3,3 @@\n one\n two\n three',
+            side: 'RIGHT',
+            startSide: 'RIGHT',
+            line: 5,
+            startLine: 3,
+          },
           startLine: 3,
           line: 5,
           inReplyToId: null,
@@ -511,6 +522,13 @@ describe('GitHub CLI adapter contract', () => {
           createdAt: '2026-08-21T12:05:00Z',
           body: 'Deleted account comment',
           path: 'src/deleted.ts',
+          source: {
+            diffHunk: '@@ -8 +8 @@\n unchanged',
+            side: 'RIGHT',
+            startSide: 'RIGHT',
+            line: 8,
+            startLine: null,
+          },
           startLine: null,
           line: 8,
           inReplyToId: null,
@@ -544,6 +562,7 @@ describe('GitHub CLI adapter contract', () => {
       createdAt: '2026-08-21T12:00:00Z',
       body: 'Inline body',
       path: 'src/widget.ts',
+      diffHunk: '@@ -3,3 +3,3 @@\n one\n two\n three',
       startLine: 3,
       line: 5,
       originalStartLine: null,
@@ -561,6 +580,8 @@ describe('GitHub CLI adapter contract', () => {
                 {
                   id: 'PRRT_first',
                   isResolved: false,
+                  diffSide: 'LEFT',
+                  startDiffSide: 'LEFT',
                   comments: {
                     nodes: [inlineComment],
                     pageInfo: {
@@ -585,6 +606,8 @@ describe('GitHub CLI adapter contract', () => {
                 {
                   id: 'PRRT_second',
                   isResolved: true,
+                  diffSide: 'RIGHT',
+                  startDiffSide: null,
                   comments: {
                     nodes: [{ ...inlineComment, databaseId: 93 }],
                     pageInfo: { hasNextPage: false, endCursor: null },
@@ -601,6 +624,8 @@ describe('GitHub CLI adapter contract', () => {
       data: {
         node: {
           isResolved: false,
+          diffSide: 'LEFT',
+          startDiffSide: 'LEFT',
           comments: {
             nodes: [{ ...inlineComment, databaseId: 92 }],
             pageInfo: { hasNextPage: false, endCursor: null },
@@ -617,15 +642,53 @@ describe('GitHub CLI adapter contract', () => {
     expect(result.inlineComments).toEqual({
       ok: true,
       value: [
-        expect.objectContaining({ id: '91', resolved: false }),
-        expect.objectContaining({ id: '92', resolved: false }),
-        expect.objectContaining({ id: '93', resolved: true }),
+        expect.objectContaining({
+          id: '91',
+          resolved: false,
+          source: {
+            diffHunk: inlineComment.diffHunk,
+            side: 'LEFT',
+            startSide: 'LEFT',
+            line: 5,
+            startLine: 3,
+          },
+        }),
+        expect.objectContaining({
+          id: '92',
+          resolved: false,
+          source: {
+            diffHunk: inlineComment.diffHunk,
+            side: 'LEFT',
+            startSide: 'LEFT',
+            line: 5,
+            startLine: 3,
+          },
+        }),
+        expect.objectContaining({
+          id: '93',
+          resolved: true,
+          source: {
+            diffHunk: inlineComment.diffHunk,
+            side: 'RIGHT',
+            startSide: null,
+            line: 5,
+            startLine: 3,
+          },
+        }),
       ],
     });
     const graphqlRecords = (await readRecords()).filter(
       (record) => record.argv[0] === 'api'
     );
     expect(graphqlRecords).toHaveLength(3);
+    for (const record of graphqlRecords) {
+      const query = record.argv.find((argument) =>
+        argument.startsWith('query=')
+      );
+      expect(query).toContain('diffHunk');
+      expect(query).toContain('diffSide');
+      expect(query).toContain('startDiffSide');
+    }
     expect(
       graphqlRecords.some((record) =>
         record.argv.includes('threadsCursor=threads-next')
@@ -636,6 +699,37 @@ describe('GitHub CLI adapter contract', () => {
         record.argv.includes('commentsCursor=comments-next')
       )
     ).toBe(true);
+  });
+
+  test('keeps original hunk coordinates distinct from shifted current comment ranges', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
+    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(
+      reviewThreadsJson,
+      (key, value: unknown) => {
+        if (key === 'line') return 50;
+        if (key === 'startLine') return 48;
+        if (key === 'originalLine') return 47;
+        if (key === 'originalStartLine') return null;
+        return value;
+      }
+    );
+    const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal
+    );
+    expect(result.inlineComments.ok).toBe(true);
+    if (!result.inlineComments.ok) throw new Error('Expected inline comments');
+    expect(
+      result.inlineComments.value.map((comment) => ({
+        line: comment.line,
+        startLine: comment.startLine,
+        sourceLine: comment.source?.line,
+        sourceStartLine: comment.source?.startLine,
+      }))
+    ).toEqual([
+      { line: 50, startLine: 48, sourceLine: 47, sourceStartLine: null },
+      { line: 50, startLine: 48, sourceLine: 47, sourceStartLine: null },
+    ]);
   });
 
   test('opens a canonical pull request URL in the default browser', async () => {

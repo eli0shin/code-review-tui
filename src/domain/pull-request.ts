@@ -36,6 +36,16 @@ export type PullRequestIssueComment = {
   readonly body: string;
 };
 
+export type DiffSide = 'LEFT' | 'RIGHT';
+
+export type InlineCommentSource = {
+  readonly diffHunk: string;
+  readonly side: DiffSide;
+  readonly startSide: DiffSide | null;
+  readonly line: number | null;
+  readonly startLine: number | null;
+};
+
 export type PullRequestInlineComment = {
   readonly id: string;
   readonly author: string;
@@ -47,6 +57,7 @@ export type PullRequestInlineComment = {
   readonly inReplyToId: string | null;
   readonly resolved: boolean;
   readonly outdated: boolean;
+  readonly source?: InlineCommentSource;
 };
 
 export type PullRequestDetails = {

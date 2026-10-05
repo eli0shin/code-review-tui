@@ -3,6 +3,7 @@ import {
   CliRenderEvents,
   CodeRenderable,
   createCliRenderer,
+  extToFiletype,
   normalizeTerminalPalette,
   RGBA,
   SyntaxStyle,
@@ -10,6 +11,8 @@ import {
   TextBufferRenderable,
   TextTableRenderable,
   type KeyEvent,
+  type LineColorConfig,
+  type LineSign,
   type MarkdownOptions,
   type ScrollBoxRenderable,
   type Selection,
@@ -30,6 +33,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { inlineCommentExcerpt } from './domain/inline-comment-context.ts';
 import {
   normalizeKeyDescriptor,
   tokenizeSearch,
@@ -39,6 +43,7 @@ import {
   type QueueAction,
 } from './configuration/index.ts';
 import type {
+  InlineCommentSource,
   PullRequestSummary,
   ReviewDecision,
   ReviewQueue,
@@ -172,12 +177,10 @@ function ReviewQueue({
     scopedRepository === undefined
       ? 'All repositories'
       : `${scopedRepository.hostname === 'github.com' ? '' : `${scopedRepository.hostname}/`}${scopedRepository.nameWithOwner}`;
-  const scopeStatusText = ` ${scopeLabel} · ${formatBindings(keyBindings.toggleRepositoryScope)} repo scope${resolvingRepository ? ' · resolving launch repository…' : ''}`;
-  const scopeStatusRows =
-    renderedRows(scopeStatusText, terminal.width) +
-    (scopeDiagnostic === undefined
+  const scopeDiagnosticRows =
+    scopeDiagnostic === undefined
       ? 0
-      : renderedRows(scopeDiagnostic, terminal.width));
+      : renderedRows(scopeDiagnostic, terminal.width);
   useEffect(() => () => repositoryControllerRef.current?.abort(), []);
   const [searchText, setSearchText] = useState(githubSearchText);
   const search = useMemo(() => {
@@ -280,7 +283,7 @@ function ReviewQueue({
         : `${listName} not refreshed: ${failureMessage(queueFailure)}`,
       queue.length === 0 ? terminal.width : queueStatusWidth,
       queue.length === 0
-        ? terminal.height - 2 - scopeStatusRows
+        ? terminal.height - 2 - scopeDiagnosticRows
         : 3 - occupiedQueueStatusRows
     ) &&
     githubFailureKey(queueFailure) !== dismissedFailureKey
@@ -646,10 +649,7 @@ function ReviewQueue({
         flexGrow={1}
         flexDirection="column"
       >
-        <text flexShrink={0} attributes={TextAttributes.DIM} wrapMode="char">
-          {scopeStatusText}
-        </text>
-        {scopeDiagnostic !== undefined ? (
+        {queue.length === 0 && scopeDiagnostic !== undefined ? (
           <text flexShrink={0} fg={theme.error} wrapMode="char">
             {scopeDiagnostic}
           </text>
@@ -688,6 +688,9 @@ function ReviewQueue({
             list={list}
             queue={queue}
             cursorPosition={cursorPosition}
+            scopeLabel={scopeLabel}
+            scopeDiagnostic={scopeDiagnostic}
+            resolvingRepository={resolvingRepository}
             refreshing={queueQuery.isFetching}
             refreshFailure={queueFailure}
             notice={notice}
@@ -760,6 +763,9 @@ function ReviewQueueContent({
   list,
   queue,
   cursorPosition,
+  scopeLabel,
+  scopeDiagnostic,
+  resolvingRepository,
   refreshing,
   refreshFailure,
   notice,
@@ -770,6 +776,9 @@ function ReviewQueueContent({
   readonly list: PullRequestList;
   readonly queue: ReviewQueue;
   readonly cursorPosition: number;
+  readonly scopeLabel: string;
+  readonly scopeDiagnostic: string | undefined;
+  readonly resolvingRepository: boolean;
   readonly refreshing: boolean;
   readonly refreshFailure: GitHubFailure | null;
   readonly notice: QueueNotice | undefined;
@@ -782,7 +791,7 @@ function ReviewQueueContent({
   const rows = useMemo(
     () =>
       queue.map((pullRequest) => {
-        const width = terminal.width - 6;
+        const width = terminal.width - 2;
         const titleHeight = charWrappedRows(
           `● ${pullRequest.title}${list === 'authored' && pullRequest.isDraft ? ' · draft' : ''}`,
           width
@@ -832,21 +841,37 @@ function ReviewQueueContent({
     return () => clearTimeout(correction);
   }, [keepCursorVisible, terminal.height, terminal.width]);
 
+  const hasStatus =
+    notice !== undefined ||
+    refreshFailure !== null ||
+    herdrActionFailure !== undefined ||
+    scopeDiagnostic !== undefined ||
+    resolvingRepository;
+
   return (
-    <box flexGrow={1} flexDirection="column" paddingLeft={2} paddingRight={2}>
-      <box height={4} flexShrink={0} flexDirection="column" overflow="hidden">
+    <box flexGrow={1} flexDirection="column">
+      <box
+        height={hasStatus ? 5 : 2}
+        flexShrink={0}
+        flexDirection="column"
+        paddingBottom={1}
+        overflow="hidden"
+      >
         <box
           width="100%"
           height={1}
           flexDirection="row"
           alignItems="center"
           justifyContent="space-between"
+          gap={1}
         >
-          <text>
+          <text flexShrink={0}>
             <strong>
               {list === 'reviewQueue' ? 'Review requests' : 'My PRs'}
             </strong>{' '}
-            <span attributes={TextAttributes.DIM}>{queue.length} open</span>
+            <span attributes={TextAttributes.DIM}>
+              {scopeLabel} {queue.length} open
+            </span>
           </text>
           <text attributes={TextAttributes.DIM}>
             {refreshing ? 'refreshing…' : 'updated'}{' '}
@@ -855,11 +880,22 @@ function ReviewQueueContent({
         </box>
         <scrollbox
           id="review-status"
-          height={3}
+          height={hasStatus ? 3 : 0}
+          visible={hasStatus}
           scrollY
           viewportCulling
           contentOptions={{ flexDirection: 'column', paddingRight: 1 }}
         >
+          {scopeDiagnostic !== undefined ? (
+            <text width="100%" wrapMode="char" fg={theme?.error}>
+              {scopeDiagnostic}
+            </text>
+          ) : null}
+          {resolvingRepository ? (
+            <text width="100%" wrapMode="char" attributes={TextAttributes.DIM}>
+              Resolving launch repository…
+            </text>
+          ) : null}
           {notice !== undefined || refreshFailure !== null ? (
             <text width="100%" wrapMode="char">
               {notice !== undefined ? (
@@ -895,6 +931,7 @@ function ReviewQueueContent({
       </box>
       <scrollbox
         ref={queueViewportRef}
+        scrollbarOptions={{ visible: false }}
         onSizeChange={handleViewportSizeChange}
         flexGrow={1}
         flexShrink={1}
@@ -923,7 +960,12 @@ function ReviewQueueContent({
           )
         )}
       </scrollbox>
-      <text flexShrink={0} attributes={TextAttributes.DIM}>
+      <text
+        flexShrink={0}
+        attributes={TextAttributes.DIM}
+        paddingLeft={2}
+        paddingRight={2}
+      >
         {' '}
         {footerText(keyBindings)}
       </text>
@@ -1074,7 +1116,7 @@ function PullRequestDetailsModal({
       {loading ? <text fg={theme?.info}>Refreshing details…</text> : null}
       <box height={1} />
 
-      <text fg={theme?.foreground}>
+      <text fg={theme?.info}>
         <strong>Pull request</strong>
       </text>
       {metadata === undefined ? (
@@ -1111,7 +1153,7 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text fg={theme?.foreground}>
+      <text fg={theme?.info}>
         <strong>Reviewers</strong>
       </text>
       {metadata?.ok ? (
@@ -1168,7 +1210,7 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text fg={theme?.foreground}>
+      <text fg={theme?.info}>
         <strong>Checks</strong>
       </text>
       {checks === undefined ? (
@@ -1191,7 +1233,7 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text fg={theme?.foreground}>
+      <text fg={theme?.info}>
         <strong>Description</strong>
       </text>
       {metadata === undefined ? (
@@ -1207,7 +1249,7 @@ function PullRequestDetailsModal({
       )}
       <box height={1} />
 
-      <text fg={theme?.foreground}>
+      <text fg={theme?.info}>
         <strong>Conversation</strong>
       </text>
       {reviews === undefined ||
@@ -1226,14 +1268,18 @@ function PullRequestDetailsModal({
       ) : null}
       {conversation.map((entry) => (
         <box key={entry.key} flexDirection="column" marginTop={1}>
-          <text fg={theme?.foreground}>
+          <box
+            height={1}
+            flexShrink={0}
+            border={['top']}
+            borderColor={theme?.textMuted}
+          />
+          <text fg={theme?.secondary}>
             <strong>{entry.kind} · </strong>
             <span fg={theme?.secondary}>
               <strong>{entry.author}</strong>
             </span>
-            <span fg={theme?.textMuted}>
-              <strong> · {entry.timestamp}</strong>
-            </span>
+            <span fg={theme?.textMuted}> · {entry.timestamp}</span>
             {entry.state === undefined ? null : (
               <span fg={reviewStateColor(entry.state, theme)}>
                 <strong> · {entry.state}</strong>
@@ -1243,10 +1289,24 @@ function PullRequestDetailsModal({
           {entry.context === undefined ? null : (
             <text fg={theme?.textMuted}>{entry.context}</text>
           )}
+          {entry.source === undefined ? null : (
+            <InlineCommentSourcePanel
+              source={entry.source}
+              theme={resolvedTheme}
+              filetype={entry.codeFiletype}
+              syntaxStyle={markdownStyle}
+            />
+          )}
           <MarkdownBody
-            body={entry.body}
+            spaceBefore
+            body={
+              entry.author === 'vercel' || entry.author === 'vercel[bot]'
+                ? hideVercelMetadata(entry.body)
+                : entry.body
+            }
             syntaxStyle={markdownStyle}
             theme={resolvedTheme}
+            fallbackFiletype={entry.codeFiletype}
           />
         </box>
       ))}
@@ -1273,26 +1333,128 @@ function PullRequestDetailsModal({
   );
 }
 
+function InlineCommentSourcePanel({
+  source,
+  theme,
+  filetype,
+  syntaxStyle,
+}: {
+  readonly source: InlineCommentSource;
+  readonly theme: SystemTheme;
+  readonly filetype: string | undefined;
+  readonly syntaxStyle: SyntaxStyle;
+}) {
+  const excerpt = inlineCommentExcerpt(source);
+  if (excerpt === undefined) return null;
+  if (excerpt.diagnostic !== undefined) {
+    return (
+      <text marginTop={1} fg={theme.warning}>
+        Source context unavailable: {excerpt.diagnostic}
+      </text>
+    );
+  }
+  const lineColors = new Map<number, LineColorConfig>();
+  const lineSigns = new Map<number, LineSign>();
+  const lineNumbers = new Map<number, number>();
+  excerpt.lines.forEach((line, index) => {
+    const number =
+      line.kind === 'deletion'
+        ? line.oldLine
+        : line.kind === 'addition'
+          ? line.newLine
+          : source.side === 'LEFT'
+            ? line.oldLine
+            : line.newLine;
+    if (number !== null) lineNumbers.set(index, number);
+    lineSigns.set(index, {
+      before: line.commented ? '> ' : '  ',
+      beforeColor: theme.warning,
+      after:
+        line.kind === 'addition'
+          ? ' +'
+          : line.kind === 'deletion'
+            ? ' -'
+            : '  ',
+      afterColor: line.kind === 'addition' ? theme.success : theme.error,
+    });
+    if (line.commented)
+      lineColors.set(index, {
+        gutter: theme.subtleSurface,
+        content: theme.subtleSurface,
+      });
+  });
+  return (
+    <box flexDirection="column" marginTop={1}>
+      <line-number
+        key={JSON.stringify([source, filetype])}
+        width="100%"
+        fg={theme.textMuted}
+        bg={theme.background}
+        ref={(gutter) => {
+          if (gutter === null) return;
+          gutter.setLineColors(lineColors);
+          gutter.setLineSigns(lineSigns);
+          gutter.setLineNumbers(lineNumbers);
+        }}
+      >
+        <code
+          content={excerpt.lines.map((line) => line.content).join('\n')}
+          filetype={filetype}
+          syntaxStyle={syntaxStyle}
+          fg={theme.foreground}
+          wrapMode="char"
+          drawUnstyledText
+        />
+      </line-number>
+    </box>
+  );
+}
+
 function MarkdownBody({
   body,
   syntaxStyle,
   theme,
+  fallbackFiletype,
+  spaceBefore = false,
 }: {
   readonly body: string;
   readonly syntaxStyle: SyntaxStyle;
   readonly theme: SystemTheme;
+  readonly fallbackFiletype?: string;
+  readonly spaceBefore?: boolean;
 }) {
   const renderNode = useMemo(
     () =>
       createMarkdownNodeRenderer(
         theme.selectionBackground,
-        theme.selectionForeground
+        theme.selectionForeground,
+        theme.subtleSurface,
+        fallbackFiletype
       ),
-    [theme.selectionBackground, theme.selectionForeground]
+    [
+      theme.selectionBackground,
+      theme.selectionForeground,
+      theme.subtleSurface,
+      fallbackFiletype,
+    ]
   );
 
   return (
     <markdown
+      key={JSON.stringify([body, fallbackFiletype])}
+      ref={(markdown) => {
+        if (markdown === null) return;
+        const blocks = markdown.getChildren();
+        let previousWasCode = false;
+        for (const block of blocks) {
+          const isCode = block.id.endsWith('-background');
+          // Share one unshaded gap between code and adjacent Markdown blocks.
+          if (isCode || previousWasCode) block.marginTop = 1;
+          previousWasCode = isCode;
+        }
+        markdown.marginTop =
+          spaceBefore && !blocks[0]?.id.endsWith('-background') ? 1 : 0;
+      }}
       content={body}
       syntaxStyle={syntaxStyle}
       renderNode={renderNode}
@@ -1307,12 +1469,61 @@ function MarkdownBody({
   );
 }
 
+function hideVercelMetadata(body: string): string {
+  return body.replace(
+    /^\[vc\]:[ \t]*#[A-Za-z0-9+/=_-]+:[ \t]*(?:\r?\n[ \t]*)?([A-Za-z0-9+/=]+)[ \t]*(?=\r?\n|$)/gm,
+    (reference, payload: string) => {
+      try {
+        const metadata: unknown = JSON.parse(
+          Buffer.from(payload, 'base64').toString('utf8')
+        );
+        return metadata !== null &&
+          typeof metadata === 'object' &&
+          'projects' in metadata &&
+          Array.isArray(metadata.projects)
+          ? ''
+          : reference;
+      } catch {
+        return reference;
+      }
+    }
+  );
+}
+
 function createMarkdownNodeRenderer(
   selectionBackground: RGBA,
-  selectionForeground: RGBA
+  selectionForeground: RGBA,
+  codeBackground: RGBA,
+  fallbackFiletype: string | undefined
 ): NonNullable<MarkdownOptions['renderNode']> {
   return (token, context) => {
-    if (token.type !== 'table') return renderMarkdownNode(token, context);
+    if (token.type !== 'table') {
+      const renderable = renderMarkdownNode(token, context);
+      if (token.type === 'code' && renderable instanceof CodeRenderable) {
+        renderable.bg = codeBackground;
+        if (
+          (!(typeof token.lang === 'string' && token.lang.trim()) ||
+            token.lang === 'suggestion') &&
+          fallbackFiletype !== undefined
+        ) {
+          renderable.filetype = fallbackFiletype;
+        }
+        const block = new BoxRenderable(renderable.ctx, {
+          id: `${renderable.id}-background`,
+          width: '100%',
+          backgroundColor: codeBackground,
+          paddingTop: 1,
+          paddingBottom: 1,
+          marginBottom: renderable.marginBottom ?? 0,
+          flexDirection: 'column',
+        });
+        renderable.marginTop = 0;
+        renderable.marginBottom = 0;
+        block.add(renderable);
+        return block;
+      }
+      return renderable;
+    }
     const table = context.defaultRender();
     if (!(table instanceof TextTableRenderable)) return table;
 
@@ -1361,8 +1572,21 @@ function useMarkdownStyle(theme: SystemTheme): SyntaxStyle {
     () =>
       SyntaxStyle.fromStyles({
         default: { fg: theme.foreground },
+        keyword: { fg: theme.secondary, bold: true },
+        string: { fg: theme.success },
+        comment: { fg: theme.textMuted, italic: true },
+        number: { fg: theme.warning },
+        boolean: { fg: theme.warning },
+        constant: { fg: theme.warning },
+        function: { fg: theme.secondary },
+        type: { fg: theme.secondary },
+        constructor: { fg: theme.secondary },
+        operator: { fg: theme.secondary },
+        variable: { fg: theme.foreground },
+        property: { fg: theme.foreground },
+        punctuation: { fg: theme.textMuted },
         conceal: { fg: theme.textMuted },
-        'markup.heading': { fg: theme.info, bold: true },
+        'markup.heading': { fg: theme.secondary, bold: true },
         'markup.strong': { fg: theme.foreground, bold: true },
         'markup.italic': { fg: theme.foreground, italic: true },
         'markup.strikethrough': { fg: theme.textMuted, dim: true },
@@ -1435,6 +1659,8 @@ type ConversationEntry = {
   readonly timestamp: string;
   readonly state?: string;
   readonly context?: string;
+  readonly codeFiletype?: string;
+  readonly source?: InlineCommentSource;
   readonly body: string;
 };
 
@@ -1474,6 +1700,8 @@ function collectConversation(
         kind: 'Inline review comment' as const,
         author: comment.author,
         context: inlineCommentContext(comment),
+        codeFiletype: extToFiletype(comment.path.split('.').at(-1) ?? ''),
+        source: comment.inReplyToId === null ? comment.source : undefined,
         body: comment.body,
       }))
     );
@@ -1622,23 +1850,29 @@ function HelpOverlay({
   readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
 }) {
-  const line = (action: QueueAction, label: string) =>
-    `${formatBindings(keyBindings[action])}  ${label}`;
+  const line = (action: QueueAction, label: string) => (
+    <>
+      <span fg={theme?.secondary}>{formatBindings(keyBindings[action])}</span>
+      {'  '}
+      {label}
+    </>
+  );
   return (
     <box
       position="absolute"
-      left="25%"
+      left="37.5%"
       top="15%"
-      width="50%"
-      height={18}
+      width="25%"
+      height={list === 'reviewQueue' ? 18 : 17}
       zIndex={10}
       border
       borderColor={theme?.foreground}
       backgroundColor={theme?.background}
-      padding={1}
+      paddingLeft={1}
+      paddingRight={1}
       flexDirection="column"
     >
-      <text fg={theme?.foreground}>
+      <text fg={theme?.info} marginBottom={1} flexShrink={0}>
         <strong>Review Queue keys</strong>
       </text>
       <text fg={theme?.foreground}>{line('selectPrevious', 'previous')}</text>
@@ -1667,7 +1901,12 @@ function HelpOverlay({
       ) : null}
       <text fg={theme?.foreground}>{line('refresh', 'refresh')}</text>
       <text fg={theme?.foreground}>{line('quit', 'quit')}</text>
-      <text fg={theme?.foreground} attributes={TextAttributes.DIM}>
+      <text
+        fg={theme?.foreground}
+        attributes={TextAttributes.DIM}
+        marginTop={1}
+        flexShrink={0}
+      >
         Esc close
       </text>
     </box>
