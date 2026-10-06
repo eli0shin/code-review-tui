@@ -75,15 +75,9 @@ The pull request URL and process environment follow the [GitHub CLI integration 
 
 ## Success
 
-GitHub CLI exit status 0 means that the Review Submission succeeded. Close the modal and show a queue-level notice that names both the target and the submitted decision, for example:
+GitHub CLI exit status 0 means that the Review Submission succeeded. Close the modal, clear any queue-level notice, and start the required Review Queue refresh immediately. Do not show a success notice. Do not remove or mark the pull request optimistically.
 
-```text
-Approved OWNER/REPOSITORY #NUMBER. Refreshing Review Queue…
-```
-
-Use `Commented on` and `Requested changes on` for the other decisions. Start the required Review Queue refresh immediately. Do not remove or mark the pull request optimistically.
-
-The success notice remains independently meaningful if the refresh fails. In that case, show both facts: the Review Submission succeeded and the Review Queue could not be refreshed. Queue replacement and notice behavior follow the [GitHub data refresh and failure contract](./github-data-refresh-and-failure-behavior.md).
+The Review Submission is complete once GitHub CLI succeeds. The refresh that follows is an ordinary Review Queue refresh: a refresh failure appears exactly as any other refresh failure, without a submission-specific message. Queue replacement and failure behavior follow the [GitHub data refresh and failure contract](./github-data-refresh-and-failure-behavior.md).
 
 ## Failure
 

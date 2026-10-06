@@ -2021,11 +2021,11 @@ describe('Review Submission', () => {
     await view.waitForFrame((frame) => frame.includes('local feedback'));
     expect(loadReviewQueue).toHaveBeenCalledTimes(2);
     await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
-    const completed = await view.waitForFrame((frame) =>
-      frame.includes('Commented on acme/widgets #7.')
+    const completed = await view.waitForFrame(
+      (frame) => !frame.includes('Ctrl+A Approve')
     );
     expect(completed).toContain('Review requests acme/widgets 1 open');
-    expect(completed).not.toContain('Ctrl+A Approve');
+    expect(completed).not.toContain('Commented on');
     expect(submitReview).toHaveBeenCalledTimes(1);
     expect(loadReviewQueue).toHaveBeenCalledTimes(3);
     expect(loadReviewQueue).toHaveBeenLastCalledWith(
@@ -2101,15 +2101,16 @@ describe('Review Submission', () => {
       active.split('\n').findIndex((row) => row.includes('First line'))
     ).toBe(rows.findIndex((row) => row.includes('First line')));
     await act(async () => submission.resolve(success(undefined)));
-    const complete = await view.waitForFrame((frame) =>
-      frame.includes('Commented on acme/widgets #7.')
+    const complete = await view.waitForFrame(
+      (frame) => !frame.includes('Ctrl+A Approve')
     );
-    expect(complete).not.toContain('Ctrl+A Approve');
+    expect(complete).not.toContain('Commented on');
+    expect(complete).not.toContain('Refreshing');
     expect(loadReviewQueue).toHaveBeenCalledTimes(2);
     view.renderer.destroy();
   });
 
-  test('focuses wrapped refresh diagnostics below a submission notice', async () => {
+  test('shows a refresh failure after submission like any refresh failure', async () => {
     let loadCount = 0;
     const loadReviewQueue = jest.fn(async () => {
       loadCount += 1;
@@ -2148,56 +2149,15 @@ describe('Review Submission', () => {
         frame.includes('Review Queue not') && frame.includes('refreshed')
     );
     expect(failure).toContain('refresh-');
+    expect(failure).not.toContain('Commented on');
     await act(async () => view.mockInput.pressKey('END'));
     await view.waitForFrame((frame) => frame.includes('TAIL'));
     await act(async () => view.mockInput.pressKey('r'));
     const refreshed = await view.waitForFrame(
-      (frame) =>
-        !frame.includes('refresh-') && !frame.includes('could not be refreshed')
+      (frame) => !frame.includes('refresh-')
     );
     expect(refreshed).toContain(pullRequest.title);
     expect(loadReviewQueue).toHaveBeenCalledTimes(3);
-    view.renderer.destroy();
-  });
-
-  test('keeps an exact-fit refresh diagnostic below a wrapped notice', async () => {
-    let loadCount = 0;
-    const loadReviewQueue = jest.fn(async () => {
-      loadCount += 1;
-      if (loadCount === 1) return success([pullRequest]);
-      return {
-        ok: false,
-        failure: {
-          kind: 'exit',
-          operation: 'reviewQueue',
-          exitCode: 1,
-          stderr: 'TAIL',
-        },
-      } as const;
-    });
-    const github = {
-      loadReviewQueue,
-      loadPullRequestDetails: pendingDetails,
-      async submitReview() {
-        return success(undefined);
-      },
-    } satisfies GitHub;
-    const view = await testRender(reviewQueuePage(github), {
-      width: 38,
-      height: 30,
-    });
-    await view.waitForFrame((frame) => frame.includes(pullRequest.title));
-
-    await act(async () => view.mockInput.pressKey('s'));
-    await view.waitForFrame((frame) => frame.includes('acme/widgets #7'));
-    await act(async () => view.mockInput.pressArrow('down'));
-    await act(async () => view.mockInput.typeText('Looks good'));
-    await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
-
-    const complete = await view.waitForFrame((frame) => frame.includes('TAIL'));
-    expect(complete).toContain('Commented on');
-    expect(complete).not.toContain('PgUp/PgDn');
-    expect(loadReviewQueue).toHaveBeenCalledTimes(2);
     view.renderer.destroy();
   });
 
@@ -2246,7 +2206,10 @@ describe('Review Submission', () => {
 
     await act(async () => view.mockInput.pressKey('s'));
     await act(async () => view.mockInput.pressKey('a', { ctrl: true }));
-    await view.waitForFrame((frame) => frame.includes('Approved acme/widgets'));
+    const approved = await view.waitForFrame(
+      (frame) => !frame.includes('Ctrl+A Approve')
+    );
+    expect(approved).not.toContain('Approved acme/widgets');
     expect(submitReview).toHaveBeenNthCalledWith(
       1,
       { url: pullRequest.url, message: '', decision: 'approve' },
@@ -2266,9 +2229,7 @@ describe('Review Submission', () => {
       (frame) => !frame.includes('requires a nonblank message.')
     );
     await act(async () => view.mockInput.pressKey('r', { ctrl: true }));
-    await view.waitForFrame((frame) =>
-      frame.includes('Requested changes on acme/widgets')
-    );
+    await view.waitForFrame((frame) => !frame.includes('Ctrl+A Approve'));
     expect(submitReview).toHaveBeenNthCalledWith(
       2,
       {
@@ -2338,7 +2299,7 @@ describe('Review Submission', () => {
       submitReview.mock.calls[0][0]
     );
     await act(async () => secondAttempt.resolve(success(undefined)));
-    await view.waitForFrame((frame) => frame.includes('Commented on'));
+    await view.waitForFrame((frame) => !frame.includes('Ctrl+C Comment'));
     view.renderer.destroy();
   });
 
@@ -2830,14 +2791,8 @@ describe.each(terminalPalettes)(
         characters.includes('Requesting changes')
       );
       await act(async () => successfulSubmission.resolve(success(undefined)));
-      await view.waitForFrame((characters) =>
-        characters.includes('Requested changes on acme/widgets #7')
-      );
-      frame = view.captureSpans();
-      expectColor(spanContaining(frame, 'Requested changes').fg, '#168216');
-      expectColor(
-        spanContaining(frame, 'Requested changes').bg,
-        queueBackground
+      await view.waitForFrame(
+        (characters) => !characters.includes('Requesting changes')
       );
 
       await act(async () => view.mockInput.pressKey('c'));

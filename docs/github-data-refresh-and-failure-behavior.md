@@ -51,9 +51,9 @@ A Review Queue refresh does not invalidate details. Queue and detail loading rem
 
 ## Successful Review Submissions
 
-GitHub CLI exit status 0 is the source of truth for submission success. Show success immediately and start a Review Queue refresh. Do not optimistically remove, mark, or reorder the submitted pull request.
+GitHub CLI exit status 0 is the source of truth for submission success. Close the modal without a success notice and start a Review Queue refresh. Do not optimistically remove, mark, or reorder the submitted pull request.
 
-The refreshed GitHub search decides whether the pull request remains in the Review Queue. It can remain because the configured search does not depend on review requests or because GitHub search has not indexed the Review Submission yet. If the refresh fails, keep the prior Review Queue, even though it can still contain the successfully reviewed pull request, and show both facts: the Review Submission succeeded, but the Review Queue could not be refreshed.
+The refreshed GitHub search decides whether the pull request remains in the Review Queue. It can remain because the configured search does not depend on review requests or because GitHub search has not indexed the Review Submission yet. If the refresh fails, keep the prior Review Queue, even though it can still contain the successfully reviewed pull request, and show the same refresh failure as any other Review Queue refresh.
 
 A submission failure does not refresh or change the Review Queue.
 
