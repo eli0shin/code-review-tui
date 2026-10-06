@@ -100,8 +100,6 @@ type HerdrActionFailure = {
 type QueueNotice = {
   readonly message: string;
   readonly tone?: 'error' | 'success';
-  readonly refreshFailure?: GitHubFailure;
-  readonly queueSuccessSequence?: number;
 };
 
 type SystemTheme = {
@@ -211,7 +209,6 @@ function ReviewQueue({
   const editorRef = useRef<TextareaRenderable>(null);
   const failureViewerRef = useRef<ScrollBoxRenderable>(null);
   const detailsViewportRef = useRef<ScrollBoxRenderable>(null);
-  const queueSuccessSequenceRef = useRef({ reviewQueue: 0, authored: 0 });
   const draftOpenRef = useRef(false);
   const submissionActiveRef = useRef(false);
   const submissionIdRef = useRef(0);
@@ -236,7 +233,6 @@ function ReviewQueue({
         { size: pageSize, ...(after === undefined ? {} : { after }) }
       );
       if (!result.ok) throw result.failure;
-      queueSuccessSequenceRef.current[list] += 1;
       return result.value;
     },
     refetchInterval: refreshIntervalMinutes * 60_000,
@@ -274,11 +270,7 @@ function ReviewQueue({
     setHerdrActionFailure(undefined);
   };
   const pageStatusText = `Page ${pageStarts.length + 1} · ${formatBindings(keyBindings.previousPullRequestPage)} previous${queueQuery.data?.nextCursor === null ? ' · last page' : ` · ${formatBindings(keyBindings.nextPullRequestPage)} next`}`;
-  const rememberedRefreshFailure =
-    notice?.queueSuccessSequence === queueSuccessSequenceRef.current[list]
-      ? notice.refreshFailure
-      : undefined;
-  const queueFailure = queueQuery.error ?? rememberedRefreshFailure ?? null;
+  const queueFailure = queueQuery.error ?? null;
   const lastCursorPosition = Math.max(queue.length - 1, 0);
   const cursorPosition = Math.min(cursor, lastCursorPosition);
   if (cursor !== cursorPosition) setCursor(cursorPosition);
@@ -391,18 +383,10 @@ function ReviewQueue({
       return;
     }
 
-    const successNotice = submissionSuccessNotice(attempt.target, action);
     draftOpenRef.current = false;
     setDraft(undefined);
-    setNotice({ message: `${successNotice} Refreshing ${listName}…` });
-    const refresh = await queueQuery.refetch();
-    if (refresh.isError) {
-      setNotice({
-        message: `${successNotice} ${listName} could not be refreshed.`,
-        refreshFailure: refresh.error,
-        queueSuccessSequence: queueSuccessSequenceRef.current[list],
-      });
-    }
+    setNotice(undefined);
+    void queueQuery.refetch();
   };
 
   const openPullRequestInBrowser = async (
@@ -2293,21 +2277,6 @@ function submissionProgress(action: ReviewDecision): string {
       return 'Approving pull request';
     case 'requestChanges':
       return 'Requesting changes';
-  }
-}
-
-function submissionSuccessNotice(
-  pullRequest: PullRequestSummary,
-  action: ReviewDecision
-): string {
-  const target = `${pullRequest.repository} #${pullRequest.number}.`;
-  switch (action) {
-    case 'comment':
-      return `Commented on ${target}`;
-    case 'approve':
-      return `Approved ${target}`;
-    case 'requestChanges':
-      return `Requested changes on ${target}`;
   }
 }
 
