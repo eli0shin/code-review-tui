@@ -18,11 +18,11 @@ import type {
   GitHubRepository,
   GitHubResult,
   PullRequestList,
-  PullRequestPage,
   PullRequestPageRequest,
 } from './types.ts';
+import { groupStacks } from '../domain/stack-order.ts';
 
-const queueQuery = `
+const queueQuery = (withStacks: boolean): string => `
 query($searchQuery:String!,$size:Int!,$after:String) {
   search(query:$searchQuery,type:ISSUE_ADVANCED,first:$size,after:$after) {
     nodes {
@@ -30,15 +30,25 @@ query($searchQuery:String!,$size:Int!,$after:String) {
         number title author { login } isDraft state createdAt updatedAt url
         repository { nameWithOwner }
         labels(first:100) { nodes { name } }
-        comments { totalCount }
+        comments { totalCount }${
+          withStacks
+            ? `
+        stack { number size entries(first:100) { nodes { pullRequest { url headRefName } } } }
+        stackEntry { position }`
+            : ''
+        }
       }
     }
     pageInfo { hasNextPage endCursor }
   }
 }`;
+// GitHub Enterprise Server does not have native Stacks yet.
+const missingStackFields =
+  /Field 'stack(Entry)?' doesn't exist on type 'PullRequest'/;
 const queueStatsFields =
   'additions,deletions,changedFiles,reviewDecision,statusCheckRollup';
 const queueEnrichmentConcurrency = 8;
+const maximumSearchPageSize = 100;
 const authoredSearch = ['is:pr', 'author:@me', 'state:open'] as const;
 const detailFields =
   'number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests';
@@ -105,6 +115,8 @@ query($threadId:ID!,$commentsCursor:String) {
 
 export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   const searchArguments = [...search];
+  // Hosts that rejected the Stack fields. `''` is GitHub CLI's default host.
+  const hostsWithoutStacks = new Set<string>();
 
   return {
     async loadReviewQueue(
@@ -118,47 +130,67 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
       // Match gh search's keyword quoting and intersect the intact query with
       // PR type and scope outside its Boolean expression.
       const query = `( ${listSearch.map(searchTerm).join(' ')} ) type:pr${repository === undefined ? '' : ` repo:${repository.nameWithOwner}`}`;
-      const processResult = await runGh(
-        [
-          'api',
-          'graphql',
-          ...(repository === undefined
-            ? []
-            : ['--hostname', repository.hostname]),
-          '-f',
-          `query=${queueQuery}`,
-          '-f',
-          `searchQuery=${query}`,
-          '-F',
-          `size=${page.size}`,
-          ...(page.after === undefined ? [] : ['-f', `after=${page.after}`]),
-        ],
-        '',
-        'reviewQueue',
-        undefined,
-        signal,
-        repository === undefined
-          ? process.env
-          : { ...process.env, GH_HOST: repository.hostname }
+      const host = repository?.hostname ?? '';
+      const searchPullRequests: SearchPullRequests = async (
+        searchQuery,
+        size,
+        after
+      ) => {
+        if (!hostsWithoutStacks.has(host)) {
+          const searched = await runSearch(
+            searchQuery,
+            size,
+            after,
+            true,
+            repository,
+            signal
+          );
+          if (
+            searched.ok ||
+            searched.failure.kind !== 'exit' ||
+            !missingStackFields.test(searched.failure.stderr)
+          )
+            return searched;
+          hostsWithoutStacks.add(host);
+        }
+        return runSearch(searchQuery, size, after, false, repository, signal);
+      };
+      const excluded = new Set(page.excludeUrls);
+      const shownRows = (searchPage: SearchPage): readonly SearchRow[] =>
+        searchPage.rows.filter(
+          (row) =>
+            inRepositoryScope(row.pullRequest, repository) &&
+            !excluded.has(row.pullRequest.url)
+        );
+
+      let after = page.after;
+      let searchPage: SearchPage;
+      let rows: readonly SearchRow[];
+      // Skip past a page whose rows were all pulled onto earlier pages, so an
+      // empty result still means the search has no more rows.
+      do {
+        const searched = await searchPullRequests(query, page.size, after);
+        if (!searched.ok) return searched;
+        searchPage = searched.value;
+        rows = shownRows(searchPage);
+        after = searchPage.nextCursor ?? undefined;
+      } while (
+        rows.length === 0 &&
+        searchPage.rows.length > 0 &&
+        searchPage.nextCursor !== null
       );
-      if (!processResult.ok) return processResult;
-      const parsed = parseOutput(
-        processResult.value,
-        'reviewQueue',
-        parseQueuePage
+
+      const stackLayers = await loadMissingStackLayers(
+        rows,
+        excluded,
+        query,
+        searchPullRequests
       );
-      if (!parsed.ok) return parsed;
+      if (!stackLayers.ok) return stackLayers;
       const enriched = await enrichReviewQueue(
-        repository === undefined
-          ? parsed.value.queue
-          : parsed.value.queue.filter(
-              (pullRequest) =>
-                pullRequest.repository.toLowerCase() ===
-                  repository.nameWithOwner.toLowerCase() &&
-                pullRequest.url
-                  .toLowerCase()
-                  .startsWith(`https://${repository.hostname.toLowerCase()}/`)
-            ),
+        groupStacks(
+          [...rows, ...stackLayers.value].map((row) => row.pullRequest)
+        ),
         signal
       );
       return enriched.ok
@@ -166,7 +198,7 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
             ok: true,
             value: {
               queue: enriched.value,
-              nextCursor: parsed.value.nextCursor,
+              nextCursor: searchPage.nextCursor,
             },
           }
         : enriched;
@@ -238,6 +270,143 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         result.ok ? { ok: true, value: undefined } : result
       );
     },
+  };
+}
+
+type SearchPage = {
+  readonly rows: readonly SearchRow[];
+  readonly nextCursor: string | null;
+};
+
+type SearchRow = {
+  readonly pullRequest: PullRequestSummary;
+  /** Every layer in the row's Stack, including the row itself. */
+  readonly stackLayers: readonly StackLayerReference[];
+};
+
+type StackLayerReference = {
+  readonly url: string;
+  readonly headRefName: string;
+};
+
+type SearchPullRequests = (
+  query: string,
+  size: number,
+  after: string | undefined
+) => Promise<GitHubResult<SearchPage>>;
+
+async function runSearch(
+  query: string,
+  size: number,
+  after: string | undefined,
+  withStacks: boolean,
+  repository: GitHubRepository | undefined,
+  signal: AbortSignal
+): Promise<GitHubResult<SearchPage>> {
+  const processResult = await runGh(
+    [
+      'api',
+      'graphql',
+      ...(repository === undefined ? [] : ['--hostname', repository.hostname]),
+      '-f',
+      `query=${queueQuery(withStacks)}`,
+      '-f',
+      `searchQuery=${query}`,
+      '-F',
+      `size=${size}`,
+      ...(after === undefined ? [] : ['-f', `after=${after}`]),
+    ],
+    '',
+    'reviewQueue',
+    undefined,
+    signal,
+    repository === undefined
+      ? process.env
+      : { ...process.env, GH_HOST: repository.hostname }
+  );
+  if (!processResult.ok) return processResult;
+  return parseOutput(processResult.value, 'reviewQueue', (value) =>
+    parseSearchPage(value, withStacks)
+  );
+}
+
+function inRepositoryScope(
+  pullRequest: PullRequestSummary,
+  repository: GitHubRepository | undefined
+): boolean {
+  return (
+    repository === undefined ||
+    (pullRequest.repository.toLowerCase() ===
+      repository.nameWithOwner.toLowerCase() &&
+      pullRequest.url
+        .toLowerCase()
+        .startsWith(`https://${repository.hostname.toLowerCase()}/`))
+  );
+}
+
+/**
+ * Finds the Stack layers that match the same search but are not on this page.
+ * GitHub search has no Stack qualifier, so each Stack's search narrows the
+ * query to its layers' head branches and keeps only those exact layer URLs.
+ * `head:` also matches longer branch names and fork branches, so ask for a
+ * full page to leave room for those extra matches.
+ */
+async function loadMissingStackLayers(
+  rows: readonly SearchRow[],
+  excluded: ReadonlySet<string>,
+  query: string,
+  searchPullRequests: SearchPullRequests
+): Promise<GitHubResult<readonly SearchRow[]>> {
+  const shown = new Set([
+    ...excluded,
+    ...rows.map((row) => row.pullRequest.url),
+  ]);
+  const missingByStack = new Map<
+    string,
+    {
+      readonly repository: string;
+      readonly layers: readonly StackLayerReference[];
+    }
+  >();
+  for (const row of rows) {
+    const { stack, repository: stackRepository } = row.pullRequest;
+    if (stack === undefined) continue;
+    const key = `${stackRepository.toLowerCase()}#${stack.number}`;
+    if (missingByStack.has(key)) continue;
+    missingByStack.set(key, {
+      repository: stackRepository,
+      layers: row.stackLayers.filter((layer) => !shown.has(layer.url)),
+    });
+  }
+
+  const results = await Promise.all(
+    [...missingByStack.values()]
+      .filter(({ layers }) => layers.length > 0)
+      .map(async ({ repository: stackRepository, layers }) => {
+        const heads = layers
+          // Quote every branch: an unquoted `(` or `)` breaks the OR group.
+          .map((layer) => `head:${JSON.stringify(layer.headRefName)}`)
+          .join(' OR ');
+        const searched = await searchPullRequests(
+          `${query} repo:${stackRepository} (${heads})`,
+          maximumSearchPageSize,
+          undefined
+        );
+        if (!searched.ok) return searched;
+        const layerUrls = new Set(layers.map((layer) => layer.url));
+        return {
+          ok: true as const,
+          value: searched.value.rows.filter((row) =>
+            layerUrls.has(row.pullRequest.url)
+          ),
+        };
+      })
+  );
+  const failureResult = results.find((result) => !result.ok);
+  if (failureResult !== undefined) return failureResult;
+  return {
+    ok: true,
+    value: results.flatMap((result) => (result.ok ? result.value : [])),
   };
 }
 
@@ -627,7 +796,7 @@ function searchTerm(term: string): string {
   return prefix + (/\s|"/.test(value) ? JSON.stringify(value) : value);
 }
 
-function parseQueuePage(value: unknown): PullRequestPage {
+function parseSearchPage(value: unknown, withStacks: boolean): SearchPage {
   const root = record(value, '$');
   if (root.errors !== undefined) {
     throw new CompatibilityError('GitHub CLI returned GraphQL search errors');
@@ -644,13 +813,13 @@ function parseQueuePage(value: unknown): PullRequestPage {
     : null;
   if (nextCursor === '')
     throw new CompatibilityError('GitHub search returned an empty next cursor');
-  const queue = array(search.nodes, '$.data.search.nodes').map(
-    (value, index) => {
+  const rows = array(search.nodes, '$.data.search.nodes').map(
+    (value, index): SearchRow => {
       const path = `$.data.search.nodes[${index}]`;
       const item = record(value, path);
       const labels = record(item.labels, `${path}.labels`);
       const comments = record(item.comments, `${path}.comments`);
-      return parseSummary(
+      const summary = parseSummary(
         {
           ...item,
           author: item.author === null ? { login: 'ghost' } : item.author,
@@ -660,9 +829,50 @@ function parseQueuePage(value: unknown): PullRequestPage {
         },
         path
       );
+      const stack = withStacks
+        ? nullableRecord(item.stack, `${path}.stack`)
+        : null;
+      if (stack === null) return { pullRequest: summary, stackLayers: [] };
+      const stackEntry = record(item.stackEntry, `${path}.stackEntry`);
+      const entries = record(stack.entries, `${path}.stack.entries`);
+      return {
+        pullRequest: {
+          ...summary,
+          stack: {
+            number: integer(stack.number, `${path}.stack.number`),
+            position: integer(
+              stackEntry.position,
+              `${path}.stackEntry.position`
+            ),
+            size: integer(stack.size, `${path}.stack.size`),
+          },
+        },
+        stackLayers: array(
+          entries.nodes,
+          `${path}.stack.entries.nodes`
+        ).flatMap((entryValue, entryIndex) => {
+          const entryPath = `${path}.stack.entries.nodes[${entryIndex}]`;
+          const entry = record(entryValue, entryPath);
+          const layer = nullableRecord(
+            entry.pullRequest,
+            `${entryPath}.pullRequest`
+          );
+          return layer === null
+            ? []
+            : [
+                {
+                  url: string(layer.url, `${entryPath}.pullRequest.url`),
+                  headRefName: string(
+                    layer.headRefName,
+                    `${entryPath}.pullRequest.headRefName`
+                  ),
+                },
+              ];
+        }),
+      };
     }
   );
-  return { queue, nextCursor };
+  return { rows, nextCursor };
 }
 
 function parseSummary(value: unknown, path: string): PullRequestSummary {

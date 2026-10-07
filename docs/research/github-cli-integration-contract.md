@@ -62,8 +62,9 @@ The command emits one GraphQL response. Validate `data.search.nodes` and `data.s
 - `state`, `createdAt`, and `updatedAt`: state and stable timestamps for display or ordering.
 - `labels(first:100).nodes` and `comments.totalCount`: metadata shown on every row.
 - `state`: normalize GraphQL's uppercase state to the existing lowercase row contract.
+- `stack { number size entries(first:100) { nodes { pullRequest { url headRefName } } } }` and `stackEntry { position }`: GitHub native Stack membership. `stack` is null for a pull request outside a Stack. GitHub Enterprise Server schemas do not have these fields, and GitHub rejects the whole query with `Field 'stack' doesn't exist on type 'PullRequest'`. On that error, repeat the search without the Stack fields and keep using that query for the host, so rows have no Stack and no layers are pulled in. An entry's `pullRequest` can be null when the viewer cannot read that layer; skip it.
 
-The summary query does not request file count, additions, deletions, or review decision. Enrich only this page with `gh pr view` by canonical URL. Both lists request the check rollup in that call. Run at most eight enrichment processes at once, preserve search order, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
+The summary query does not request file count, additions, deletions, or review decision. Enrich only this page with `gh pr view` by canonical URL. Both lists request the check rollup in that call. Run at most eight enrichment processes at once, preserve search order apart from grouping Stack layers, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
 
 Do not parse human-readable output. `gh api graphql` supplies the API JSON response and remains responsible for authentication and host selection.
 
@@ -71,7 +72,18 @@ Do not parse human-readable output. `gh api graphql` supplies the API JSON respo
 
 The previous `gh search prs --limit 1000` command eagerly traversed REST pages and emitted a flat array with no page metadata. Its limit is a total result cap, not a page size.[^gh-search-prs-source][^gh-searcher-source] It cannot implement bounded navigation without re-fetching earlier results, so paged loading uses GraphQL search through `gh api` instead.
 
-Use GitHub's opaque end cursor only when `hasNextPage` is true. Reject missing or empty next cursors. Keep visited start cursors for previous-page navigation; never prefetch. Automatic refresh reuses the page start and manual refresh omits it. If a later page becomes empty, return to page 1. Only the active page's rows are enriched.
+Use GitHub's opaque end cursor only when `hasNextPage` is true. Reject missing or empty next cursors. Keep visited start cursors for previous-page navigation; never prefetch. Automatic refresh reuses the page start and manual refresh omits it. If a later page becomes empty, return to page 1. Only the active page's rows, including its pulled-in Stack layers, are enriched.
+
+### Stack layers
+
+GitHub search has no Stack qualifier: `stack:<number>` and `is:stacked` match nothing, and `in:stack` is ignored. Head branches work instead. For each Stack on the page with layers missing from this page and earlier pages, run the same search intersected with those layers' head branches:
+
+```text
+-f 'searchQuery=( <serialized-search> ) type:pr [repo:OWNER/REPO] repo:STACK_OWNER/STACK_REPO (head:"<branch>" OR head:"<branch>")'
+-F size=100
+```
+
+Quote every branch name: an unquoted `(` or `)` in a branch makes the whole OR group match nothing. `head:` matches branch names that start with the term and fork branches with the same name, so `head:"patch-1"` also returns `patch-18`. Ask for a full page of 100 to leave room for those matches, and keep only results whose URL is one of the requested layers. GitHub accepted a query of 31 `head:` terms and about 1,100 characters on github.com (validated 2026-10-07).
 
 GraphQL search exposes at most 1,000 results; pagination does not bypass this boundary. Narrower queries are the remedy. See [GraphQL search](https://docs.github.com/en/graphql/reference/queries#search) and [advanced API search support](https://github.blog/changelog/2025-03-06-github-issues-projects-api-support-for-issues-advanced-search-and-more/). Do not replace this with `gh pr list`: that command lists one repository.
 

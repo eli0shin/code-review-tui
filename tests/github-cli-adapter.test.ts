@@ -147,6 +147,7 @@ let originalGraphqlStdout: string | undefined;
 let originalThreadPageStdout: string | undefined;
 let originalCommentPageStdout: string | undefined;
 let originalMarker: string | undefined;
+let originalResponses: string | undefined;
 
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'review-gh-'));
@@ -159,6 +160,7 @@ beforeEach(async () => {
   originalThreadPageStdout = process.env.FAKE_GH_THREAD_PAGE_STDOUT;
   originalCommentPageStdout = process.env.FAKE_GH_COMMENT_PAGE_STDOUT;
   originalMarker = process.env.REVIEW_TEST_MARKER;
+  originalResponses = process.env.FAKE_GH_RESPONSES;
 
   const executable = join(directory, 'gh');
   await writeFile(
@@ -183,7 +185,14 @@ appendFileSync(record, JSON.stringify({
 }) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
-const stdout = argv.some((value) => value.startsWith('threadId=')) && process.env.FAKE_GH_COMMENT_PAGE_STDOUT
+const responses = process.env.FAKE_GH_RESPONSES ? JSON.parse(process.env.FAKE_GH_RESPONSES) : [];
+const matched = responses.find(([needle]) => argv.some((value) => value.includes(needle)));
+if (matched?.[2]) {
+  await Bun.stderr.write(matched[3] ?? '');
+  await Bun.stdout.write(matched[1]);
+  process.exit(matched[2]);
+}
+const stdout = matched ? matched[1] : argv.some((value) => value.startsWith('threadId=')) && process.env.FAKE_GH_COMMENT_PAGE_STDOUT
   ? process.env.FAKE_GH_COMMENT_PAGE_STDOUT
   : argv.some((value) => value.startsWith('threadsCursor=')) && process.env.FAKE_GH_THREAD_PAGE_STDOUT
     ? process.env.FAKE_GH_THREAD_PAGE_STDOUT
@@ -194,7 +203,7 @@ const stdout = argv.some((value) => value.startsWith('threadId=')) && process.en
     : process.env.FAKE_GH_STDOUT;
 if (stdout) {
   if (argv.some((value) => value.startsWith('searchQuery=')) && stdout.startsWith('[')) {
-    const nodes = JSON.parse(stdout).map((item) => ({ ...item, labels: { nodes: item.labels }, comments: { totalCount: item.commentsCount } }));
+    const nodes = JSON.parse(stdout).map((item) => ({ ...item, labels: { nodes: item.labels }, comments: { totalCount: item.commentsCount }, stack: item.stack ?? null }));
     await Bun.stdout.write(JSON.stringify({ data: { search: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } }));
   } else await Bun.stdout.write(stdout);
 }
@@ -217,6 +226,7 @@ afterEach(async () => {
   restoreEnvironment('FAKE_GH_THREAD_PAGE_STDOUT', originalThreadPageStdout);
   restoreEnvironment('FAKE_GH_COMMENT_PAGE_STDOUT', originalCommentPageStdout);
   restoreEnvironment('REVIEW_TEST_MARKER', originalMarker);
+  restoreEnvironment('FAKE_GH_RESPONSES', originalResponses);
   delete process.env.FAKE_GH_RECORD;
   await rm(directory, { recursive: true, force: true });
 });
@@ -230,6 +240,7 @@ describe('GitHub CLI adapter contract', () => {
       state: 'OPEN',
       labels: { nodes: queueJson[0].labels },
       comments: { totalCount: 4 },
+      stack: null,
     }));
     process.env.FAKE_GH_STDOUT = JSON.stringify({
       data: {
@@ -280,6 +291,7 @@ describe('GitHub CLI adapter contract', () => {
       author: null,
       labels: { nodes: queueJson[0].labels },
       comments: { totalCount: 4 },
+      stack: null,
     };
     process.env.FAKE_GH_STDOUT = JSON.stringify({
       data: {
@@ -296,6 +308,183 @@ describe('GitHub CLI adapter contract', () => {
     expect(result).toMatchObject({
       ok: true,
       value: { queue: [{ author: 'ghost', number: 42 }], nextCursor: null },
+    });
+  });
+
+  test('pulls in Stack layers that match the search and orders each Stack from its top layer down', async () => {
+    process.env.FAKE_GH_RESPONSES = JSON.stringify([
+      [
+        '(head:',
+        searchResponse([
+          stackNode(41, 1, [41, 42, 43, 44]),
+          // A prefix match or fork branch with the same name is not a layer.
+          searchNode(99),
+        ]),
+      ],
+      [
+        'searchQuery=',
+        searchResponse(
+          [
+            searchNode(50),
+            stackNode(43, 3, [41, 42, 43, 44]),
+            searchNode(60),
+            stackNode(44, 4, [41, 42, 43, 44]),
+          ],
+          'next-page'
+        ),
+      ],
+    ]);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const result = await createGitHubCliAdapter([
+      'is:pr',
+      'review-requested:@me',
+    ]).loadReviewQueue(new AbortController().signal);
+
+    expect(result.ok && result.value.nextCursor).toBe('next-page');
+    expect(
+      result.ok &&
+        result.value.queue.map((row) => [row.number, row.stack?.position])
+    ).toEqual([
+      [50, undefined],
+      [44, 4],
+      [43, 3],
+      [41, 1],
+      [60, undefined],
+    ]);
+    expect(result.ok && result.value.queue[1]?.stack).toEqual({
+      number: 9,
+      position: 4,
+      size: 4,
+    });
+    const searches = (await readRecords()).filter(
+      (record) => record.argv[0] === 'api'
+    );
+    expect(searches.map((record) => record.argv.slice(4))).toEqual([
+      [
+        '-f',
+        'searchQuery=( is:pr review-requested:@me ) type:pr',
+        '-F',
+        'size=25',
+      ],
+      [
+        '-f',
+        'searchQuery=( is:pr review-requested:@me ) type:pr repo:acme/widgets (head:"layer-41" OR head:"layer-42")',
+        '-F',
+        'size=100',
+      ],
+    ]);
+  });
+
+  test('skips pull requests shown on earlier pages and moves past a page that only repeats them', async () => {
+    process.env.FAKE_GH_RESPONSES = JSON.stringify([
+      ['(head:', searchResponse([])],
+      [
+        'after=second-page',
+        searchResponse([stackNode(42, 2, [41, 42])], 'third-page'),
+      ],
+      [
+        'after=third-page',
+        searchResponse([searchNode(70), stackNode(81, 1, [81, 82])]),
+      ],
+    ]);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      undefined,
+      {
+        size: 2,
+        after: 'second-page',
+        excludeUrls: [pullRequestUrl(41), pullRequestUrl(42)],
+      }
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { queue: [{ number: 70 }, { number: 81 }], nextCursor: null },
+    });
+    const searches = (await readRecords()).filter(
+      (record) => record.argv[0] === 'api'
+    );
+    expect(searches.map((record) => record.argv.at(-1))).toEqual([
+      'after=second-page',
+      'after=third-page',
+      'size=100',
+    ]);
+    expect(searches[2]?.argv).toContain(
+      'searchQuery=( is:pr ) type:pr repo:acme/widgets (head:"layer-82")'
+    );
+  });
+
+  test('loads without Stacks from a host whose schema has no Stack fields', async () => {
+    const {
+      stack: _stack,
+      stackEntry: _stackEntry,
+      ...plainNode
+    } = searchNode(42);
+    process.env.FAKE_GH_RESPONSES = JSON.stringify([
+      [
+        'stackEntry { position }',
+        JSON.stringify({
+          errors: [
+            {
+              extensions: { code: 'undefinedField', fieldName: 'stack' },
+              message: "Field 'stack' doesn't exist on type 'PullRequest'",
+            },
+          ],
+        }),
+        1,
+        "gh: Field 'stack' doesn't exist on type 'PullRequest'\n",
+      ],
+      ['searchQuery=', searchResponse([plainNode])],
+    ]);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const github = createGitHubCliAdapter(['is:pr']);
+    const repository = {
+      nameWithOwner: 'acme/widgets',
+      hostname: 'github.example',
+    };
+
+    for (let load = 0; load < 2; load += 1) {
+      const result = await github.loadReviewQueue(
+        new AbortController().signal,
+        'reviewQueue',
+        undefined,
+        repository
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        value: { queue: [{ number: 42 }] },
+      });
+      expect(result.ok && result.value.queue[0]).not.toHaveProperty('stack');
+    }
+    const searches = (await readRecords()).filter(
+      (record) => record.argv[0] === 'api'
+    );
+    // The host keeps the plain query after its first rejection.
+    expect(
+      searches.map((record) => record.argv[5]?.includes('stackEntry'))
+    ).toEqual([true, false, false]);
+  });
+
+  test('rejects a Stack without the pull request position', async () => {
+    process.env.FAKE_GH_RESPONSES = JSON.stringify([
+      [
+        'searchQuery=',
+        searchResponse([{ ...stackNode(42, 2, [41, 42]), stackEntry: null }]),
+      ],
+    ]);
+    const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      failure: {
+        kind: 'incompatibleData',
+        diagnostic:
+          'GitHub CLI returned incompatible data: $.data.search.nodes[0].stackEntry must be an object',
+      },
     });
   });
 
@@ -1003,6 +1192,63 @@ describe('GitHub CLI adapter contract', () => {
     });
   });
 });
+
+function pullRequestUrl(number: number): string {
+  return `https://github.example/acme/widgets/pull/${number}`;
+}
+
+function searchNode(number: number) {
+  return {
+    ...queueJson[0],
+    number,
+    url: pullRequestUrl(number),
+    labels: { nodes: [] },
+    comments: { totalCount: 0 },
+    stack: null,
+    stackEntry: null,
+  };
+}
+
+function stackNode(
+  number: number,
+  position: number,
+  layers: readonly number[]
+) {
+  return {
+    ...searchNode(number),
+    stack: {
+      number: 9,
+      size: layers.length,
+      entries: {
+        nodes: [
+          ...layers.map((layer) => ({
+            pullRequest: {
+              url: pullRequestUrl(layer),
+              headRefName: `layer-${layer}`,
+            },
+          })),
+          // GitHub returns null for a layer the viewer cannot read.
+          { pullRequest: null },
+        ],
+      },
+    },
+    stackEntry: { position },
+  };
+}
+
+function searchResponse(
+  nodes: readonly unknown[],
+  endCursor: string | null = null
+): string {
+  return JSON.stringify({
+    data: {
+      search: {
+        nodes,
+        pageInfo: { hasNextPage: endCursor !== null, endCursor },
+      },
+    },
+  });
+}
 
 type ProcessRecord = {
   readonly argv: readonly string[];
