@@ -74,13 +74,13 @@ if (argv.some((arg) => arg.startsWith('searchQuery='))) {
     author: { login: 'octocat' }, isDraft: false, state: 'OPEN',
     createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-21T10:00:00Z',
     url: 'https://github.com/acme/widgets/pull/' + ((after ? 20 : 10) + row), repository: { nameWithOwner: 'acme/widgets' },
-    labels: { nodes: [] }, comments: { totalCount: 0 }
+    labels: { nodes: [] }, comments: { totalCount: 0 }, stack: null
   }))) : [{
     number: 7, title: (search.includes('repo:acme/widgets') ? 'Scoped ' : '') + (search.includes('author:@me') ? 'Authored PR' : search.includes('is:draft') ? 'Draft PR' : 'Configured PR'),
     author: { login: 'octocat' }, isDraft: search.includes('is:draft'), state: 'open',
     createdAt: '2026-08-20T10:00:00Z', updatedAt: '2026-08-21T10:00:00Z',
     url: 'https://github.com/acme/widgets/pull/7', repository: { nameWithOwner: 'acme/widgets' },
-    labels: { nodes: [] }, comments: { totalCount: 0 }
+    labels: { nodes: [] }, comments: { totalCount: 0 }, stack: null
   }];
   console.log(JSON.stringify({ data: { search: { nodes, pageInfo: { hasNextPage: paginated && !after, endCursor: paginated && !after ? 'page-one-end' : null } } } }));
 } else {
@@ -582,7 +582,7 @@ test('changing the query aborts an obsolete fetch and cannot display its results
 
 test('pages fetch and enrich only their own rows, reset the Cursor, and manual refresh restarts', async () => {
   await configurePages();
-  const { view } = await renderQueue();
+  const { view, loadReviewQueue } = await renderQueue();
   await view.waitForFrame((frame) => frame.includes('Page 1 PR 2'));
   expect(view.captureCharFrame()).toContain('Page 1 · p previous · n next');
   expect(await pageRequests()).toHaveLength(1);
@@ -596,6 +596,15 @@ test('pages fetch and enrich only their own rows, reset the Cursor, and manual r
   expect(view.captureCharFrame()).toContain('Page 2 · p previous · last page');
   expect(await pageRequests()).toHaveLength(2);
   expect((await pageRequests())[1]).toContain('after=page-one-end');
+  // Stack layers pulled onto page 1 must not repeat on page 2.
+  expect(loadReviewQueue.mock.calls.at(-1)?.[4]).toEqual({
+    size: 2,
+    after: 'page-one-end',
+    excludeUrls: [
+      'https://github.com/acme/widgets/pull/11',
+      'https://github.com/acme/widgets/pull/12',
+    ],
+  });
   expect((await calls()).filter((argv) => argv[0] === 'pr')).toHaveLength(4);
   await act(async () => view.mockInput.pressKey('b'));
   await view.waitForFrame(async () =>

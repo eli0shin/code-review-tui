@@ -17,7 +17,9 @@ Load the Review Queue in these cases only:
 
 Returning from Lumen, a Diff Command, or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
 
-Use the paged `gh api graphql` search invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI. Do not sort or filter results in the application.
+Use the paged `gh api graphql` search invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI, with one exception: list each Stack's layers together where the Stack first appears, highest layer first. Do not otherwise sort or filter results in the application.
+
+When a page contains a Stack layer, also load that Stack's other layers that match the same search. GitHub search has no Stack qualifier, so intersect the search with the missing layers' head branches and keep only results whose URLs are those layers. Never show a layer that does not match the search. Do not page further to find layers.
 
 TanStack React Query owns request deduplication, polling, status, caching, and cancellation. Do not add an application refresh queue, pending-load state, or request coordination.
 
@@ -60,6 +62,8 @@ A submission failure does not refresh or change the Review Queue.
 ## Pagination and result limits
 
 Fetch and enrich only the current page, bounded by `github.pageSize` (default 25, integer 1–100). Do not prefetch. GitHub returns an opaque end cursor and `hasNextPage`; the interface retains the start cursors of visited pages so `p` can go back without fetching every earlier page. Show the current page number, effective `p` / `n` bindings, and the last-page indicator.
+
+Each visited page start also keeps the URLs shown on earlier pages. A later page omits those pull requests, so a Stack layer pulled onto an earlier page does not repeat. A page can therefore show more or fewer rows than the page size. When every row of a GitHub page was shown earlier, load the following GitHub page in its place, so an empty page still means there are no more results.
 
 Page navigation resets the Cursor to the first row. Search, repository scope, and list changes discard the visited-page cursors and reset to page 1. Manual refresh also starts at page 1. Automatic refresh and post-submission refresh reuse the current page's start cursor; page 1 has no start cursor. An empty successful later page returns to page 1. A failed refresh keeps the last complete successful page, with diagnostics. The query key includes the list, query, repository scope, page size, and page's start cursor, keeping old-page responses separate and cancelling obsolete requests.
 

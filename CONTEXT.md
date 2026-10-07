@@ -10,6 +10,10 @@ _Avoid_: Workflow queue, task list
 The position in the Review Queue that highlights one visible pull request row. The cursor has no pull request identity.
 _Avoid_: Selection, selected pull request
 
+**Stack**:
+A GitHub native stack of pull requests in one repository, where each layer targets the branch of the layer below it. Layer 1 is the bottom layer. A Review Queue row labels its layer as `stack 3/4`, and the layers that match the search are listed together, highest layer first.
+_Avoid_: Stacked PR chain, dependency chain
+
 **Review Command**:
 The user-configured shell command that starts an interactive agent review for the pull request under the cursor. The command includes the program, flags, and initial input.
 _Avoid_: Review Prompt, Pi command

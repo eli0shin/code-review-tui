@@ -487,6 +487,45 @@ describe('Review Queue list switching', () => {
     view.renderer.destroy();
   });
 
+  test('labels a Stack layer in the metadata line and keeps wrapped metadata visible', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([
+          {
+            ...pullRequest,
+            reviewDecision: 'REVIEW_REQUIRED',
+            checks: [],
+            stack: { number: 722, position: 3, size: 4 },
+          },
+          { ...pullRequest, number: 8, url: `${pullRequest.url}8` },
+        ]);
+      },
+      async loadPullRequestDetails() {
+        return detailSources(pullRequestDetails('Details'));
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 24,
+    });
+    const frame = await view.waitForFrame((output) =>
+      output.includes('acme/widgets #8')
+    );
+    expect(frame).toContain(
+      'acme/widgets #7 \u00b7 stack 3/4 \u00b7 opened by octocat'
+    );
+    expect(frame).toContain('acme/widgets #8 opened by octocat');
+    await act(async () => view.resize(30, 40));
+    const narrow = await view.waitForFrame((output) =>
+      output.replace(/\s/g, '').includes('#7\u00b7stack3/4\u00b7openedby')
+    );
+    expect(narrow).toContain('-2');
+    view.renderer.destroy();
+  });
+
   test('keeps a double-width label visible at the wrap boundary', async () => {
     const label = `xx界${'z'.repeat(23)}`;
     const github = {

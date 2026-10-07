@@ -18,6 +18,8 @@ export type PullRequestPage = {
 export type PullRequestPageRequest = {
   readonly size: number;
   readonly after?: string;
+  /** Pull requests already shown on earlier pages, such as pulled-in Stack layers. */
+  readonly excludeUrls?: readonly string[];
 };
 
 export type GitHubRepository = {

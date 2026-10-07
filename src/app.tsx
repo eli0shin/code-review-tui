@@ -97,6 +97,15 @@ type HerdrActionFailure = {
   readonly failure: HerdrFailure;
 };
 
+/**
+ * A visited page after page 1. `excludeUrls` holds the pull requests shown on
+ * earlier pages, so a Stack layer pulled onto an earlier page is not repeated.
+ */
+type PageStart = {
+  readonly after: string;
+  readonly excludeUrls: readonly string[];
+};
+
 type QueueNotice = {
   readonly message: string;
   readonly tone?: 'error' | 'success';
@@ -166,9 +175,9 @@ function ReviewQueue({
   const terminal = useTerminalDimensions();
   const queryClient = useQueryClient();
   const [cursor, setCursor] = useState(0);
-  // Each entry is the start cursor of a visited page after page 1.
-  const [pageStarts, setPageStarts] = useState<readonly string[]>([]);
-  const after = pageStarts.at(-1);
+  const [pageStarts, setPageStarts] = useState<readonly PageStart[]>([]);
+  const pageStart = pageStarts.at(-1);
+  const after = pageStart?.after;
   const [list, setList] = useState<PullRequestList>('reviewQueue');
   const [currentRepository, setCurrentRepository] =
     useState<GitHubRepository>();
@@ -222,7 +231,7 @@ function ReviewQueue({
       list === 'reviewQueue' ? search : null,
       scopedRepository,
       pageSize,
-      after,
+      pageStart,
     ],
     async queryFn({ signal }) {
       const result = await github.loadReviewQueue(
@@ -230,7 +239,7 @@ function ReviewQueue({
         list,
         list === 'reviewQueue' ? search : undefined,
         scopedRepository,
-        { size: pageSize, ...(after === undefined ? {} : { after }) }
+        { size: pageSize, ...pageStart }
       );
       if (!result.ok) throw result.failure;
       return result.value;
@@ -261,8 +270,18 @@ function ReviewQueue({
     } else {
       if (queueQuery.isFetching) return;
       const nextCursor = queueQuery.data?.nextCursor;
-      if (!nextCursor || pageStarts.includes(nextCursor)) return;
-      setPageStarts([...pageStarts, nextCursor]);
+      if (!nextCursor || pageStarts.some((start) => start.after === nextCursor))
+        return;
+      setPageStarts([
+        ...pageStarts,
+        {
+          after: nextCursor,
+          excludeUrls: [
+            ...(pageStart?.excludeUrls ?? []),
+            ...queue.map((pullRequest) => pullRequest.url),
+          ],
+        },
+      ]);
     }
     setCursor(0);
     setNotice(undefined);
@@ -1071,7 +1090,11 @@ function ReviewQueueRow({
       >
         {'  '}
         <span fg={theme?.info}>{pullRequest.repository}</span>
-        <span fg={theme?.textMuted}> #{pullRequest.number} opened by </span>
+        <span fg={theme?.textMuted}>
+          {' '}
+          #{pullRequest.number}
+          {stackLabel(pullRequest)} opened by{' '}
+        </span>
         <span fg={theme?.secondary}>{pullRequest.author}</span>
         <span fg={theme?.textMuted}>
           {' '}
@@ -2497,7 +2520,13 @@ function rowStatusText(pullRequest: PullRequestSummary): string {
 }
 
 function rowMetadataText(pullRequest: PullRequestSummary): string {
-  return `  ${pullRequest.repository} #${pullRequest.number} opened by ${pullRequest.author} · updated ${relativeAge(pullRequest.updatedAt)} · ${fileSummary(pullRequest.changedFiles)} +${pullRequest.additions} -${pullRequest.deletions}`;
+  return `  ${pullRequest.repository} #${pullRequest.number}${stackLabel(pullRequest)} opened by ${pullRequest.author} · updated ${relativeAge(pullRequest.updatedAt)} · ${fileSummary(pullRequest.changedFiles)} +${pullRequest.additions} -${pullRequest.deletions}`;
+}
+
+function stackLabel(pullRequest: PullRequestSummary): string {
+  return pullRequest.stack === undefined
+    ? ''
+    : ` · stack ${pullRequest.stack.position}/${pullRequest.stack.size} ·`;
 }
 
 function fileSummary(files: number): string {

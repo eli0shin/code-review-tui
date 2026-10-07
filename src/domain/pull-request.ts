@@ -15,6 +15,14 @@ export type PullRequestSummary = {
   readonly commentsCount: number;
   readonly reviewDecision?: string;
   readonly checks?: readonly PullRequestCheck[];
+  readonly stack?: PullRequestStackLayer;
+};
+
+/** The pull request's layer in a GitHub native stack. Position 1 is the bottom layer. */
+export type PullRequestStackLayer = {
+  readonly number: number;
+  readonly position: number;
+  readonly size: number;
 };
 
 export type PullRequestReview = {
