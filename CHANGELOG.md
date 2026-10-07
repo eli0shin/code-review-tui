@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.8.1
+
+### Patch Changes
+
+- [#67](https://github.com/eli0shin/code-review-tui/pull/67) [`9b2468b`](https://github.com/eli0shin/code-review-tui/commit/9b2468b1054ca87f557b79c11da77ffe28f4ca4f) Thanks [@eli0shin](https://github.com/eli0shin)! - Stop showing a lasting notice above the pull request list after a successful Review Submission. A refresh failure after submission now appears the same as any other refresh failure.
+
 ## 0.8.0
 
 ### Minor Changes
