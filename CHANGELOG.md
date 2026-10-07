@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.9.0
+
+### Minor Changes
+
+- [#69](https://github.com/eli0shin/code-review-tui/pull/69) [`bdb03c6`](https://github.com/eli0shin/code-review-tui/commit/bdb03c64119d5a45a05a14d7e2ca9a610bf9658a) Thanks [@eli0shin](https://github.com/eli0shin)! - Show which pull requests belong to a GitHub stack. Each stacked row shows `stack 3/4` after its number, and a stack's layers are listed together where the stack first appears, highest layer first. When a page has one layer, Review also loads the stack's other layers that match the same search, without repeating them on later pages.
+
 ## 0.8.1
 
 ### Patch Changes
