@@ -736,6 +736,37 @@ test('query, scope, and list changes reset pagination, including applying an unc
   ).toBe(false);
 });
 
+test('scope changes fetch only page 1, including toggles with a cached launch repository', async () => {
+  await configurePages();
+  const loadCurrentRepository = jest.fn(async () => ({
+    ok: true as const,
+    repository: { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+  }));
+  const { view, loadReviewQueue } = await renderQueue(loadCurrentRepository);
+  await view.waitForFrame((frame) => frame.includes('Page 1 PR 1'));
+
+  for (const scoped of [true, false, true]) {
+    await act(async () => view.mockInput.pressKey('n'));
+    await view.waitForFrame(
+      (frame) => frame.includes('Page 2 PR 1') && !frame.includes('refreshing…')
+    );
+    const beforeToggle = loadReviewQueue.mock.calls.length;
+    await act(async () => view.mockInput.pressKey('l'));
+    await view.waitForFrame(
+      (frame) => frame.includes('Page 1 PR 1') && !frame.includes('refreshing…')
+    );
+    const requests = loadReviewQueue.mock.calls.slice(beforeToggle);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.[3]).toEqual(
+      scoped
+        ? { nameWithOwner: 'acme/widgets', hostname: 'github.com' }
+        : undefined
+    );
+    expect(requests[0]?.[4]).toEqual({ size: 2 });
+  }
+  expect(loadCurrentRepository).toHaveBeenCalledTimes(1);
+});
+
 test('remapped page keys work and manual refresh cancels an obsolete page fetch', async () => {
   await configurePages({
     nextPullRequestPage: [']'],
