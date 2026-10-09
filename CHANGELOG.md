@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.9.1
+
+### Patch Changes
+
+- [#71](https://github.com/eli0shin/code-review-tui/pull/71) [`1388471`](https://github.com/eli0shin/code-review-tui/commit/13884715d2bdef3a1de4ec7ecfce501cd5660a0f) Thanks [@eli0shin](https://github.com/eli0shin)! - Restructure the Review Queue presentation and GitHub CLI adapter into focused modules without changing review behavior.
+
 ## 0.9.0
 
 ### Minor Changes
