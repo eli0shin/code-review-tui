@@ -417,7 +417,7 @@ describe('GitHub CLI adapter contract', () => {
     );
   });
 
-  test('loads without Stacks from a host whose schema has no Stack fields', async () => {
+  test('caches unsupported Stack fields by host and adapter instance', async () => {
     const {
       stack: _stack,
       stackEntry: _stackEntry,
@@ -459,13 +459,32 @@ describe('GitHub CLI adapter contract', () => {
       });
       expect(result.ok && result.value.queue[0]).not.toHaveProperty('stack');
     }
+    // A different host and a new adapter must each try their own Stack query.
+    expect(
+      await github.loadReviewQueue(new AbortController().signal)
+    ).toMatchObject({
+      ok: true,
+      value: { queue: [{ number: 42 }] },
+    });
+    const anotherGitHub = createGitHubCliAdapter(['is:pr']);
+    expect(
+      await anotherGitHub.loadReviewQueue(
+        new AbortController().signal,
+        'reviewQueue',
+        undefined,
+        repository
+      )
+    ).toMatchObject({ ok: true, value: { queue: [{ number: 42 }] } });
     const searches = (await readRecords()).filter(
       (record) => record.argv[0] === 'api'
     );
-    // The host keeps the plain query after its first rejection.
     expect(
-      searches.map((record) => record.argv[5]?.includes('stackEntry'))
-    ).toEqual([true, false, false]);
+      searches.map((record) =>
+        record.argv
+          .find((argument) => argument.startsWith('query='))
+          ?.includes('stackEntry')
+      )
+    ).toEqual([true, false, false, true, false, true, false]);
   });
 
   test('rejects a Stack without the pull request position', async () => {
@@ -590,6 +609,47 @@ describe('GitHub CLI adapter contract', () => {
         stdin: '',
         marker: 'inherited',
       },
+    ]);
+  });
+
+  test('snapshots configured searches per adapter and keeps session overrides temporary', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
+    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    const search = ['is:pr', 'label:original'];
+    const github = createGitHubCliAdapter(search);
+    search[1] = 'label:changed';
+    const anotherGitHub = createGitHubCliAdapter(search);
+
+    expect(
+      (await github.loadReviewQueue(new AbortController().signal)).ok
+    ).toBe(true);
+    expect(
+      (
+        await github.loadReviewQueue(
+          new AbortController().signal,
+          'reviewQueue',
+          ['is:pr', 'label:session']
+        )
+      ).ok
+    ).toBe(true);
+    expect(
+      (await github.loadReviewQueue(new AbortController().signal)).ok
+    ).toBe(true);
+    expect(
+      (await anotherGitHub.loadReviewQueue(new AbortController().signal)).ok
+    ).toBe(true);
+    const searches = (await readRecords()).filter(
+      (record) => record.argv[0] === 'api'
+    );
+    expect(
+      searches.map((record) =>
+        record.argv.find((argument) => argument.startsWith('searchQuery='))
+      )
+    ).toEqual([
+      'searchQuery=( is:pr label:original ) type:pr',
+      'searchQuery=( is:pr label:session ) type:pr',
+      'searchQuery=( is:pr label:original ) type:pr',
+      'searchQuery=( is:pr label:changed ) type:pr',
     ]);
   });
 
