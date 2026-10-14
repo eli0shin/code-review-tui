@@ -59,7 +59,6 @@ export function InlineCommentSourcePanel({
         key={JSON.stringify([source, filetype])}
         width="100%"
         fg={theme.textMuted}
-        bg={theme.background}
         ref={(gutter) => {
           if (gutter === null) return;
           gutter.setLineColors(lineColors);

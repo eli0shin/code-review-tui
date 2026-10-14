@@ -31,7 +31,7 @@ A pull request description, issue comment body, submitted review body, or inline
 _Avoid_: Plain-text body
 
 **Review thread**:
-The inline review comments on one location in the diff: the comment that starts it and its replies. The Pull Request Details conversation shows each review thread as one entry at the time of its first comment, with its location, resolved state, and source context shown once. Resolved review threads are dimmed.
+The inline review comments on one location in the diff: the comment that starts it and its replies. The Pull Request Details conversation shows each review thread as one entry at the time of its first comment, with its location, resolved state, and source context shown once. Resolved review threads are dimmed. A comment-only submitted review with no body is not shown, because its review threads already show its comments.
 _Avoid_: Inline comment chain, reply chain
 
 **Review Queue Tab**:
