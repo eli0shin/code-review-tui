@@ -103,7 +103,7 @@ gh api graphql --hostname <url-host> <review-thread-query-and-url-variables>
 
 Derive only the GraphQL hostname, owner, repository, and pull request number from the captured URL. Pass the hostname to `gh api`; do not select credentials or make HTTP requests directly. GitHub CLI continues to own host authentication and account selection.
 
-Treat metadata, reviews, checks, issue comments, and review threads as five independent results. One failed process or invalid response must not discard the other successful sources. Preserve complete diagnostics on that source. The presentation combines successful issue comments, reviews, and inline comments by timestamp.
+Treat metadata, reviews, checks, issue comments, and review threads as five independent results. One failed process or invalid response must not discard the other successful sources. Preserve complete diagnostics on that source. The presentation groups inline comments by review thread and combines successful issue comments, reviews, and review threads by timestamp, placing each review thread at its first comment.
 
 The details fields have these uses:
 

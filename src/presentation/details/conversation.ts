@@ -1,5 +1,8 @@
 import { extToFiletype } from '@opentui/core';
-import type { InlineCommentSource } from '../../domain/pull-request.ts';
+import type {
+  InlineCommentSource,
+  PullRequestInlineComment,
+} from '../../domain/pull-request.ts';
 import type {
   GitHubFailure,
   PullRequestDetailSources,
@@ -26,17 +29,28 @@ export function hideVercelMetadata(body: string): string {
   );
 }
 
-export type ConversationEntry = {
+export type ConversationComment = {
   readonly key: string;
-  readonly kind: 'Issue comment' | 'Submitted review' | 'Inline review comment';
   readonly author: string;
   readonly timestamp: string;
-  readonly state?: string;
-  readonly context?: string;
-  readonly codeFiletype?: string;
-  readonly source?: InlineCommentSource;
   readonly body: string;
 };
+
+export type ConversationEntry =
+  | (ConversationComment & {
+      readonly kind: 'Issue comment' | 'Submitted review';
+      readonly state?: string;
+    })
+  | {
+      readonly kind: 'Review thread';
+      readonly key: string;
+      readonly timestamp: string;
+      readonly context: string;
+      readonly resolved: boolean;
+      readonly codeFiletype?: string;
+      readonly source?: InlineCommentSource;
+      readonly comments: readonly ConversationComment[];
+    };
 
 export function collectConversation(
   sources: PullRequestDetailSources | undefined
@@ -67,18 +81,7 @@ export function collectConversation(
     );
   }
   if (sources.inlineComments.ok) {
-    entries.push(
-      ...sources.inlineComments.value.map((comment) => ({
-        key: `inline:${comment.id}`,
-        timestamp: comment.createdAt,
-        kind: 'Inline review comment' as const,
-        author: comment.author,
-        context: inlineCommentContext(comment),
-        codeFiletype: extToFiletype(comment.path.split('.').at(-1) ?? ''),
-        source: comment.inReplyToId === null ? comment.source : undefined,
-        body: comment.body,
-      }))
-    );
+    entries.push(...collectReviewThreads(sources.inlineComments.value));
   }
   return entries.sort((left, right) =>
     left.timestamp === right.timestamp
@@ -87,21 +90,43 @@ export function collectConversation(
   );
 }
 
-function inlineCommentContext(comment: {
-  readonly path: string;
-  readonly line: number | null;
-  readonly startLine: number | null;
-  readonly inReplyToId: string | null;
-  readonly resolved: boolean;
-  readonly outdated: boolean;
-}): string {
+// GitHub returns each review thread's comments in order, so the first comment
+// anchors the thread's place in the conversation and its file context.
+function collectReviewThreads(
+  comments: readonly PullRequestInlineComment[]
+): readonly ConversationEntry[] {
+  const threads = Map.groupBy(comments, (comment) => comment.threadId);
+  return [...threads].flatMap(([threadId, thread]) => {
+    const first = thread.at(0);
+    if (first === undefined) return [];
+    return [
+      {
+        kind: 'Review thread' as const,
+        key: `thread:${threadId}`,
+        timestamp: first.createdAt,
+        context: reviewThreadContext(first),
+        resolved: first.resolved,
+        codeFiletype: extToFiletype(first.path.split('.').at(-1) ?? ''),
+        source: first.source,
+        comments: thread.map((comment) => ({
+          key: `inline:${comment.id}`,
+          author: comment.author,
+          timestamp: comment.createdAt,
+          body: comment.body,
+        })),
+      },
+    ];
+  });
+}
+
+function reviewThreadContext(comment: PullRequestInlineComment): string {
   const location =
     comment.line === null
       ? comment.path
       : comment.startLine !== null && comment.startLine !== comment.line
         ? `${comment.path}:${comment.startLine}-${comment.line}`
         : `${comment.path}:${comment.line}`;
-  return `${location} · ${comment.inReplyToId === null ? 'thread start' : `reply to ${comment.inReplyToId}`} · ${comment.resolved ? 'resolved' : 'unresolved'} · ${comment.outdated ? 'outdated' : 'current'}`;
+  return `${location} · ${comment.resolved ? 'resolved' : 'unresolved'} · ${comment.outdated ? 'outdated' : 'current'}`;
 }
 
 export function collectDetailFailures(

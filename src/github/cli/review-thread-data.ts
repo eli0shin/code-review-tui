@@ -37,12 +37,14 @@ export function parseReviewThreadPage(value: unknown): ReviewThreadPage {
     (threadValue, threadIndex) => {
       const threadPath = `${threadsPath}.nodes[${threadIndex}]`;
       const thread = record(threadValue, threadPath);
+      const threadId = string(thread.id, `${threadPath}.id`);
       const resolved = boolean(thread.isResolved, `${threadPath}.isResolved`);
       const threadComments = record(thread.comments, `${threadPath}.comments`);
       comments.push(
         ...parseInlineCommentNodes(
           threadComments.nodes,
           `${threadPath}.comments.nodes`,
+          threadId,
           resolved,
           diffSide(thread.diffSide, `${threadPath}.diffSide`),
           thread.startDiffSide === null
@@ -56,7 +58,7 @@ export function parseReviewThreadPage(value: unknown): ReviewThreadPage {
       );
       if (nextCommentsCursor !== null) {
         continuations.push({
-          threadId: string(thread.id, `${threadPath}.id`),
+          threadId,
           nextCursor: nextCommentsCursor,
         });
       }
@@ -69,7 +71,10 @@ export function parseReviewThreadPage(value: unknown): ReviewThreadPage {
   };
 }
 
-export function parseReviewThreadCommentPage(value: unknown): {
+export function parseReviewThreadCommentPage(
+  value: unknown,
+  threadId: string
+): {
   readonly comments: readonly PullRequestInlineComment[];
   readonly nextCursor: string | null;
 } {
@@ -81,6 +86,7 @@ export function parseReviewThreadCommentPage(value: unknown): {
     comments: parseInlineCommentNodes(
       comments.nodes,
       '$.data.node.comments.nodes',
+      threadId,
       resolved,
       diffSide(node.diffSide, '$.data.node.diffSide'),
       node.startDiffSide === null
@@ -97,6 +103,7 @@ export function parseReviewThreadCommentPage(value: unknown): {
 function parseInlineCommentNodes(
   value: unknown,
   path: string,
+  threadId: string,
   resolved: boolean,
   side: DiffSide,
   startSide: DiffSide | null
@@ -121,6 +128,7 @@ function parseInlineCommentNodes(
     );
     return {
       id: String(integer(comment.databaseId, `${commentPath}.databaseId`)),
+      threadId,
       author:
         author === null
           ? 'ghost'

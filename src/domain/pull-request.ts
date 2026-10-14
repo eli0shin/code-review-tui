@@ -56,6 +56,7 @@ export type InlineCommentSource = {
 
 export type PullRequestInlineComment = {
   readonly id: string;
+  readonly threadId: string;
   readonly author: string;
   readonly createdAt: string;
   readonly body: string;
