@@ -8,6 +8,7 @@ import {
 } from '@opentui/core';
 import { useMemo, useEffect } from 'react';
 import type { SystemTheme } from '../terminal/theme.ts';
+import { stripHtml } from './strip-html.ts';
 
 export function MarkdownBody({
   body,
@@ -54,7 +55,7 @@ export function MarkdownBody({
         markdown.marginTop =
           spaceBefore && !blocks[0]?.id.endsWith('-background') ? 1 : 0;
       }}
-      content={body}
+      content={stripHtml(body)}
       syntaxStyle={syntaxStyle}
       renderNode={renderNode}
       width="100%"

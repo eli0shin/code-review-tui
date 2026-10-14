@@ -30,6 +30,10 @@ _Avoid_: Inline comment
 A pull request description, issue comment body, submitted review body, or inline review comment body. The Pull Request Details modal renders it as Markdown. Metadata and inline code context are not GitHub-authored bodies.
 _Avoid_: Plain-text body
 
+**Review thread**:
+The inline review comments on one location in the diff: the comment that starts it and its replies. The Pull Request Details conversation shows each review thread as one entry at the time of its first comment, with its location, resolved state, and source context shown once. Resolved review threads are dimmed.
+_Avoid_: Inline comment chain, reply chain
+
 **Review Queue Tab**:
 The saved Herdr tab that contains the Review Queue. `review` makes a best-effort attempt to focus its Review Queue pane when a launched tool exits.
 _Avoid_: Parent tab, caller tab

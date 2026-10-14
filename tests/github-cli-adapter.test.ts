@@ -848,6 +848,7 @@ describe('GitHub CLI adapter contract', () => {
       value: [
         {
           id: '91',
+          threadId: 'PRRT_thread',
           author: 'inline-reviewer',
           createdAt: '2026-08-21T12:00:00Z',
           body: 'Inline body',
@@ -867,6 +868,7 @@ describe('GitHub CLI adapter contract', () => {
         },
         {
           id: '94',
+          threadId: 'PRRT_thread',
           author: 'ghost',
           createdAt: '2026-08-21T12:05:00Z',
           body: 'Deleted account comment',
@@ -993,6 +995,7 @@ describe('GitHub CLI adapter contract', () => {
       value: [
         expect.objectContaining({
           id: '91',
+          threadId: 'PRRT_first',
           resolved: false,
           source: {
             diffHunk: inlineComment.diffHunk,
@@ -1004,6 +1007,7 @@ describe('GitHub CLI adapter contract', () => {
         }),
         expect.objectContaining({
           id: '92',
+          threadId: 'PRRT_first',
           resolved: false,
           source: {
             diffHunk: inlineComment.diffHunk,
@@ -1015,6 +1019,7 @@ describe('GitHub CLI adapter contract', () => {
         }),
         expect.objectContaining({
           id: '93',
+          threadId: 'PRRT_second',
           resolved: true,
           source: {
             diffHunk: inlineComment.diffHunk,

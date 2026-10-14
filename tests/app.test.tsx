@@ -983,8 +983,106 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
+  test('groups each review thread behind one header, keeps replies with it, and dims resolved threads', async () => {
+    const comment = {
+      path: 'src/a.ts',
+      line: 3,
+      startLine: null,
+      inReplyToId: null,
+      resolved: false,
+      outdated: false,
+    } satisfies Partial<PullRequestInlineComment>;
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources(pullRequestDetails('Details')),
+          issueComments: success([
+            {
+              id: 'issue',
+              author: 'carol',
+              createdAt: '2026-08-21T10:10:00Z',
+              body: 'Unrelated issue comment',
+            },
+          ]),
+          inlineComments: success([
+            {
+              ...comment,
+              id: '1',
+              threadId: 'open',
+              author: 'alice',
+              createdAt: '2026-08-21T10:00:00Z',
+              body: 'Root finding',
+            },
+            {
+              ...comment,
+              id: '2',
+              threadId: 'open',
+              author: 'bob',
+              createdAt: '2026-08-21T10:30:00Z',
+              inReplyToId: '1',
+              body: 'Reply finding',
+            },
+            {
+              ...comment,
+              id: '3',
+              threadId: 'done',
+              author: 'dave',
+              createdAt: '2026-08-21T10:20:00Z',
+              path: 'src/b.ts',
+              resolved: true,
+              body: 'Resolved finding',
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await renderWithPalette(github, terminalPalettes[0].colors);
+    view.resize(100, 80);
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    const frame = await view.waitForFrame((frame) =>
+      frame.includes('Resolved finding')
+    );
+    let previous = -1;
+    for (const text of [
+      'Root finding',
+      'Reply finding',
+      'Unrelated issue comment',
+      'Resolved finding',
+    ]) {
+      expect(frame.indexOf(text)).toBeGreaterThan(previous);
+      previous = frame.indexOf(text);
+    }
+    expect(frame.match(/Review thread/g)).toHaveLength(2);
+    expect(frame.match(/src\/a\.ts:3/g)).toHaveLength(1);
+    expect(frame).toContain('src/a.ts:3 · unresolved · current');
+    expect(frame).toContain('src/b.ts:3 · resolved · current');
+    expect(frame).not.toContain('thread start');
+    expect(frame).not.toContain('reply to');
+    expect(frame).toMatch(/│ bob · 2026-08-21T10:30:00Z/);
+    expect(frame).toMatch(/│ Reply finding/);
+    const spans = view.captureSpans();
+    expect(spanContaining(spans, 'Resolved finding').fg.toInts()).not.toEqual(
+      spanContaining(spans, 'Root finding').fg.toInts()
+    );
+    expect(spanContaining(spans, 'dave').fg.toInts()).not.toEqual(
+      spanContaining(spans, 'alice').fg.toInts()
+    );
+    view.renderer.destroy();
+  });
+
   test('shows saved source separately from suggestions, marks ranges, and does not repeat context for replies', async () => {
     const inline = {
+      threadId: 'ts-thread',
       author: 'Copilot',
       createdAt: '2026-08-21T10:00:00Z',
       path: 'frontend/src/actions/update-group-action.ts',
@@ -1025,6 +1123,7 @@ describe('Review Queue page loading', () => {
             {
               ...inline,
               id: 'go',
+              threadId: 'go-thread',
               createdAt: '2026-08-21T10:02:00Z',
               path: 'backend/api/update-group.go',
               line: 16,
@@ -1042,6 +1141,7 @@ describe('Review Queue page loading', () => {
             {
               ...inline,
               id: 'missing',
+              threadId: 'missing-thread',
               createdAt: '2026-08-21T10:03:00Z',
               source: { ...inline.source, line: 99 },
               body: 'Body remains visible with missing source.',
@@ -1049,6 +1149,7 @@ describe('Review Queue page loading', () => {
             {
               ...inline,
               id: 'file',
+              threadId: 'file-thread',
               createdAt: '2026-08-21T10:04:00Z',
               line: null,
               source: { ...inline.source, line: null },
@@ -1126,6 +1227,7 @@ describe('Review Queue page loading', () => {
           inlineComments: success([
             {
               id: 'inferred',
+              threadId: 'inferred-thread',
               author: 'copilot',
               createdAt: '2026-08-21T10:00:00Z',
               body: inferredBody,
@@ -1138,6 +1240,7 @@ describe('Review Queue page loading', () => {
             },
             {
               id: 'explicit',
+              threadId: 'explicit-thread',
               author: 'copilot',
               createdAt: '2026-08-21T11:00:00Z',
               body: '```js\nconst explicit = 42;\n```',
@@ -1214,10 +1317,12 @@ describe('Review Queue page loading', () => {
       suggestionLine - 2,
       suggestionLine + 2,
     ]) {
+      // Inline comment bodies sit behind the review thread gutter.
       expect(
         frame.lines[index].spans
           .map((span) => span.text)
           .join('')
+          .replace('│', '')
           .trim()
       ).toBe('');
       expect(
@@ -1439,6 +1544,71 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
+  test('strips HTML from GitHub-authored bodies and keeps their text and table image labels', async () => {
+    const icon = (alt: string) =>
+      `<a><picture><source media="(prefers-color-scheme: dark)" srcset="https://assets.wiz.io/dark.svg"><img align="top" alt="${alt}" title="${alt}" src="https://assets.wiz.io/light.svg"></picture></a>`;
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources({
+            ...pullRequestDetails('Details'),
+            body: `<details><summary>Release notes</summary>\n\nShip <b>it</b>. ${icon('Screenshot')}\n</details>`,
+          }),
+          issueComments: success([
+            {
+              id: 'wiz',
+              author: 'wiz-488af8faf4',
+              createdAt: '2026-08-21T10:00:00Z',
+              body: [
+                '#### Wiz Scan Summary',
+                '| Scanner | Findings |',
+                '|:--|:--|',
+                `| ${icon('Secret Finding')}&ensp;Secrets | 1 ${icon('High')}&emsp;3 ${icon('Info')} |`,
+                '',
+                '<a href="https://app.wiz.io/findings" target="_blank">View scan details in Wiz</a>',
+                '<!-- WizScan-0e16b247-ScanResult -->',
+              ].join('\n'),
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('No submission expected');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 80,
+    });
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    await act(async () => {
+      view.mockInput.pressEnter();
+      await Bun.sleep(0);
+    });
+    const frame = await view.waitForFrame((frame) =>
+      frame.includes('View scan details in Wiz')
+    );
+    expect(frame).toContain('Release notes');
+    expect(frame).toContain('Ship it.');
+    expect(frame).toMatch(/Scanner +Findings/);
+    expect(frame).toMatch(/  Secret Finding Secrets +1 High 3 Info /);
+    for (const hidden of [
+      '<',
+      '&ensp;',
+      '&emsp;',
+      'Screenshot',
+      'assets.wiz.io',
+      'app.wiz.io',
+      'WizScan',
+    ]) {
+      expect(frame).not.toContain(hidden);
+    }
+    view.renderer.destroy();
+  });
+
   test('renders all GitHub-authored bodies as Markdown and keeps context as text while scrolling', async () => {
     const details = {
       ...pullRequestDetails('**Literal metadata title**'),
@@ -1472,6 +1642,7 @@ describe('Review Queue page loading', () => {
       inlineComments: success([
         {
           id: '99',
+          threadId: 'thread-88',
           author: 'inline-reviewer',
           createdAt: '2026-08-21T12:00:00Z',
           body: '```ts\nconst rendered = true;\n```',
@@ -1546,7 +1717,7 @@ describe('Review Queue page loading', () => {
     expect(endFrame).not.toContain('[Review link]');
     expect(endFrame).not.toContain('```');
     expect(endFrame).toContain(
-      'src/**literal-context**.ts:4-7 · reply to 88 · resolved · outdated'
+      'src/**literal-context**.ts:4-7 · resolved · outdated'
     );
     expect(endFrame).toContain('Submitted review · reviewer');
 
@@ -2680,6 +2851,7 @@ describe.each(terminalPalettes)(
           inlineComments: success([
             {
               id: 'inline-color',
+              threadId: 'thread-88',
               author: 'inline-reviewer',
               createdAt: '2026-08-21T12:00:00Z',
               body: 'Inline review body',
@@ -2687,7 +2859,7 @@ describe.each(terminalPalettes)(
               startLine: 4,
               line: 7,
               inReplyToId: '88',
-              resolved: true,
+              resolved: false,
               outdated: true,
             },
           ]),

@@ -136,7 +136,7 @@ export async function loadInlineComments(
           'pullRequestReviewThreads',
           url,
           signal,
-          parseReviewThreadCommentPage
+          (value) => parseReviewThreadCommentPage(value, continuation.threadId)
         );
         if (!commentPage.ok) return commentPage;
         comments.push(...commentPage.value.comments);

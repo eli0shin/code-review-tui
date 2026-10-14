@@ -8,6 +8,7 @@ import {
 import {
   collectConversation,
   hideVercelMetadata,
+  type ConversationComment,
   type ConversationEntry,
 } from './conversation.ts';
 import { InlineCommentSourcePanel } from './inline-source.tsx';
@@ -61,6 +62,9 @@ export function ConversationSection({
   );
 }
 
+// Resolved review threads stay readable but recede behind open discussion.
+const resolvedThreadOpacity = 0.5;
+
 function ConversationItem({
   entry,
   syntaxStyle,
@@ -71,10 +75,6 @@ function ConversationItem({
   readonly theme: SystemTheme | undefined;
 }) {
   const resolvedTheme = theme ?? fallbackSystemTheme;
-  const body =
-    entry.author === 'vercel' || entry.author === 'vercel[bot]'
-      ? hideVercelMetadata(entry.body)
-      : entry.body;
   return (
     <box flexDirection="column" marginTop={1}>
       <box
@@ -83,36 +83,80 @@ function ConversationItem({
         border={['top']}
         borderColor={theme?.textMuted}
       />
-      <text fg={theme?.secondary}>
-        <strong>{entry.kind} · </strong>
-        <span fg={theme?.secondary}>
-          <strong>{entry.author}</strong>
-        </span>
-        <span fg={theme?.textMuted}> · {entry.timestamp}</span>
-        {entry.state === undefined ? null : (
-          <span fg={reviewStateColor(entry.state, theme)}>
-            <strong> · {entry.state}</strong>
-          </span>
-        )}
-      </text>
-      {entry.context === undefined ? null : (
-        <text fg={theme?.textMuted}>{entry.context}</text>
+      {entry.kind === 'Review thread' ? (
+        <box
+          flexDirection="column"
+          opacity={entry.resolved ? resolvedThreadOpacity : 1}
+        >
+          <text fg={theme?.secondary}>
+            <strong>{entry.kind}</strong>
+          </text>
+          <text fg={theme?.textMuted}>{entry.context}</text>
+          {entry.source === undefined ? null : (
+            <InlineCommentSourcePanel
+              source={entry.source}
+              theme={resolvedTheme}
+              filetype={entry.codeFiletype}
+              syntaxStyle={syntaxStyle}
+            />
+          )}
+          <box
+            flexDirection="column"
+            marginTop={1}
+            paddingLeft={1}
+            border={['left']}
+            borderColor={theme?.textMuted}
+          >
+            {entry.comments.map((comment, index) => (
+              <box
+                key={comment.key}
+                flexDirection="column"
+                marginTop={index === 0 ? 0 : 1}
+              >
+                <text>
+                  <span fg={theme?.secondary}>
+                    <strong>{comment.author}</strong>
+                  </span>
+                  <span fg={theme?.textMuted}> · {comment.timestamp}</span>
+                </text>
+                <MarkdownBody
+                  body={conversationBody(comment)}
+                  syntaxStyle={syntaxStyle}
+                  theme={resolvedTheme}
+                  fallbackFiletype={entry.codeFiletype}
+                />
+              </box>
+            ))}
+          </box>
+        </box>
+      ) : (
+        <>
+          <text fg={theme?.secondary}>
+            <strong>{entry.kind} · </strong>
+            <span fg={theme?.secondary}>
+              <strong>{entry.author}</strong>
+            </span>
+            <span fg={theme?.textMuted}> · {entry.timestamp}</span>
+            {entry.state === undefined ? null : (
+              <span fg={reviewStateColor(entry.state, theme)}>
+                <strong> · {entry.state}</strong>
+              </span>
+            )}
+          </text>
+          <MarkdownBody
+            spaceBefore
+            body={conversationBody(entry)}
+            syntaxStyle={syntaxStyle}
+            theme={resolvedTheme}
+          />
+        </>
       )}
-      {entry.source === undefined ? null : (
-        <InlineCommentSourcePanel
-          source={entry.source}
-          theme={resolvedTheme}
-          filetype={entry.codeFiletype}
-          syntaxStyle={syntaxStyle}
-        />
-      )}
-      <MarkdownBody
-        spaceBefore
-        body={body}
-        syntaxStyle={syntaxStyle}
-        theme={resolvedTheme}
-        fallbackFiletype={entry.codeFiletype}
-      />
     </box>
   );
+}
+
+function conversationBody(comment: ConversationComment): string {
+  return comment.author === 'vercel' || comment.author === 'vercel[bot]'
+    ? hideVercelMetadata(comment.body)
+    : comment.body;
 }
