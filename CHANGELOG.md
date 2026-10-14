@@ -1,5 +1,13 @@
 # code-review-tui
 
+## 0.9.2
+
+### Patch Changes
+
+- [#73](https://github.com/eli0shin/code-review-tui/pull/73) [`fd4068e`](https://github.com/eli0shin/code-review-tui/commit/fd4068e3d7009fe61db2b30e7a7c0dd904e1b097) Thanks [@eli0shin](https://github.com/eli0shin)! - Group inline review comments into review threads in pull request details, showing each thread's location, resolved state, and source context once with its replies beneath, and dim resolved threads.
+
+- [#73](https://github.com/eli0shin/code-review-tui/pull/73) [`fd4068e`](https://github.com/eli0shin/code-review-tui/commit/fd4068e3d7009fe61db2b30e7a7c0dd904e1b097) Thanks [@eli0shin](https://github.com/eli0shin)! - Strip HTML tags, images, link targets, and comments from pull request descriptions and conversation bodies, keeping their text, image alt text in table rows, and code unchanged, so bot comments such as Wiz scan summaries read cleanly.
+
 ## 0.9.1
 
 ### Patch Changes
