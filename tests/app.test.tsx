@@ -983,7 +983,7 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
-  test('groups each review thread behind one header, keeps replies with it, and dims resolved threads', async () => {
+  test('groups each review thread behind one header, keeps replies with it, dims resolved threads, and hides empty comment-only reviews', async () => {
     const comment = {
       path: 'src/a.ts',
       line: 3,
@@ -999,6 +999,26 @@ describe('Review Queue page loading', () => {
       async loadPullRequestDetails() {
         return {
           ...detailSources(pullRequestDetails('Details')),
+          reviews: success([
+            {
+              author: 'alice',
+              submittedAt: '2026-08-21T10:00:01Z',
+              state: 'COMMENTED',
+              body: '',
+            },
+            {
+              author: 'erin',
+              submittedAt: '2026-08-21T10:40:00Z',
+              state: 'COMMENTED',
+              body: 'Summary finding',
+            },
+            {
+              author: 'frank',
+              submittedAt: '2026-08-21T10:50:00Z',
+              state: 'APPROVED',
+              body: '',
+            },
+          ]),
           issueComments: success([
             {
               id: 'issue',
@@ -1033,6 +1053,14 @@ describe('Review Queue page loading', () => {
               createdAt: '2026-08-21T10:20:00Z',
               path: 'src/b.ts',
               resolved: true,
+              source: {
+                diffHunk:
+                  '@@ -1,2 +1,3 @@\n const context = 1;\n const kept = 2;\n+const resolvedCode = 3;',
+                side: 'RIGHT',
+                startSide: null,
+                line: 3,
+                startLine: null,
+              },
               body: 'Resolved finding',
             },
           ]),
@@ -1063,6 +1091,10 @@ describe('Review Queue page loading', () => {
       previous = frame.indexOf(text);
     }
     expect(frame.match(/Review thread/g)).toHaveLength(2);
+    expect(frame).not.toContain('Submitted review · alice');
+    expect(frame).toContain('Submitted review · erin');
+    expect(frame).toContain('Summary finding');
+    expect(frame).toContain('Submitted review · frank');
     expect(frame.match(/src\/a\.ts:3/g)).toHaveLength(1);
     expect(frame).toContain('src/a.ts:3 · unresolved · current');
     expect(frame).toContain('src/b.ts:3 · resolved · current');
@@ -1077,6 +1109,17 @@ describe('Review Queue page loading', () => {
     expect(spanContaining(spans, 'dave').fg.toInts()).not.toEqual(
       spanContaining(spans, 'alice').fg.toInts()
     );
+    // Dimming a resolved thread keeps its gutter and bodies on the terminal background.
+    for (const text of ['const context = 1;', 'Resolved finding']) {
+      const line = spans.lines.find((candidate) =>
+        candidate.spans.some((span) => span.text.includes(text))
+      );
+      const textIndex =
+        line?.spans.findIndex((span) => span.text.includes(text)) ?? -1;
+      expect(
+        line?.spans.slice(0, textIndex + 1).map((span) => span.bg.intent)
+      ).toEqual(Array.from({ length: textIndex + 1 }, () => 'default'));
+    }
     view.renderer.destroy();
   });
 

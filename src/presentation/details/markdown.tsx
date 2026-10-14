@@ -60,7 +60,6 @@ export function MarkdownBody({
       renderNode={renderNode}
       width="100%"
       fg={theme.foreground}
-      bg={theme.background}
       conceal
       concealCode={false}
       streaming

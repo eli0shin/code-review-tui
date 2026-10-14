@@ -2,11 +2,13 @@ import { extToFiletype } from '@opentui/core';
 import type {
   InlineCommentSource,
   PullRequestInlineComment,
+  PullRequestReview,
 } from '../../domain/pull-request.ts';
 import type {
   GitHubFailure,
   PullRequestDetailSources,
 } from '../../github/types.ts';
+import { stripHtml } from './strip-html.ts';
 
 export function hideVercelMetadata(body: string): string {
   return body.replace(
@@ -70,7 +72,7 @@ export function collectConversation(
   }
   if (sources.reviews.ok) {
     entries.push(
-      ...sources.reviews.value.map((review) => ({
+      ...sources.reviews.value.filter(hasConversationContent).map((review) => ({
         key: `review:${review.author}:${review.submittedAt}:${review.state}:${review.body}`,
         timestamp: review.submittedAt,
         kind: 'Submitted review' as const,
@@ -87,6 +89,15 @@ export function collectConversation(
     left.timestamp === right.timestamp
       ? left.key.localeCompare(right.key)
       : left.timestamp.localeCompare(right.timestamp)
+  );
+}
+
+// Submitting inline comments creates a comment-only review with no body; its
+// review threads already show those comments.
+function hasConversationContent(review: PullRequestReview): boolean {
+  return (
+    review.state.toUpperCase() !== 'COMMENTED' ||
+    stripHtml(review.body).trim() !== ''
   );
 }
 
