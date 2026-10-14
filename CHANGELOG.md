@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.9.3
+
+### Patch Changes
+
+- [#75](https://github.com/eli0shin/code-review-tui/pull/75) [`a904e70`](https://github.com/eli0shin/code-review-tui/commit/a904e70d3492af537b607f68c60661a5978d271d) Thanks [@eli0shin](https://github.com/eli0shin)! - Hide empty comment-only submitted reviews from the pull request details conversation, since their review threads already show the comments, and keep dimmed resolved review threads on the terminal background instead of painting their source gutter and comment bodies black.
+
 ## 0.9.2
 
 ### Patch Changes
