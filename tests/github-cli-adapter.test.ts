@@ -785,6 +785,82 @@ describe('GitHub CLI adapter contract', () => {
     ]);
   });
 
+  test('shows only the latest run of each check', async () => {
+    process.env.FAKE_GH_STDOUT = JSON.stringify({
+      ...completeDetailsJson,
+      statusCheckRollup: [
+        {
+          name: 'lint',
+          workflowName: 'Hygiene',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          startedAt: '2026-08-21T10:00:00Z',
+        },
+        {
+          name: 'lint',
+          workflowName: 'Release',
+          status: 'COMPLETED',
+          conclusion: 'SKIPPED',
+          startedAt: '2026-08-21T09:00:00Z',
+        },
+        {
+          name: 'lint',
+          workflowName: 'Hygiene',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          startedAt: '2026-08-21T11:00:00Z',
+        },
+        {
+          name: 'lint',
+          workflowName: 'Hygiene',
+          status: 'COMPLETED',
+          conclusion: 'CANCELLED',
+          startedAt: '2026-08-21T10:30:00Z',
+        },
+        {
+          name: 'e2e',
+          workflowName: 'Hygiene',
+          status: 'COMPLETED',
+          conclusion: 'FAILURE',
+          startedAt: '2026-08-21T10:00:00Z',
+        },
+        {
+          name: 'e2e',
+          workflowName: 'Hygiene',
+          status: 'QUEUED',
+          conclusion: '',
+          startedAt: '0001-01-01T00:00:00Z',
+        },
+        {
+          context: 'deploy',
+          state: 'FAILURE',
+          startedAt: '2026-08-21T10:00:00Z',
+        },
+        {
+          context: 'deploy',
+          state: 'SUCCESS',
+          startedAt: '2026-08-21T12:00:00Z',
+        },
+      ],
+    });
+    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);
+
+    const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal
+    );
+
+    expect(result.checks).toEqual({
+      ok: true,
+      value: [
+        { workflow: 'Hygiene', name: 'lint', state: 'SUCCESS' },
+        { workflow: 'Release', name: 'lint', state: 'SKIPPED' },
+        { workflow: 'Hygiene', name: 'e2e', state: 'QUEUED' },
+        { name: 'deploy', state: 'SUCCESS' },
+      ],
+    });
+  });
+
   test('loads independent complete pull request detail sources by canonical URL', async () => {
     process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
     process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);

@@ -1,8 +1,9 @@
-import type {
-  PullRequestDetails,
-  PullRequestReview,
-  PullRequestCheck,
-  PullRequestIssueComment,
+import {
+  checkIdentity,
+  type PullRequestDetails,
+  type PullRequestReview,
+  type PullRequestCheck,
+  type PullRequestIssueComment,
 } from '../../domain/pull-request.ts';
 import {
   record,
@@ -52,9 +53,16 @@ export function parseReviews(value: unknown): readonly PullRequestReview[] {
   });
 }
 
+// The rollup lists every run of a check, including reruns and repeated
+// workflow triggers. Only the latest run of each check is kept, in the
+// position of its first run.
 export function parseChecks(value: unknown): readonly PullRequestCheck[] {
   const item = record(value, '$');
-  return array(item.statusCheckRollup, '$.statusCheckRollup').map(
+  const latest = new Map<
+    string,
+    { readonly check: PullRequestCheck; readonly startedAt: number }
+  >();
+  array(item.statusCheckRollup, '$.statusCheckRollup').forEach(
     (value, index) => {
       const path = `$.statusCheckRollup[${index}]`;
       const check = record(value, path);
@@ -70,9 +78,28 @@ export function parseChecks(value: unknown): readonly PullRequestCheck[] {
       } else {
         state = string(check.status, `${path}.status`);
       }
-      return { name, state };
+      const workflow =
+        typeof check.workflowName === 'string' && check.workflowName !== ''
+          ? check.workflowName
+          : undefined;
+      const parsed: PullRequestCheck =
+        workflow === undefined ? { name, state } : { workflow, name, state };
+      const identity = checkIdentity(parsed);
+      const startedAt = checkStartedAt(check.startedAt);
+      const previous = latest.get(identity);
+      if (previous === undefined || startedAt >= previous.startedAt) {
+        latest.set(identity, { check: parsed, startedAt });
+      }
     }
   );
+  return [...latest.values()].map(({ check }) => check);
+}
+
+// A run that has not started yet has no start time (or GitHub CLI's zero
+// time) and is the newest run of its check.
+function checkStartedAt(value: unknown): number {
+  const time = typeof value === 'string' ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(time) || time <= 0 ? Number.POSITIVE_INFINITY : time;
 }
 
 export function parseIssueComments(
