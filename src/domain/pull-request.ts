@@ -33,9 +33,17 @@ export type PullRequestReview = {
 };
 
 export type PullRequestCheck = {
+  // The GitHub Actions workflow that ran the check, when it has one.
+  readonly workflow?: string;
   readonly name: string;
   readonly state: string;
 };
+
+// Runs of the same check share an identity; a pull request shows one
+// check per identity.
+export function checkIdentity(check: PullRequestCheck): string {
+  return JSON.stringify([check.workflow ?? '', check.name]);
+}
 
 export type PullRequestIssueComment = {
   readonly id: string;

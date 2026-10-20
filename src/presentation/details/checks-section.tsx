@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { checkIdentity } from '../../domain/pull-request.ts';
 import type { PullRequestDetailSources } from '../../github/types.ts';
 import { checkStateColor, type SystemTheme } from '../terminal/theme.ts';
 import { DetailSection, Unavailable } from './section.tsx';
@@ -19,7 +20,7 @@ export function ChecksSection({
     content = <text fg={theme?.foreground}>None</text>;
   } else {
     content = checks.value.map((check) => (
-      <text key={`${check.name}:${check.state}`} fg={theme?.foreground}>
+      <text key={checkIdentity(check)} fg={theme?.foreground}>
         {check.name} ·{' '}
         <span fg={checkStateColor(check.state, theme)}>{check.state}</span>
       </text>

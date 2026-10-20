@@ -41,3 +41,7 @@ _Avoid_: Parent tab, caller tab
 **Herdr tab**:
 A tab created by Herdr to run Lumen, a Diff Command, or a Review Command for the pull request under the Cursor.
 _Avoid_: Tool Tab, Cab, embedded terminal
+
+**Check**:
+A CI check on a pull request, identified by its workflow and name. GitHub reports every run of a check, including reruns and repeated workflow triggers; the Pull Request Details modal and the Review Queue show only the latest run of each check.
+_Avoid_: Status, job
