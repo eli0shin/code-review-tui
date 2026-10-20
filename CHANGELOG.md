@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.9.4
+
+### Patch Changes
+
+- [#77](https://github.com/eli0shin/code-review-tui/pull/77) [`2cfb4fe`](https://github.com/eli0shin/code-review-tui/commit/2cfb4feac9309c00d017ac7b9e0e66f891a2a9bd) Thanks [@eli0shin](https://github.com/eli0shin)! - Show only the latest run of each check in pull request details and the Review Queue check summary, instead of listing every rerun and repeated workflow run.
+
 ## 0.9.3
 
 ### Patch Changes

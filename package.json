@@ -1,6 +1,6 @@
 {
   "name": "code-review-tui",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "A terminal interface for GitHub pull request reviews",
   "type": "module",
   "private": true,
