@@ -2,13 +2,14 @@ import type {
   PullRequestSummary,
   ReviewQueue,
 } from '../../domain/pull-request.ts';
+import { reviewSummaryDecision } from '../../domain/reviews.ts';
 import type { GitHubResult } from '../types.ts';
 import { runGh } from './process.ts';
 import { parseOutput, record, integer, string } from './json.ts';
-import { parseChecks } from './pull-request-data.ts';
+import { parseChecks, parseReviews } from './pull-request-data.ts';
 
 const queueStatsFields =
-  'additions,deletions,changedFiles,reviewDecision,statusCheckRollup';
+  'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup';
 const queueEnrichmentConcurrency = 8;
 
 export async function enrichReviewQueue(
@@ -58,7 +59,10 @@ function addSummaryStats(
     additions: integer(stats.additions, '$.additions'),
     deletions: integer(stats.deletions, '$.deletions'),
     changedFiles: integer(stats.changedFiles, '$.changedFiles'),
-    reviewDecision: string(stats.reviewDecision, '$.reviewDecision'),
+    reviewDecision: reviewSummaryDecision(
+      parseReviews(stats),
+      string(stats.reviewDecision, '$.reviewDecision')
+    ),
     checks: parseChecks(stats),
   };
 }

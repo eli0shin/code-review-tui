@@ -33,7 +33,7 @@ gh api graphql \
   [-f after=<page-start-cursor>]
 
 # Once for each URL on this page only, with bounded concurrency:
-gh pr view <pull-request-url> --json additions,deletions,changedFiles,reviewDecision,statusCheckRollup
+gh pr view <pull-request-url> --json additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup
 ```
 
 The GraphQL query uses `search(query:$searchQuery,type:ISSUE_ADVANCED,first:$size,after:$after)` and asks for summary nodes plus `pageInfo { hasNextPage endCursor }`. The page size is configured, from 1 to 100. `after` is omitted on page 1. My PRs substitutes `is:pr author:@me state:open`. GitHub Enterprise Server requires 3.18 or newer for advanced search.
@@ -64,7 +64,7 @@ The command emits one GraphQL response. Validate `data.search.nodes` and `data.s
 - `state`: normalize GraphQL's uppercase state to the existing lowercase row contract.
 - `stack { number size entries(first:100) { nodes { pullRequest { url headRefName } } } }` and `stackEntry { position }`: GitHub native Stack membership. `stack` is null for a pull request outside a Stack. GitHub Enterprise Server schemas do not have these fields, and GitHub rejects the whole query with `Field 'stack' doesn't exist on type 'PullRequest'`. On that error, repeat the search without the Stack fields and keep using that query for the host, so rows have no Stack and no layers are pulled in. An entry's `pullRequest` can be null when the viewer cannot read that layer; skip it.
 
-The summary query does not request file count, additions, deletions, or review decision. Enrich only this page with `gh pr view` by canonical URL. Both lists request the check rollup in that call. Run at most eight enrichment processes at once, preserve search order apart from grouping Stack layers, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
+The summary query does not request file count, additions, deletions, or review decision. Enrich only this page with `gh pr view` by canonical URL. Both lists request submitted reviews and the check rollup in that call. Summarize reviewer feedback from only the latest submitted review per reviewer (by submission time, ignoring pending reviews). An outstanding latest change request takes precedence over approvals; a later approval by the same reviewer replaces their earlier change request. This row summary describes reviewer feedback, not branch-protection eligibility. When there is no current approval or change request, retain GitHub's decision except that superseded approval/change-request decisions become `REVIEW_REQUIRED`. Run at most eight enrichment processes at once, preserve search order apart from grouping Stack layers, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
 
 Do not parse human-readable output. `gh api graphql` supplies the API JSON response and remains responsible for authentication and host selection.
 
@@ -108,7 +108,7 @@ Treat metadata, reviews, checks, issue comments, and review threads as five inde
 The details fields have these uses:
 
 - Metadata provides identity, refs, labels, change totals, description, review decision, and requested reviewers.
-- `reviews` provides all submitted reviewers and submitted-review conversation entries, including reviews with empty bodies.
+- `reviews` provides the latest submitted review per reviewer for the Reviewers summary and all submitted-review conversation entries, including reviews with empty bodies. Keep older reviews in conversation history; do not discard them in the adapter.
 - `statusCheckRollup` provides only each check name and terminal state or current status.
 - `comments` provides all issue comments.
 - Review threads provide inline comments and their complete line, reply, resolved, and outdated context.

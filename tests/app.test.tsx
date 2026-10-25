@@ -891,6 +891,59 @@ describe('Review Queue page loading', () => {
     view.renderer.destroy();
   });
 
+  test('shows each reviewer’s latest submission while retaining older reviews in conversation', async () => {
+    const github = {
+      async loadReviewQueue() {
+        return success([pullRequest]);
+      },
+      async loadPullRequestDetails() {
+        return {
+          ...detailSources(pullRequestDetails('Improve widgets')),
+          reviews: success([
+            {
+              author: 'reviewer',
+              state: 'CHANGES_REQUESTED',
+              submittedAt: '2026-08-21T10:00:00Z',
+              body: 'Please fix the widget',
+            },
+            {
+              author: 'reviewer',
+              state: 'APPROVED',
+              submittedAt: '2026-08-21T11:00:00Z',
+              body: 'The widget is fixed',
+            },
+            {
+              author: 'other-reviewer',
+              state: 'CHANGES_REQUESTED',
+              submittedAt: '2026-08-21T11:30:00Z',
+              body: 'Another issue remains',
+            },
+          ]),
+        };
+      },
+      async submitReview() {
+        throw new Error('Review Submission is not part of this page test');
+      },
+    } satisfies GitHub;
+    const view = await testRender(reviewQueuePage(github), {
+      width: 100,
+      height: 65,
+    });
+    await view.waitForFrame((frame) => frame.includes('Improve widgets'));
+    act(() => {
+      view.mockInput.pressEnter();
+    });
+    const frame = await view.waitForFrame((frame) =>
+      frame.includes('The widget is fixed')
+    );
+    expect(frame).toContain('Submitted: reviewer · APPROVED');
+    expect(frame).not.toContain('Submitted: reviewer · CHANGES_REQUESTED');
+    expect(frame).toContain('Submitted: other-reviewer · CHANGES_REQUESTED');
+    expect(frame).toContain('Please fix the widget');
+    expect(frame).toContain('Another issue remains');
+    view.renderer.destroy();
+  });
+
   test('copies a completed mouse selection from pull request details', async () => {
     const details = {
       ...pullRequestDetails('Copy details'),

@@ -84,7 +84,7 @@ if (argv.some((arg) => arg.startsWith('searchQuery='))) {
   }];
   console.log(JSON.stringify({ data: { search: { nodes, pageInfo: { hasNextPage: paginated && !after, endCursor: paginated && !after ? 'page-one-end' : null } } } }));
 } else {
-  console.log(JSON.stringify({ additions: 1, deletions: 0, changedFiles: 1, reviewDecision: '', statusCheckRollup: [] }));
+  console.log(JSON.stringify({ additions: 1, deletions: 0, changedFiles: 1, reviewDecision: '', reviews: [], statusCheckRollup: [] }));
 }
 `
   );

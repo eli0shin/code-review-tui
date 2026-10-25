@@ -26,7 +26,7 @@ TanStack React Query owns request deduplication, polling, status, caching, and c
 A load is atomic:
 
 - Keep the current Review Queue visible while a refresh is active.
-- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation. The enrichment includes review decision and check rollup for both lists.
+- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation. The enrichment includes review decision, submitted reviews, and check rollup for both lists. The row's review status summarizes only each reviewer's latest submitted review: current change requests take precedence, otherwise current approvals are shown. Superseded reviews do not contribute. This is a reviewer-feedback summary, not branch-protection eligibility.
 - Treat malformed JSON, a non-array result, or any item without a required field as a failed load. Do not display a partial result.
 - An empty valid array is a successful load and an empty Review Queue.
 
@@ -47,7 +47,7 @@ A failed load does not change the last successful Review Queue. The Cursor is no
 
 Details load only after `openDetails` captures the URL under the Cursor. Keep one React Query details query keyed by that captured URL while the full-screen modal is open. Refetch all independent detail sources on every opening and on the modal refresh action. Cached successful content can remain visible during the refetch. Closing the modal disables the query and returns to the unchanged Review Queue and Cursor.
 
-The adapter returns independent metadata, reviews, checks, issue-comment, and review-thread results. Publish each success or failure without making one failed source hide another. Merge every successful conversation source by timestamp. The modal shows concise unavailable markers. Its `showErrors` action opens the existing bounded error surface with complete unchanged diagnostics for all failed sources and returns to the same modal scroll position when closed.
+The adapter returns independent metadata, reviews, checks, issue-comment, and review-thread results. Publish each success or failure without making one failed source hide another. Show only each reviewer's latest submitted review in the Reviewers summary, but retain older reviews in conversation history. Merge every successful conversation source by timestamp. The modal shows concise unavailable markers. Its `showErrors` action opens the existing bounded error surface with complete unchanged diagnostics for all failed sources and returns to the same modal scroll position when closed.
 
 A Review Queue refresh does not invalidate details. Queue and detail loading remain independent. Never remove a pull request because one of its detail sources cannot load.
 

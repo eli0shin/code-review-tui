@@ -27,6 +27,7 @@ const queueStatsJson = {
   deletions: 3,
   changedFiles: 2,
   reviewDecision: 'REVIEW_REQUIRED',
+  reviews: [],
   statusCheckRollup: [
     { name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
   ],
@@ -604,13 +605,50 @@ describe('GitHub CLI adapter contract', () => {
           'view',
           'https://github.example/acme/widgets/pull/42',
           '--json',
-          'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
+          'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup',
         ],
         stdin: '',
         marker: 'inherited',
       },
     ]);
   });
+
+  for (const list of ['reviewQueue', 'authored'] as const) {
+    test(`${list} replaces an earlier change request with the same reviewer’s later approval`, async () => {
+      process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
+      process.env.FAKE_GH_STATS_STDOUT = JSON.stringify({
+        ...queueStatsJson,
+        reviewDecision: 'CHANGES_REQUESTED',
+        reviews: [
+          {
+            author: { login: 'reviewer' },
+            state: 'CHANGES_REQUESTED',
+            submittedAt: '2026-08-21T10:00:00Z',
+            body: 'Please fix this',
+          },
+          {
+            author: { login: 'reviewer' },
+            state: 'APPROVED',
+            submittedAt: '2026-08-21T11:00:00Z',
+            body: 'Fixed, thanks',
+          },
+        ],
+      });
+
+      const result = await createGitHubCliAdapter([]).loadReviewQueue(
+        new AbortController().signal,
+        list
+      );
+
+      expect(result).toMatchObject({
+        ok: true,
+        value: { queue: [{ reviewDecision: 'APPROVED' }] },
+      });
+      expect((await readRecords())[1].argv.at(-1)?.split(',')).toContain(
+        'reviews'
+      );
+    });
+  }
 
   test('snapshots configured searches per adapter and keeps session overrides temporary', async () => {
     process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
@@ -773,14 +811,14 @@ describe('GitHub CLI adapter contract', () => {
         'view',
         queueJson[0].url,
         '--json',
-        'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
+        'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup',
       ],
       [
         'pr',
         'view',
         queueJson[0].url,
         '--json',
-        'additions,deletions,changedFiles,reviewDecision,statusCheckRollup',
+        'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup',
       ],
     ]);
   });

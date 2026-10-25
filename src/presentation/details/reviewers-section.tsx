@@ -1,3 +1,4 @@
+import { latestReviewsByReviewer } from '../../domain/reviews.ts';
 import type { PullRequestDetailSources } from '../../github/types.ts';
 import { reviewStateColor, type SystemTheme } from '../terminal/theme.ts';
 import { DetailSection, Unavailable } from './section.tsx';
@@ -69,12 +70,13 @@ function SubmittedReviewers({
   if (!reviews.ok) {
     return <Unavailable label="Submitted reviewers" theme={theme} />;
   }
-  if (reviews.value.length === 0) {
+  const latest = latestReviewsByReviewer(reviews.value);
+  if (latest.length === 0) {
     return <text fg={theme?.foreground}>Submitted: none</text>;
   }
   return (
     <>
-      {reviews.value.map((review) => (
+      {latest.map((review) => (
         <text
           key={`${review.author}:${review.submittedAt}:${review.state}:${review.body}`}
           fg={theme?.foreground}
