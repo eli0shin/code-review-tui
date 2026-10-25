@@ -86,6 +86,7 @@ function ReviewQueue({
   const submission = useReviewSubmission(github, () => {
     feedback.clearNotice();
     void reviewQueue.query.refetch();
+    details.refresh();
   });
   const searchEditor = useQueueSearch(reviewQueue, feedback.reset);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -115,11 +116,11 @@ function ReviewQueue({
     });
   }
 
-  function withSelectedPullRequest(
+  function withActivePullRequest(
     action: (pullRequest: PullRequestSummary) => void
   ): void {
-    const selected = reviewQueue.highlightedPullRequest;
-    if (selected !== undefined) action(selected);
+    const target = details.target ?? reviewQueue.highlightedPullRequest;
+    if (target !== undefined) action(target);
   }
 
   const { queueOwnsInput, failureViewerRef } = useQueueKeyboard({
@@ -140,13 +141,12 @@ function ReviewQueue({
       togglePullRequestList: toggleList,
       toggleRepositoryScope,
       editReviewQueueSearch: searchEditor.open,
-      openDetails: () => withSelectedPullRequest(details.open),
-      openInBrowser: () => withSelectedPullRequest(feedback.openInBrowser),
-      openDiff: () => withSelectedPullRequest(feedback.openDiff),
-      runReviewCommand: () =>
-        withSelectedPullRequest(feedback.runReviewCommand),
+      openDetails: () => withActivePullRequest(details.open),
+      openInBrowser: () => withActivePullRequest(feedback.openInBrowser),
+      openDiff: () => withActivePullRequest(feedback.openDiff),
+      runReviewCommand: () => withActivePullRequest(feedback.runReviewCommand),
       composeReviewSubmission: () =>
-        withSelectedPullRequest((target) => {
+        withActivePullRequest((target) => {
           feedback.clearNotice();
           submission.open(target);
         }),
@@ -167,6 +167,7 @@ function ReviewQueue({
       />
       <QueueOverlays
         details={details}
+        feedback={feedback}
         submission={submission}
         searchEditor={searchEditor}
         helpOpen={helpOpen}

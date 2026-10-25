@@ -1964,10 +1964,9 @@ describe('Review Queue page loading', () => {
       await view.mockInput.pressKey('j');
       await view.mockInput.pressKey('d');
       await view.mockInput.pressKey('c');
-      await view.mockInput.pressKey('s');
     });
-    expect(openDiff).not.toHaveBeenCalled();
-    expect(openReviewCommand).not.toHaveBeenCalled();
+    expect(openDiff).toHaveBeenCalledWith(pullRequest);
+    expect(openReviewCommand).toHaveBeenCalledWith(pullRequest);
     expect(view.captureCharFrame()).toContain('First target');
 
     await act(async () => {
@@ -2007,6 +2006,225 @@ describe('Review Queue page loading', () => {
       await Promise.resolve();
     });
   });
+});
+
+describe('Pull request detail actions', () => {
+  for (const [name, bindings] of [
+    ['default', defaultKeyBindings],
+    [
+      'remapped',
+      {
+        ...defaultKeyBindings,
+        openInBrowser: ['x'],
+        openDiff: ['f'],
+        runReviewCommand: ['v'],
+        composeReviewSubmission: ['a'],
+      },
+    ],
+  ] as const) {
+    test(`${name} actions use the captured detail target after the queue changes`, async () => {
+      const intervalSpy = jest.spyOn(globalThis, 'setInterval');
+      intervalSpy.mockClear();
+      const loadReviewQueue = jest
+        .fn<GitHub['loadReviewQueue']>()
+        .mockResolvedValueOnce(success([pullRequest, secondPullRequest]))
+        .mockResolvedValue(success([secondPullRequest]));
+      const loadPullRequestDetails = jest.fn(async () =>
+        detailSources(pullRequestDetails('Captured action target'))
+      );
+      const openPullRequestInBrowser = jest.fn(async () => success(undefined));
+      const submitReview = jest.fn(async () => success(undefined));
+      const openDiff = jest.fn(async () => ({ ok: true }) as const);
+      const openReviewCommand = jest.fn(async () => ({ ok: true }) as const);
+      const view = await testRender(
+        reviewQueuePage(
+          {
+            loadReviewQueue,
+            loadPullRequestDetails,
+            openPullRequestInBrowser,
+            submitReview,
+          },
+          { openDiff, openReviewCommand },
+          bindings
+        ),
+        { width: 100, height: 32, kittyKeyboard: true }
+      );
+      await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+      await act(view.mockInput.pressEnter);
+      await view.waitForFrame((frame) =>
+        frame.includes('Captured action target')
+      );
+      const interval = intervalSpy.mock.calls.find(
+        ([, delay]) => delay === 5 * 60_000
+      )?.[0];
+      expect(typeof interval).toBe('function');
+      await act(async () => {
+        if (typeof interval === 'function') interval();
+      });
+      expect(loadReviewQueue).toHaveBeenCalledTimes(2);
+      intervalSpy.mockRestore();
+
+      for (const action of [
+        'openInBrowser',
+        'openDiff',
+        'runReviewCommand',
+      ] as const) {
+        await act(async () => view.mockInput.pressKey(bindings[action][0]));
+      }
+      expect(openPullRequestInBrowser).toHaveBeenCalledWith(
+        pullRequest.url,
+        expect.any(AbortSignal)
+      );
+      expect(openDiff).toHaveBeenCalledWith(pullRequest);
+      expect(openReviewCommand).toHaveBeenCalledWith(pullRequest);
+      expect(view.captureCharFrame()).toContain('Captured action target');
+      await act(async () => view.mockInput.pressKey('END'));
+      const footer = await view.waitForFrame((frame) =>
+        frame.includes('submit')
+      );
+      expect(footer).toContain(`${bindings.openInBrowser[0]} browser`);
+      expect(footer).toContain(`${bindings.openDiff[0]} diff`);
+      expect(footer).toContain(`${bindings.runReviewCommand[0]} review`);
+      expect(footer).toContain(`${bindings.composeReviewSubmission[0]} submit`);
+
+      await act(async () =>
+        view.mockInput.pressKey(bindings.composeReviewSubmission[0])
+      );
+      await view.waitForFrame((frame) => frame.includes('Ctrl+A Approve'));
+      await act(view.mockInput.pressEscape);
+      await view.waitForFrame((frame) => !frame.includes('Ctrl+A Approve'));
+      expect(submitReview).not.toHaveBeenCalled();
+      expect(view.captureCharFrame()).toContain('submit');
+      await act(async () =>
+        view.mockInput.pressKey(bindings.composeReviewSubmission[0])
+      );
+      await view.waitForFrame((frame) => frame.includes('Ctrl+A Approve'));
+      await act(async () => view.mockInput.typeText('Reviewed from details'));
+      await act(async () => view.mockInput.pressKey('c', { ctrl: true }));
+      await view.waitForFrame((frame) => !frame.includes('Ctrl+A Approve'));
+      expect(submitReview).toHaveBeenCalledWith(
+        {
+          url: pullRequest.url,
+          message: 'Reviewed from details',
+          decision: 'comment',
+        },
+        expect.any(AbortSignal)
+      );
+      expect(loadPullRequestDetails).toHaveBeenCalledTimes(2);
+      expect(loadReviewQueue).toHaveBeenCalledTimes(3);
+      expect(openPullRequestInBrowser).toHaveBeenCalledTimes(1);
+      expect(openDiff).toHaveBeenCalledTimes(1);
+      expect(openReviewCommand).toHaveBeenCalledTimes(1);
+      await act(async () => view.mockInput.pressKey('HOME'));
+      await view.waitForFrame((frame) =>
+        frame.includes('Captured action target')
+      );
+      await act(view.mockInput.pressEscape);
+      const queue = await view.waitForFrame((frame) =>
+        frame.includes('Review requests')
+      );
+      expect(queue).toContain(secondPullRequest.title);
+      expect(queue).not.toContain(pullRequest.title);
+      await act(async () => {
+        view.renderer.destroy();
+        await Promise.resolve();
+      });
+    });
+  }
+});
+
+describe('Pull request detail action failures', () => {
+  for (const [key, label] of [
+    ['b', 'in the browser'],
+    ['d', 'diff'],
+    ['c', 'Review Command'],
+  ] as const) {
+    test(`shows ${label} failures above scrolled details and permits retry`, async () => {
+      const openPullRequestInBrowser = jest
+        .fn<ProductionGitHub['openPullRequestInBrowser']>()
+        .mockResolvedValueOnce({
+          ok: false,
+          failure: {
+            kind: 'exit',
+            operation: 'openPullRequestInBrowser',
+            url: pullRequest.url,
+            exitCode: 1,
+            stderr: 'browser unavailable',
+          },
+        })
+        .mockResolvedValue(success(undefined));
+      const openHerdr = jest
+        .fn<Herdr['openDiff']>()
+        .mockResolvedValueOnce({
+          ok: false,
+          failure: {
+            operation: 'createTab',
+            message: 'Herdr tab unavailable',
+            exitCode: 17,
+            stderr: 'workspace unavailable',
+          },
+        })
+        .mockResolvedValue({ ok: true });
+      const github = {
+        async loadReviewQueue() {
+          return success([pullRequest]);
+        },
+        async loadPullRequestDetails() {
+          return detailSources({
+            ...pullRequestDetails('Action failure target'),
+            body: Array.from(
+              { length: 60 },
+              (_, i) => `description line ${i}`
+            ).join('\n'),
+          });
+        },
+        openPullRequestInBrowser,
+        async submitReview() {
+          throw new Error('No submission expected');
+        },
+      } satisfies GitHub;
+      const view = await testRender(
+        reviewQueuePage(github, {
+          openDiff: openHerdr,
+          openReviewCommand: openHerdr,
+        }),
+        { width: 100, height: 24, kittyKeyboard: true }
+      );
+      await view.waitForFrame((frame) => frame.includes(pullRequest.title));
+      await act(view.mockInput.pressEnter);
+      await view.waitForFrame((frame) =>
+        frame.includes('Action failure target')
+      );
+      await act(async () => view.mockInput.pressKey('END'));
+      await view.waitForFrame((frame) => frame.includes('description line 59'));
+      await act(async () => view.mockInput.pressKey(key));
+      const failure = await view.waitForFrame((frame) =>
+        frame.includes('unavailable')
+      );
+      expect(failure).toContain('Pull request details · acme/widgets #7');
+      expect(failure).toContain(
+        `Could not open ${key === 'b' ? 'acme/widgets #7 in the browser' : label}`
+      );
+      expect(failure).toContain(
+        key === 'b' ? 'browser unavailable' : 'exit code 17'
+      );
+      expect(failure).toContain(
+        key === 'b' ? 'browser unavailable' : 'workspace unavailable'
+      );
+      await act(async () => view.mockInput.pressKey(key));
+      const retried = await view.waitForFrame(
+        (frame) => !frame.includes('unavailable')
+      );
+      expect(retried).toContain('Action failure target');
+      expect(
+        key === 'b' ? openPullRequestInBrowser : openHerdr
+      ).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        view.renderer.destroy();
+        await Promise.resolve();
+      });
+    });
+  }
 });
 
 describe('Review Queue browser action', () => {

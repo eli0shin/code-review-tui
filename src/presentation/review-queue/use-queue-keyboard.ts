@@ -80,7 +80,18 @@ export function useQueueKeyboard({
       return;
     }
     if (details.target !== undefined) {
-      details.handleKey(key, keyBindings);
+      const action = queueActionForKey(key, keyBindings);
+      if (
+        action === 'openInBrowser' ||
+        action === 'openDiff' ||
+        action === 'runReviewCommand' ||
+        action === 'composeReviewSubmission'
+      ) {
+        stopKey(key);
+        actions[action]?.();
+      } else {
+        details.handleKey(key, keyBindings);
+      }
       return;
     }
     if (helpOpen) {

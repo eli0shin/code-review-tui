@@ -48,13 +48,17 @@ export function formatBindings(bindings: readonly string[]): string {
   return bindings.join('/');
 }
 
+export function pullRequestActionHints(
+  keyBindings: EffectiveKeyBindings
+): string {
+  return `${formatBindings(keyBindings.openInBrowser)} browser  ${formatBindings(
+    keyBindings.openDiff
+  )} diff  ${formatBindings(keyBindings.runReviewCommand)} review  ${formatBindings(
+    keyBindings.composeReviewSubmission
+  )} submit`;
+}
+
 export function footerText(keyBindings: EffectiveKeyBindings): string {
   const movement = `${keyBindings.selectNext[0]}/${keyBindings.selectPrevious[0]}`;
-  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${formatBindings(
-    keyBindings.openInBrowser
-  )} browser  ${formatBindings(keyBindings.openDiff)} diff  ${formatBindings(
-    keyBindings.runReviewCommand
-  )} review  ${formatBindings(
-    keyBindings.composeReviewSubmission
-  )} submit  ${formatBindings(keyBindings.togglePullRequestList)} lists  ${formatBindings(keyBindings.showHelp)} help`;
+  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${pullRequestActionHints(keyBindings)}  ${formatBindings(keyBindings.togglePullRequestList)} lists  ${formatBindings(keyBindings.showHelp)} help`;
 }

@@ -1,9 +1,15 @@
 import { TextAttributes, type ScrollBoxRenderable } from '@opentui/core';
+import { useEffect } from 'react';
 import type { EffectiveKeyBindings } from '../../configuration/index.ts';
 import type { PullRequestSummary } from '../../domain/pull-request.ts';
 import type { PullRequestDetailSources } from '../../github/types.ts';
 import { fallbackSystemTheme, type SystemTheme } from '../terminal/theme.ts';
-import { formatBindings } from '../terminal/keys.ts';
+import { formatBindings, pullRequestActionHints } from '../terminal/keys.ts';
+import { herdrFailureMessage } from '../terminal/diagnostics.tsx';
+import type {
+  QueueNotice,
+  HerdrActionFailure,
+} from '../review-queue/use-queue-feedback.ts';
 import { useMarkdownStyle } from './markdown.tsx';
 import { MetadataSection } from './metadata-section.tsx';
 import { ReviewersSection } from './reviewers-section.tsx';
@@ -16,17 +22,26 @@ export function PullRequestDetailsModal({
   target,
   sources,
   loading,
+  notice,
+  herdrActionFailure,
   keyBindings,
   theme,
 }: {
-  readonly ref: React.Ref<ScrollBoxRenderable>;
+  readonly ref: React.RefObject<ScrollBoxRenderable | null>;
   readonly target: PullRequestSummary;
   readonly sources: PullRequestDetailSources | undefined;
   readonly loading: boolean;
+  readonly notice: QueueNotice | undefined;
+  readonly herdrActionFailure: HerdrActionFailure | undefined;
   readonly keyBindings: EffectiveKeyBindings;
   readonly theme: SystemTheme | undefined;
 }) {
   const markdownStyle = useMarkdownStyle(theme ?? fallbackSystemTheme);
+  useEffect(() => {
+    if (notice !== undefined || herdrActionFailure !== undefined) {
+      ref.current?.scrollTo(0);
+    }
+  }, [notice, herdrActionFailure, ref]);
   return (
     <scrollbox
       ref={ref}
@@ -52,6 +67,24 @@ export function PullRequestDetailsModal({
         </span>
         <strong> #{target.number}</strong>
       </text>
+      {notice !== undefined ? (
+        <text
+          width="100%"
+          wrapMode="char"
+          fg={notice.tone === 'error' ? theme?.error : theme?.success}
+        >
+          {notice.message}
+        </text>
+      ) : null}
+      {herdrActionFailure !== undefined ? (
+        <text width="100%" wrapMode="char" fg={theme?.error}>
+          Could not open {herdrActionFailure.action}:{' '}
+          {herdrFailureMessage(herdrActionFailure.failure)}
+          {herdrActionFailure.failure.stderr
+            ? `\n${herdrActionFailure.failure.stderr}`
+            : ''}
+        </text>
+      ) : null}
       {loading ? <text fg={theme?.info}>Refreshing details…</text> : null}
       <box height={1} />
       <MetadataSection metadata={sources?.metadata} theme={theme} />
@@ -78,6 +111,7 @@ export function PullRequestDetailsModal({
         {formatBindings(keyBindings.pageNext)} half-page ·{' '}
         {formatBindings(keyBindings.scrollStart)}/
         {formatBindings(keyBindings.scrollEnd)} start/end ·{' '}
+        {pullRequestActionHints(keyBindings)} ·{' '}
         {formatBindings(keyBindings.refresh)} refresh ·{' '}
         {formatBindings(keyBindings.showErrors)} errors ·{' '}
         {formatBindings(keyBindings.quit)} close

@@ -4,7 +4,7 @@
 
 Compose one top-level Review Submission in a compact modal over the Review Queue. The modal contains one multiline message editor. It does not contain a decision selector and does not support file selection, line selection, pending reviews, or inline comments.
 
-Opening the modal captures the pull request under the Cursor as its target. Later Cursor movement or detail updates cannot change that target. Show `OWNER/REPOSITORY #NUMBER` on the first line and the pull request title on the second line.
+Opening the modal from the list captures the pull request under the Cursor as its target. Opening it from Pull Request Details captures the details target instead, even if the list has refreshed underneath it. Later Cursor movement or detail updates cannot change that target. Show `OWNER/REPOSITORY #NUMBER` on the first line and the pull request title on the second line.
 
 Only one Review Submission interaction can be open, and only one submission can be active.
 
@@ -21,7 +21,7 @@ Use this order:
 
 Do not show a `Review Submission` heading or explanatory editor text. Align the first editor character with the target text. Do not put blank space below the action hints.
 
-Use a preferred width of 78 columns and a preferred height of 18 rows. Center the modal and reduce it to fit smaller terminals. The Review Queue remains an inert backdrop.
+Use a preferred width of 78 columns and a preferred height of 18 rows. Center the modal and reduce it to fit smaller terminals. The Review Queue or Pull Request Details remains an inert backdrop. Closing or completing the submission returns to that same view.
 
 The editor owns input for the complete modal session. There is no editor-versus-decision focus state. Review Queue bindings do not run, and the Cursor does not move behind the modal.
 
@@ -75,7 +75,7 @@ The pull request URL and process environment follow the [GitHub CLI integration 
 
 ## Success
 
-GitHub CLI exit status 0 means that the Review Submission succeeded. Close the modal, clear any queue-level notice, and start the required Review Queue refresh immediately. Do not show a success notice. Do not remove or mark the pull request optimistically.
+GitHub CLI exit status 0 means that the Review Submission succeeded. Close the modal, clear any queue-level notice, and start the required Review Queue refresh immediately. If Pull Request Details is open, refresh its captured target as well. Do not show a success notice. Do not remove or mark the pull request optimistically.
 
 The Review Submission is complete once GitHub CLI succeeds. The refresh that follows is an ordinary Review Queue refresh: a refresh failure appears exactly as any other refresh failure, without a submission-specific message. Queue replacement and failure behavior follow the [GitHub data refresh and failure contract](./github-data-refresh-and-failure-behavior.md).
 
