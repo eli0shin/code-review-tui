@@ -1,5 +1,13 @@
 # code-review-tui
 
+## 0.9.5
+
+### Patch Changes
+
+- [#79](https://github.com/eli0shin/code-review-tui/pull/79) [`2fb63bc`](https://github.com/eli0shin/code-review-tui/commit/2fb63bc3e69c98fd944a402b89b760e9e4001c63) Thanks [@eli0shin](https://github.com/eli0shin)! - Enable the browser, diff, Review Command, and Review Submission shortcuts in pull request details, honoring configured keys and the displayed PR target. Keep details open after submission and refresh them on success, and show action failures without leaving details.
+
+- [#81](https://github.com/eli0shin/code-review-tui/pull/81) [`0382b7f`](https://github.com/eli0shin/code-review-tui/commit/0382b7f71c071b3aadddcb985af36576ae3b491b) Thanks [@eli0shin](https://github.com/eli0shin)! - Use only each reviewer's latest submitted review in PR list status and the details reviewer summary, so a later approval replaces an earlier change request. Preserve all submitted reviews in conversation history.
+
 ## 0.9.4
 
 ### Patch Changes
