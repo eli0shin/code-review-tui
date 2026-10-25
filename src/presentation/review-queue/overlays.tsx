@@ -10,11 +10,15 @@ import { FailureOverlay, failureMessage } from '../terminal/diagnostics.tsx';
 import type { SystemTheme } from '../terminal/theme.ts';
 import { HelpOverlay } from './help.tsx';
 import { SearchModal } from './search-modal.tsx';
-import type { QueueFailureOverlay } from './use-queue-feedback.ts';
+import type {
+  QueueFailureOverlay,
+  useQueueFeedback,
+} from './use-queue-feedback.ts';
 import type { useQueueSearch } from './use-queue-search.ts';
 
 export function QueueOverlays({
   details,
+  feedback,
   submission,
   searchEditor,
   helpOpen,
@@ -25,6 +29,10 @@ export function QueueOverlays({
   theme,
 }: {
   readonly details: ReturnType<typeof usePullRequestDetails>;
+  readonly feedback: Pick<
+    ReturnType<typeof useQueueFeedback>,
+    'notice' | 'herdrActionFailure'
+  >;
   readonly submission: ReturnType<typeof useReviewSubmission>;
   readonly searchEditor: ReturnType<typeof useQueueSearch>;
   readonly helpOpen: boolean;
@@ -43,6 +51,8 @@ export function QueueOverlays({
           target={details.target}
           sources={details.query.data}
           loading={details.query.isPending || details.query.isFetching}
+          notice={feedback.notice}
+          herdrActionFailure={feedback.herdrActionFailure}
           keyBindings={keyBindings}
           theme={theme}
         />

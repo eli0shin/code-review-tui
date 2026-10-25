@@ -39,6 +39,15 @@ export function usePullRequestDetails(github: GitHub) {
     setErrorsOpen(false);
   }
 
+  function refresh(): void {
+    if (target === undefined) return;
+    void queryClient.fetchQuery({
+      queryKey: [...detailsQueryKey, target.url],
+      queryFn: ({ signal }) =>
+        github.loadPullRequestDetails(target.url, signal),
+    });
+  }
+
   function handleKey(key: KeyEvent, keyBindings: EffectiveKeyBindings): void {
     if (target === undefined) return;
     stopKey(key);
@@ -47,11 +56,7 @@ export function usePullRequestDetails(github: GitHub) {
     if (action === 'quit') {
       setTarget(undefined);
     } else if (action === 'refresh') {
-      void queryClient.fetchQuery({
-        queryKey: [...detailsQueryKey, target.url],
-        queryFn: ({ signal }) =>
-          github.loadPullRequestDetails(target.url, signal),
-      });
+      refresh();
     } else if (action === 'showErrors' && failures.length > 0) {
       setErrorsOpen(true);
     } else if (action === 'selectPrevious') {
@@ -82,6 +87,7 @@ export function usePullRequestDetails(github: GitHub) {
     errorsOpen,
     viewportRef,
     open,
+    refresh,
     closeErrors,
     handleKey,
   };
