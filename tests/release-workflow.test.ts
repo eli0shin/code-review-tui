@@ -5,6 +5,10 @@ import { parse } from 'yaml';
 
 const workflowPath = join(import.meta.dir, '../.github/workflows/version.yml');
 const ciWorkflowPath = join(import.meta.dir, '../.github/workflows/ci.yml');
+const changesetWorkflowPath = join(
+  import.meta.dir,
+  '../.github/workflows/changeset-check.yml'
+);
 const releaseCondition = "steps.check-release.outputs.needs_binaries == 'true'";
 const artifacts = [
   'review-linux-x64',
@@ -19,6 +23,7 @@ type WorkflowStep = {
   if?: string;
   run?: string;
   with?: Record<string, unknown>;
+  env?: Record<string, unknown>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,9 +40,10 @@ function workflowJob(source: string, name: string): Record<string, unknown> {
   return job;
 }
 
-function workflowSteps(source: string): WorkflowStep[] {
-  const steps = workflowJob(source, 'version')['steps'];
-  if (!Array.isArray(steps)) throw new Error('Missing version workflow steps');
+function workflowSteps(source: string, jobName = 'version'): WorkflowStep[] {
+  const steps = workflowJob(source, jobName)['steps'];
+  if (!Array.isArray(steps))
+    throw new Error(`Missing ${jobName} workflow steps`);
 
   return steps.map((value) => {
     if (!isRecord(value)) throw new Error('Invalid workflow step');
@@ -47,6 +53,7 @@ function workflowSteps(source: string): WorkflowStep[] {
       if: typeof value['if'] === 'string' ? value['if'] : undefined,
       run: typeof value['run'] === 'string' ? value['run'] : undefined,
       with: isRecord(value['with']) ? value['with'] : undefined,
+      env: isRecord(value['env']) ? value['env'] : undefined,
     };
   });
 }
@@ -67,6 +74,27 @@ function listedArtifacts(run: string | undefined): string[] {
 }
 
 describe('release workflow', () => {
+  test('pins the fixed Bun compiler in every CI and release job', async () => {
+    const versionFile = '.bun-version';
+    expect(
+      (await readFile(join(import.meta.dir, '..', versionFile), 'utf8')).trim()
+    ).toBe('1.4.4');
+
+    for (const [path, jobs] of [
+      [workflowPath, ['version']],
+      [ciWorkflowPath, ['test', 'native-artifacts']],
+      [changesetWorkflowPath, ['check']],
+    ] as const) {
+      const source = await readFile(path, 'utf8');
+      for (const job of jobs) {
+        const setup = workflowSteps(source, job).find(
+          (step) => step.uses === 'oven-sh/setup-bun@v2'
+        );
+        expect(setup?.with?.['bun-version-file']).toBe(versionFile);
+      }
+    }
+  });
+
   test('builds and starts every artifact on its native runner', async () => {
     const source = await readFile(ciWorkflowPath, 'utf8');
     const job = workflowJob(source, 'native-artifacts');
@@ -111,6 +139,16 @@ describe('release workflow', () => {
       'bun build src/cli.tsx --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }}'
     );
     expect(commands).toContain('./${{ matrix.artifact }} --version');
+
+    const nativeSteps = workflowSteps(source, 'native-artifacts');
+    const verify = namedStep(nativeSteps, 'Verify Apple Silicon signature');
+    expect(verify.if).toBe("matrix.target == 'bun-darwin-arm64'");
+    expect(verify.run).toBe(
+      'codesign --verify --strict --verbose=2 ${{ matrix.artifact }}'
+    );
+    expect(nativeSteps.indexOf(verify)).toBeLessThan(
+      nativeSteps.indexOf(namedStep(nativeSteps, 'Start native artifact'))
+    );
   });
 
   test('repairs every native artifact from the exact release tag', async () => {
@@ -131,7 +169,7 @@ describe('release workflow', () => {
     );
     expect(changesets.uses).toBe('changesets/action@v1');
 
-    const upload = namedStep(steps, 'Upload binaries to release');
+    const upload = namedStep(steps, 'Stage release binaries');
     const releaseSteps = [
       namedStep(steps, 'Check out release commit'),
       namedStep(steps, 'Clean release dependencies'),
@@ -165,11 +203,10 @@ describe('release workflow', () => {
       );
     }
 
-    expect(listedArtifacts(upload.run)).toEqual(artifacts);
-    expect(upload.run).toContain(
-      'gh release upload "${{ steps.check-release.outputs.version }}"'
-    );
-    expect(upload.run).toContain('--clobber');
+    expect(upload.uses).toBe('actions/upload-artifact@v4');
+    expect(upload.with?.['name']).toBe('release-binaries');
+    expect(String(upload.with?.['path']).trim().split('\n')).toEqual(artifacts);
+    expect(upload.with?.['if-no-files-found']).toBe('error');
 
     let previousIndex = -1;
     for (const step of [changesets, detection, ...releaseSteps]) {
@@ -177,5 +214,41 @@ describe('release workflow', () => {
       expect(index).toBeGreaterThan(previousIndex);
       previousIndex = index;
     }
+  });
+
+  test('verifies the staged release binary on macOS before publishing those same bytes', async () => {
+    const source = await readFile(workflowPath, 'utf8');
+    expect(workflowJob(source, 'version')['outputs']).toEqual({
+      needs_binaries: '${{ steps.check-release.outputs.needs_binaries }}',
+      version: '${{ steps.check-release.outputs.version }}',
+    });
+    const job = workflowJob(source, 'publish');
+    expect(job['needs']).toBe('version');
+    expect(job['if']).toBe("needs.version.outputs.needs_binaries == 'true'");
+    expect(job['runs-on']).toBe('macos-15');
+
+    const steps = workflowSteps(source, 'publish');
+    const download = namedStep(steps, 'Download release binaries');
+    expect(download.uses).toBe('actions/download-artifact@v4');
+    expect(download.with?.['name']).toBe('release-binaries');
+
+    const verify = namedStep(steps, 'Verify Apple Silicon signature');
+    expect(verify.run).toBe(
+      'codesign --verify --strict --verbose=2 review-darwin-arm64'
+    );
+    const start = namedStep(steps, 'Start Apple Silicon release binary');
+    expect(start.run).toContain('chmod +x review-darwin-arm64');
+    expect(start.run).toContain('./review-darwin-arm64 --version');
+
+    const upload = namedStep(steps, 'Upload binaries to release');
+    expect(listedArtifacts(upload.run)).toEqual(artifacts);
+    expect(upload.run).toContain(
+      'gh release upload "${{ needs.version.outputs.version }}"'
+    );
+    expect(upload.run).toContain('--clobber');
+    expect(upload.env?.['GH_REPO']).toBe('${{ github.repository }}');
+    expect(upload.env?.['GITHUB_TOKEN']).toBe('${{ secrets.GITHUB_TOKEN }}');
+    // Never rebuild or re-sign between validation and publication.
+    expect(steps).toEqual([download, verify, start, upload]);
   });
 });

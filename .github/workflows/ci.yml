@@ -22,6 +22,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Install fish
         run: sudo apt-get update && sudo apt-get install --yes fish
@@ -79,12 +81,18 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build native artifact
         run: bun build src/cli.tsx --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }}
+
+      - name: Verify Apple Silicon signature
+        if: matrix.target == 'bun-darwin-arm64'
+        run: codesign --verify --strict --verbose=2 ${{ matrix.artifact }}
 
       - name: Start native artifact
         run: ./${{ matrix.artifact }} --version
