@@ -10,7 +10,7 @@
 
 Require `HERDR_ENV=1` and nonblank `HERDR_WORKSPACE_ID` and `HERDR_TAB_ID` values injected by Herdr. The workspace ID identifies where new Herdr tabs are created. The tab ID is the saved Review Queue Tab for best-effort return focus.
 
-Missing context stops TUI startup with an actionable instruction to run `review` inside Herdr. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
+Without `HERDR_ENV=1`, a nonblank `HC_TERMINAL_ID` selects the [Herdr app](#herdr-app). Missing context for both stops TUI startup with an actionable instruction to run `review` inside Herdr or the Herdr app. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
 
 ## Herdr CLI sequence
 
@@ -72,6 +72,15 @@ For Lumen, the POSIX script passed to `/bin/sh -c` includes shell-safe `herdr ta
 Both cleanup operations are best effort. `review` does not wait for or report their results, and it does not retry them. Review Queue focus can race with a user focus choice. The cleanup does not change the immediate adapter result boundary.
 
 Opening or leaving a command does not refresh or change the Review Queue or Cursor.
+
+## Herdr app
+
+The Herdr app is a separate product: herdr-core runs its terminals, and the `herdr-app` CLI arranges them in spaces and tabs in the open window. `HC_TERMINAL_ID` is the Review Queue's terminal. For each action, execute these installed CLI commands directly from `PATH` without a shell around the CLI process:
+
+1. `herdr-app ls` lists the window. The Review Queue space is the space on this computer (no `machine`) whose tabs show `HC_TERMINAL_ID`. If no such space exists, as for a terminal on another machine, report that the window does not show this terminal.
+2. `herdr-app do tab.new` with one JSON object creates the Herdr tab in that space, named like the Herdr tab label, in the startup working directory. Its `argv` is `/usr/bin/env`, the child environment as `KEY=VALUE` arguments without `HC_*` variables (herdr-core gives each terminal its own), then `/bin/sh -c SCRIPT`. The app shows the new tab.
+
+`SCRIPT` is the same POSIX script as for Herdr: the Lumen script, or `/bin/sh -c CONFIGURED_COMMAND` for a Diff Command or Review Command. Its cleanup makes a best-effort `herdr-app do pane.focus` for the Review Queue terminal, then `herdr-app do terminal.kill` for the tab's own `$HC_TERMINAL_ID`, which closes the tab. The app's own `herdr-app do` errors, reported as JSON on stdout, are the failure output.
 
 ## Exit
 
