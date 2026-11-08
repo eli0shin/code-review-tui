@@ -446,3 +446,154 @@ function parseCall(line: string): unknown[] {
   if (!Array.isArray(value)) throw new Error('fake Herdr call is not an array');
   return value;
 }
+
+describe('Herdr app adapter contract', () => {
+  beforeEach(async () => {
+    const executable = join(directory, 'herdr-app');
+    await writeFile(
+      executable,
+      `#!/usr/bin/env bun
+const record = process.env.FAKE_HERDR_RECORD;
+const args = process.argv.slice(2);
+await Bun.write(record, (await Bun.file(record).exists() ? await Bun.file(record).text() : '') + JSON.stringify(args) + '\\n');
+const reply = async (value, code = 0) => { await Bun.stdout.write(JSON.stringify(value) + '\\n'); process.exit(code); };
+if (args[0] === 'ls') {
+  await reply({ spaces: [
+    { id: 'vps/sp2', name: 'remote', machine: 'vps', tabs: [{ id: 'vps/tb2', terminals: [{ terminal: 'vps/t8' }] }] },
+    { id: 'sp1', name: 'repo', machine: null, tabs: [{ id: 'tb1', terminals: [{ terminal: 't7' }] }] },
+  ] });
+}
+if (args[0] === 'do' && args[1] === 'tab.new') {
+  if (process.env.FAKE_HERDR_APP_FAIL) await reply({ error: 'no space sp1' }, 1);
+  if (process.env.FAKE_HERDR_APP_EXECUTE) {
+    // herdr-core starts the tab's terminal with its own identity.
+    const { argv, folder } = JSON.parse(args[2]);
+    const result = Bun.spawnSync(argv, { cwd: folder, env: { ...process.env, HC_TERMINAL_ID: 't9' } });
+    await Bun.stderr.write(result.stderr);
+  }
+  await reply({ space: 'sp1', tab: 'tb9', terminal: 't9' });
+}
+await reply({ ok: true });
+`
+    );
+    await chmod(executable, 0o755);
+  });
+
+  test('opens the Review Command in a new tab of the Review Queue space with the pull request environment', async () => {
+    const herdr = createAppAdapter({
+      KEEP: 'yes',
+      REVIEW_PR_TITLE: 'old',
+      HC_TERMINAL_ID: 't7',
+      HC_SCOPE: 'review-scope',
+    });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const [list, create] = await calls();
+    expect(list).toEqual(['ls']);
+    expect(create.slice(0, 2)).toEqual(['do', 'tab.new']);
+    expect(JSON.parse(String(create[2]))).toEqual({
+      space: 'sp1',
+      name: 'Review acme/widgets#42',
+      folder: directory,
+      argv: [
+        '/usr/bin/env',
+        'KEEP=yes',
+        `REVIEW_PR_TITLE=${pullRequest.title}`,
+        `REVIEW_PR_URL=${pullRequest.url}`,
+        `REVIEW_PR_REPOSITORY=${pullRequest.repository}`,
+        'REVIEW_PR_NUMBER=42',
+        `REVIEW_PR_AUTHOR=${pullRequest.author}`,
+        'REVIEW_PR_IS_DRAFT=false',
+        `REVIEW_PR_STATE=${pullRequest.state}`,
+        `REVIEW_PR_CREATED_AT=${pullRequest.createdAt}`,
+        `REVIEW_PR_UPDATED_AT=${pullRequest.updatedAt}`,
+        '/bin/sh',
+        '-c',
+        `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr-app do pane.focus '{"terminal":"t7"}'; herdr-app do terminal.kill "{\\"terminal\\":\\"$HC_TERMINAL_ID\\"}"`,
+      ],
+    });
+  });
+
+  test('runs Lumen in the tab, saves its comments, refocuses the Review Queue, and ends its own terminal', async () => {
+    const destination = join('/tmp/review/lumen', testOwner, 'app', '77.txt');
+    const herdr = createAppAdapter(
+      {},
+      { FAKE_HERDR_APP_EXECUTE: '1', FAKE_LUMEN_STDOUT: 'app comments' }
+    );
+
+    expect(
+      await herdr.openDiff({
+        ...pullRequest,
+        repository: `${testOwner}/app`,
+        number: 77,
+      })
+    ).toEqual({ ok: true });
+
+    expect(await readFile(destination, 'utf8')).toBe('app comments');
+    expect((await calls()).slice(2)).toEqual([
+      ['do', 'pane.focus', '{"terminal":"t7"}'],
+      ['do', 'terminal.kill', '{"terminal":"t9"}'],
+    ]);
+  });
+
+  test('refuses a terminal this window shows only on another machine', async () => {
+    const herdr = createAppAdapter({}, {}, 't8');
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({
+      ok: false,
+      failure: {
+        operation: 'createTab',
+        message:
+          'The Herdr app window does not show this terminal. Run review in a Herdr app tab on this computer.',
+        stderr: '',
+      },
+    });
+    expect(await calls()).toEqual([['ls']]);
+  });
+
+  test('returns the Herdr app error when the tab cannot be created', async () => {
+    const herdr = createAppAdapter({}, { FAKE_HERDR_APP_FAIL: '1' });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({
+      ok: false,
+      failure: {
+        operation: 'createTab',
+        message: 'Herdr app CLI failed while trying to create a Herdr tab.',
+        exitCode: 1,
+        stderr: '{"error":"no space sp1"}\n',
+      },
+    });
+  });
+
+  test('requires Herdr or the Herdr app', () => {
+    expect(() =>
+      createHerdrCliAdapter({
+        reviewCommand: 'true',
+        workingDirectory: directory,
+        environment: {},
+        herdrEnvironment: { PATH: process.env.PATH },
+      })
+    ).toThrow(
+      'Start Herdr or the Herdr app, then run review inside one of its panes.'
+    );
+  });
+});
+
+function createAppAdapter(
+  environment: NodeJS.ProcessEnv,
+  extraHerdrEnvironment: NodeJS.ProcessEnv = {},
+  terminal = 't7'
+) {
+  return createHerdrCliAdapter({
+    reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
+    workingDirectory: directory,
+    environment,
+    herdrEnvironment: {
+      PATH: `${directory}:${process.env.PATH ?? ''}`,
+      HC_TERMINAL_ID: terminal,
+      FAKE_HERDR_RECORD: join(directory, 'calls.jsonl'),
+      ...extraHerdrEnvironment,
+    },
+  });
+}

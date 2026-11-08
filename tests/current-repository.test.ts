@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -13,7 +13,10 @@ let originalPath: string | undefined;
 let originalGhRepo: string | undefined;
 
 beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'review-repository-'));
+  // Git reports resolved paths, such as /private/var on macOS.
+  directory = await realpath(
+    await mkdtemp(join(tmpdir(), 'review-repository-'))
+  );
   repository = join(directory, 'repository');
   originalPath = process.env.PATH;
   originalGhRepo = process.env.GH_REPO;

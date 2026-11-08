@@ -35,9 +35,18 @@ type ProcessOutput = {
   readonly stderr: string;
 };
 
+// Herdr (the TUI) and the Herdr app are separate products. In the app, the
+// terminals run in herdr-core and `herdr-app` arranges them in tabs.
+type HerdrProgram = 'herdr' | 'herdr-app';
+
+type OpenTab = (
+  action: TabAction,
+  pullRequest: PullRequestSummary
+) => Promise<HerdrResult>;
+
 export function createHerdrCliAdapter(options: AdapterOptions): Herdr {
   const herdrEnvironment = options.herdrEnvironment ?? process.env;
-  const context = readContext(herdrEnvironment);
+  const open = tabOpener(options, herdrEnvironment);
 
   const diff = (
     options.diffCommand === undefined
@@ -51,11 +60,28 @@ export function createHerdrCliAdapter(options: AdapterOptions): Herdr {
   } satisfies TabAction;
 
   return {
-    openDiff: (pullRequest) =>
-      openHerdrTab(options, herdrEnvironment, context, diff, pullRequest),
-    openReviewCommand: (pullRequest) =>
-      openHerdrTab(options, herdrEnvironment, context, review, pullRequest),
+    openDiff: (pullRequest) => open(diff, pullRequest),
+    openReviewCommand: (pullRequest) => open(review, pullRequest),
   };
+}
+
+function tabOpener(
+  options: AdapterOptions,
+  herdrEnvironment: Readonly<NodeJS.ProcessEnv>
+): OpenTab {
+  if (herdrEnvironment.HERDR_ENV === '1') {
+    const context = readContext(herdrEnvironment);
+    return (action, pullRequest) =>
+      openHerdrTab(options, herdrEnvironment, context, action, pullRequest);
+  }
+  const terminal = herdrEnvironment.HC_TERMINAL_ID?.trim();
+  if (terminal) {
+    return (action, pullRequest) =>
+      openHerdrAppTab(options, herdrEnvironment, terminal, action, pullRequest);
+  }
+  throw new Error(
+    'Start Herdr or the Herdr app, then run review inside one of its panes.'
+  );
 }
 
 async function openHerdrTab(
@@ -102,10 +128,9 @@ async function openHerdrTab(
   if (!created.ok) return created;
 
   const cleanup = `herdr tab focus ${shellQuote(context.reviewQueueTabId)}; herdr tab close ${shellQuote(created.value.tabId)}`;
+  const script = tabScript(action, pullRequest, cleanup);
   const command =
-    action.kind === 'lumen'
-      ? lumenCommand(pullRequest, cleanup)
-      : `/bin/sh -c ${shellQuote(action.command)}; ${cleanup}`;
+    action.kind === 'lumen' ? `/bin/sh -c ${shellQuote(script)}` : script;
   const run = await runHerdr(
     ['pane', 'run', created.value.paneId, command],
     herdrEnvironment,
@@ -121,15 +146,112 @@ async function openHerdrTab(
   return focus.ok ? { ok: true } : focus;
 }
 
+// The Herdr app tab runs `review`'s environment and the launched command
+// through `/usr/bin/env` and `/bin/sh`, then puts focus back on the Review
+// Queue and ends its own terminal, which closes the tab.
+async function openHerdrAppTab(
+  options: AdapterOptions,
+  herdrEnvironment: Readonly<NodeJS.ProcessEnv>,
+  reviewQueueTerminal: string,
+  action: TabAction,
+  pullRequest: PullRequestSummary
+): Promise<HerdrResult> {
+  if (
+    action.kind === 'lumen' &&
+    !(await isInsideRepository(options.workingDirectory))
+  ) {
+    return failed(
+      'createTab',
+      'lumen diff requires review to start inside a Git or Jujutsu repository.'
+    );
+  }
+
+  const listed = await runHerdr(
+    ['ls'],
+    herdrEnvironment,
+    'createTab',
+    'herdr-app'
+  );
+  if (!listed.ok) return listed;
+  const space = findTerminalSpace(listed.value, reviewQueueTerminal);
+  if (!space.ok) return space;
+
+  // herdr-core gives each terminal its own HC_* identity.
+  const environment = Object.entries(
+    childEnvironment(options.environment, action, pullRequest)
+  ).filter(([name]) => !name.startsWith('HC_'));
+  const cleanup = `herdr-app do pane.focus ${shellQuote(JSON.stringify({ terminal: reviewQueueTerminal }))}; herdr-app do terminal.kill "{\\"terminal\\":\\"$HC_TERMINAL_ID\\"}"`;
+  const created = await runHerdr(
+    [
+      'do',
+      'tab.new',
+      JSON.stringify({
+        space: space.value,
+        name: tabLabel(action, pullRequest),
+        folder: options.workingDirectory,
+        argv: [
+          '/usr/bin/env',
+          ...environment.map(([name, value]) => `${name}=${value}`),
+          '/bin/sh',
+          '-c',
+          tabScript(action, pullRequest, cleanup),
+        ],
+      }),
+    ],
+    herdrEnvironment,
+    'createTab',
+    'herdr-app'
+  );
+  return created.ok ? { ok: true } : created;
+}
+
+function findTerminalSpace(
+  output: ProcessOutput,
+  terminal: string
+):
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly failure: HerdrFailure } {
+  const parsed = parseJson(output, 'Herdr app CLI');
+  if (!parsed.ok) return parsed;
+  const spaces =
+    isRecord(parsed.value) && Array.isArray(parsed.value.spaces)
+      ? parsed.value.spaces
+      : [];
+  for (const space of spaces) {
+    // Spaces on other machines hold their terminals there.
+    if (!isRecord(space) || space.machine || typeof space.id !== 'string') {
+      continue;
+    }
+    const tabs = Array.isArray(space.tabs) ? space.tabs : [];
+    const shown = tabs.some(
+      (tab) =>
+        isRecord(tab) &&
+        Array.isArray(tab.terminals) &&
+        tab.terminals.some(
+          (candidate) => isRecord(candidate) && candidate.terminal === terminal
+        )
+    );
+    if (shown) return { ok: true, value: space.id };
+  }
+  return failed(
+    'createTab',
+    'The Herdr app window does not show this terminal. Run review in a Herdr app tab on this computer.',
+    undefined,
+    output.stderr
+  );
+}
+
 async function runHerdr(
   arguments_: readonly string[],
   environment: Readonly<NodeJS.ProcessEnv>,
-  operation: HerdrOperation
+  operation: HerdrOperation,
+  program: HerdrProgram = 'herdr'
 ): Promise<
   | { readonly ok: true; readonly value: ProcessOutput }
   | { readonly ok: false; readonly failure: HerdrFailure }
 > {
-  const subprocess = spawn('herdr', [...arguments_], {
+  const cli = program === 'herdr' ? 'Herdr CLI' : 'Herdr app CLI';
+  const subprocess = spawn(program, [...arguments_], {
     env: { ...environment },
     shell: false,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -158,14 +280,15 @@ async function runHerdr(
   });
 
   if (outcome.kind === 'error') {
-    return failed(operation, `Herdr CLI could not start: ${outcome.message}`);
+    return failed(operation, `${cli} could not start: ${outcome.message}`);
   }
   if (outcome.exitCode !== 0) {
     return failed(
       operation,
-      `Herdr CLI failed while trying to ${operationDescription(operation)}.`,
+      `${cli} failed while trying to ${operationDescription(operation)}.`,
       outcome.exitCode ?? -1,
-      stderr
+      // `herdr-app do` reports its error as JSON on stdout.
+      program === 'herdr-app' ? stderr || stdout : stderr
     );
   }
   return { ok: true, value: { stdout, stderr } };
@@ -201,7 +324,8 @@ function parseCreatedTab(
 }
 
 function parseJson(
-  output: ProcessOutput
+  output: ProcessOutput,
+  cli = 'Herdr CLI'
 ):
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly failure: HerdrFailure } {
@@ -211,7 +335,7 @@ function parseJson(
   } catch (error) {
     return failed(
       'createTab',
-      `Herdr CLI returned malformed JSON: ${describeError(error)}`,
+      `${cli} returned malformed JSON: ${describeError(error)}`,
       undefined,
       output.stderr
     );
@@ -283,14 +407,18 @@ function tabLabel(action: TabAction, pullRequest: PullRequestSummary): string {
   return `${name} ${pullRequest.repository}#${pullRequest.number}`;
 }
 
-function lumenCommand(
+// The POSIX script a tab runs: the launched interaction, then its cleanup.
+function tabScript(
+  action: TabAction,
   pullRequest: PullRequestSummary,
   cleanup: string
 ): string {
+  if (action.kind === 'command') {
+    return `/bin/sh -c ${shellQuote(action.command)}; ${cleanup}`;
+  }
   const destinationDirectory = `/tmp/review/lumen/${pullRequest.repository}`;
   const destination = `${destinationDirectory}/${pullRequest.number}.txt`;
-  const script = `if comments=$(mktemp); then if lumen diff ${shellQuote(pullRequest.url)} >"$comments" && [ -s "$comments" ]; then mkdir -p ${shellQuote(destinationDirectory)} && mv "$comments" ${shellQuote(destination)} || rm -f "$comments"; else rm -f "$comments"; fi; fi; ${cleanup}`;
-  return `/bin/sh -c ${shellQuote(script)}`;
+  return `if comments=$(mktemp); then if lumen diff ${shellQuote(pullRequest.url)} >"$comments" && [ -s "$comments" ]; then mkdir -p ${shellQuote(destinationDirectory)} && mv "$comments" ${shellQuote(destination)} || rm -f "$comments"; else rm -f "$comments"; fi; fi; ${cleanup}`;
 }
 
 function shellQuote(value: string): string {

@@ -2,16 +2,16 @@
 
 A personal terminal interface for reviewing GitHub pull requests.
 
-Run `review` inside a Herdr pane. The application loads the configured GitHub pull request search into the **Review Queue**. Press `m` to switch to **My PRs**, which shows open pull requests authored by your active GitHub account, and press it again to return. From either list, you can inspect pull request details, open the pull request diff, run a Review Command, and submit a review.
+Run `review` inside a Herdr pane or a Herdr app tab. The application loads the configured GitHub pull request search into the **Review Queue**. Press `m` to switch to **My PRs**, which shows open pull requests authored by your active GitHub account, and press it again to return. From either list, you can inspect pull request details, open the pull request diff, run a Review Command, and submit a review.
 
 ## Requirements
 
 - x64 or arm64 macOS, or glibc Linux. musl Linux is not supported.
 - [GitHub CLI](https://cli.github.com/) installed and authenticated with `gh auth login`.
-- [Herdr](https://herdr.dev/) installed and available on `PATH`.
+- [Herdr](https://herdr.dev/) installed and available on `PATH`, or the Herdr app with `herdr-app` on `PATH`.
 - [Lumen](https://github.com/jnsahaj/lumen) installed and available on `PATH` if you do not configure a Diff Command.
 
-Run `review` inside a Herdr pane. Start it in a Git or Jujutsu repository if you want to open Lumen.
+Run `review` inside a Herdr pane, or in a Herdr app tab on the same computer as the app's window. Start it in a Git or Jujutsu repository if you want to open Lumen.
 
 ## Install
 

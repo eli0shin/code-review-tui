@@ -5,6 +5,13 @@ import { join, resolve } from 'node:path';
 import { version } from '../package.json';
 
 const executable = resolve('review');
+// Run review on a pseudo-terminal. macOS has BSD script, which takes the
+// command after the transcript file, always returns the command's status, and
+// rejects a socket as stdin, so cat feeds it from Bun's stdin through a pipe.
+const scriptCommand =
+  process.platform === 'darwin'
+    ? ['/bin/sh', '-c', 'cat | script -q /dev/null "$0"', executable]
+    : ['script', '--quiet', '--return', '--command', executable, '/dev/null'];
 let directory: string;
 let environment: NodeJS.ProcessEnv;
 let ghRecord: string;
@@ -69,15 +76,12 @@ afterAll(async () => {
 
 describe('native review executable', () => {
   test('loads configuration, renders the page, starts the Review Queue query, and quits cleanly', async () => {
-    const review = Bun.spawn(
-      ['script', '--quiet', '--return', '--command', executable, '/dev/null'],
-      {
-        env: environment,
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe',
-      }
-    );
+    const review = Bun.spawn(scriptCommand, {
+      env: environment,
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const stdout = new Response(review.stdout).text();
     const stderr = new Response(review.stderr).text();
 
@@ -97,15 +101,12 @@ describe('native review executable', () => {
 
   test('switches the native TUI to the authored search with m', async () => {
     const record = join(directory, 'my-prs-gh-calls');
-    const review = Bun.spawn(
-      ['script', '--quiet', '--return', '--command', executable, '/dev/null'],
-      {
-        env: { ...environment, FAKE_GH_RECORD: record },
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe',
-      }
-    );
+    const review = Bun.spawn(scriptCommand, {
+      env: { ...environment, FAKE_GH_RECORD: record },
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const stdout = new Response(review.stdout).text();
     const stderr = new Response(review.stderr).text();
     await waitForFile(record);
@@ -134,19 +135,16 @@ describe('native review executable', () => {
   test('silently creates complete defaults and continues first startup', async () => {
     const firstRunConfigHome = join(directory, 'first-run-config');
     const firstRunGhRecord = join(directory, 'first-run-gh-calls');
-    const review = Bun.spawn(
-      ['script', '--quiet', '--return', '--command', executable, '/dev/null'],
-      {
-        env: {
-          ...environment,
-          XDG_CONFIG_HOME: firstRunConfigHome,
-          FAKE_GH_RECORD: firstRunGhRecord,
-        },
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe',
-      }
-    );
+    const review = Bun.spawn(scriptCommand, {
+      env: {
+        ...environment,
+        XDG_CONFIG_HOME: firstRunConfigHome,
+        FAKE_GH_RECORD: firstRunGhRecord,
+      },
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const stdout = new Response(review.stdout).text();
     const stderr = new Response(review.stderr).text();
 
@@ -315,15 +313,12 @@ describe('native review executable', () => {
 
   test('exits immediately when the active GitHub CLI process does not stop', async () => {
     const hangingProcess = join(directory, 'hanging-gh-pid');
-    const review = Bun.spawn(
-      ['script', '--quiet', '--return', '--command', executable, '/dev/null'],
-      {
-        env: { ...environment, FAKE_GH_HANG: hangingProcess },
-        stdin: 'pipe',
-        stdout: 'ignore',
-        stderr: 'ignore',
-      }
-    );
+    const review = Bun.spawn(scriptCommand, {
+      env: { ...environment, FAKE_GH_HANG: hangingProcess },
+      stdin: 'pipe',
+      stdout: 'ignore',
+      stderr: 'ignore',
+    });
 
     await waitForFile(hangingProcess);
     review.stdin.write('q');

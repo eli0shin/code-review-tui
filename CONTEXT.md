@@ -35,11 +35,11 @@ The inline review comments on one location in the diff: the comment that starts 
 _Avoid_: Inline comment chain, reply chain
 
 **Review Queue Tab**:
-The saved Herdr tab that contains the Review Queue. `review` makes a best-effort attempt to focus its Review Queue pane when a launched tool exits.
+The saved Herdr tab that contains the Review Queue. In the Herdr app, it is the tab showing the Review Queue's terminal. `review` makes a best-effort attempt to focus its Review Queue pane when a launched tool exits.
 _Avoid_: Parent tab, caller tab
 
 **Herdr tab**:
-A tab created by Herdr to run Lumen, a Diff Command, or a Review Command for the pull request under the Cursor.
+A tab created by Herdr or the Herdr app to run Lumen, a Diff Command, or a Review Command for the pull request under the Cursor.
 _Avoid_: Tool Tab, Cab, embedded terminal
 
 **Check**:
