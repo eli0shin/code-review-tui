@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.10.0
+
+### Minor Changes
+
+- [#83](https://github.com/eli0shin/code-review-tui/pull/83) [`551a2ae`](https://github.com/eli0shin/code-review-tui/commit/551a2ae4e0a44f0f1adc09777033f7e27e56c55b) Thanks [@eli0shin](https://github.com/eli0shin)! - Run inside the Herdr app: Lumen, Diff Commands, and Review Commands open in a new Herdr app tab in the Review Queue's space, which returns focus to the Review Queue and closes when the command exits.
+
 ## 0.9.5
 
 ### Patch Changes
