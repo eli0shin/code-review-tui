@@ -122,6 +122,7 @@ export function ReviewQueueContent({
           alignItems="center"
           justifyContent="space-between"
           gap={1}
+          paddingLeft={1}
         >
           <text flexShrink={0}>
             <strong>

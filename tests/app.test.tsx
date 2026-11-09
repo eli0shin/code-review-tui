@@ -346,7 +346,7 @@ describe('Review Queue list switching', () => {
     );
     expect(lines[0]).toContain('Review requests All repositories 1 open');
     expect(title).toBe(3);
-    expect(lines[0]?.indexOf('Review requests')).toBe(0);
+    expect(lines[0]?.indexOf('Review requests')).toBe(1);
     expect(lines[1]?.trim()).toBe('');
     expect(lines[title]?.indexOf('●')).toBe(1);
     expect(metadata).toBe(title + 1);
