@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.10.2
+
+### Patch Changes
+
+- [#87](https://github.com/eli0shin/code-review-tui/pull/87) [`c832421`](https://github.com/eli0shin/code-review-tui/commit/c832421e816ed1b7b8a789dd9c7d9c225b05563e) Thanks [@eli0shin](https://github.com/eli0shin)! - Open review tabs in the Herdr app before Herdr, so Herdr app terminals that inherited `HERDR_ENV` from Herdr open tabs in the Review Queue's app space instead of a Herdr workspace
+
 ## 0.10.1
 
 ### Patch Changes
