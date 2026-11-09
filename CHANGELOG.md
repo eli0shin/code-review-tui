@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.10.1
+
+### Patch Changes
+
+- [#85](https://github.com/eli0shin/code-review-tui/pull/85) [`18ad8d4`](https://github.com/eli0shin/code-review-tui/commit/18ad8d4fc2d771e2a2852efc4d0a00466e17f601) Thanks [@eli0shin](https://github.com/eli0shin)! - Indent the Review Queue and My PRs title by one column so it lines up with the rows and no longer touches the terminal edge.
+
 ## 0.10.0
 
 ### Minor Changes
