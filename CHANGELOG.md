@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.10.3
+
+### Patch Changes
+
+- [#89](https://github.com/eli0shin/code-review-tui/pull/89) [`c3f987c`](https://github.com/eli0shin/code-review-tui/commit/c3f987cf443eb155043810b69fa702979703ce7a) Thanks [@eli0shin](https://github.com/eli0shin)! - Name Herdr tabs `Review #42@widgets`, `Diff #42@widgets`, and `Lumen #42@widgets`, leading with the pull request number and dropping the repository owner so narrow tabs show what matters
+
 ## 0.10.2
 
 ### Patch Changes
