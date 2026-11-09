@@ -69,15 +69,30 @@ function tabOpener(
   options: AdapterOptions,
   herdrEnvironment: Readonly<NodeJS.ProcessEnv>
 ): OpenTab {
+  // The Herdr app wins over HERDR_ENV: when Herdr launched herdr-core, the
+  // app's terminals inherit Herdr's markers. Herdr panes started from an app
+  // terminal inherit HC_TERMINAL_ID too, so they fall back to Herdr when the
+  // window does not show that terminal.
+  const terminal = herdrEnvironment.HC_TERMINAL_ID?.trim();
+  if (terminal) {
+    const fallback =
+      herdrEnvironment.HERDR_ENV === '1'
+        ? optionalContext(herdrEnvironment)
+        : undefined;
+    return (action, pullRequest) =>
+      openHerdrAppTab(
+        options,
+        herdrEnvironment,
+        terminal,
+        action,
+        pullRequest,
+        fallback
+      );
+  }
   if (herdrEnvironment.HERDR_ENV === '1') {
     const context = readContext(herdrEnvironment);
     return (action, pullRequest) =>
       openHerdrTab(options, herdrEnvironment, context, action, pullRequest);
-  }
-  const terminal = herdrEnvironment.HC_TERMINAL_ID?.trim();
-  if (terminal) {
-    return (action, pullRequest) =>
-      openHerdrAppTab(options, herdrEnvironment, terminal, action, pullRequest);
   }
   throw new Error(
     'Start Herdr or the Herdr app, then run review inside one of its panes.'
@@ -154,7 +169,8 @@ async function openHerdrAppTab(
   herdrEnvironment: Readonly<NodeJS.ProcessEnv>,
   reviewQueueTerminal: string,
   action: TabAction,
-  pullRequest: PullRequestSummary
+  pullRequest: PullRequestSummary,
+  fallback?: HerdrContext
 ): Promise<HerdrResult> {
   if (
     action.kind === 'lumen' &&
@@ -172,9 +188,14 @@ async function openHerdrAppTab(
     'createTab',
     'herdr-app'
   );
-  if (!listed.ok) return listed;
-  const space = findTerminalSpace(listed.value, reviewQueueTerminal);
-  if (!space.ok) return space;
+  const space = listed.ok
+    ? findTerminalSpace(listed.value, reviewQueueTerminal)
+    : listed;
+  if (!space.ok) {
+    return fallback
+      ? openHerdrTab(options, herdrEnvironment, fallback, action, pullRequest)
+      : space;
+  }
 
   // herdr-core gives each terminal its own HC_* identity.
   const environment = Object.entries(
@@ -356,6 +377,16 @@ function readContext(environment: Readonly<NodeJS.ProcessEnv>): HerdrContext {
       environment.HERDR_TAB_ID
     ),
   };
+}
+
+function optionalContext(
+  environment: Readonly<NodeJS.ProcessEnv>
+): HerdrContext | undefined {
+  try {
+    return readContext(environment);
+  } catch {
+    return undefined;
+  }
 }
 
 function requiredContextValue(name: string, value: string | undefined): string {

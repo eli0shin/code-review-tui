@@ -537,6 +537,42 @@ await reply({ ok: true });
     ]);
   });
 
+  test('uses the Herdr app when its terminal inherited Herdr context', async () => {
+    const herdr = createAppAdapter(
+      {},
+      {
+        HERDR_ENV: '1',
+        HERDR_WORKSPACE_ID: 'w1',
+        HERDR_TAB_ID: 'w1:t1',
+      }
+    );
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const [list, create] = await calls();
+    expect(list).toEqual(['ls']);
+    expect(create.slice(0, 2)).toEqual(['do', 'tab.new']);
+  });
+
+  test('falls back to Herdr when the window does not show an inherited terminal', async () => {
+    const herdr = createAppAdapter(
+      {},
+      {
+        HERDR_ENV: '1',
+        HERDR_WORKSPACE_ID: 'w1',
+        HERDR_TAB_ID: 'w1:t1',
+      },
+      't8'
+    );
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const [list, create, run] = await calls();
+    expect(list).toEqual(['ls']);
+    expect(create.slice(0, 4)).toEqual(['tab', 'create', '--workspace', 'w1']);
+    expect(run.slice(0, 3)).toEqual(['pane', 'run', 'w1:p9']);
+  });
+
   test('refuses a terminal this window shows only on another machine', async () => {
     const herdr = createAppAdapter({}, {}, 't8');
 

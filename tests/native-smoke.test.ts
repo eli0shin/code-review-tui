@@ -65,6 +65,8 @@ beforeAll(async () => {
     HERDR_ENV: '1',
     HERDR_WORKSPACE_ID: 'workspace-1',
     HERDR_TAB_ID: 'queue-tab-1',
+    // A Herdr app terminal would take precedence over Herdr.
+    HC_TERMINAL_ID: undefined,
     FAKE_GH_RECORD: ghRecord,
     FAKE_HERDR_RECORD: herdrRecord,
   };

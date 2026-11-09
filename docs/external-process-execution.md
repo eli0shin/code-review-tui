@@ -10,7 +10,7 @@
 
 Require `HERDR_ENV=1` and nonblank `HERDR_WORKSPACE_ID` and `HERDR_TAB_ID` values injected by Herdr. The workspace ID identifies where new Herdr tabs are created. The tab ID is the saved Review Queue Tab for best-effort return focus.
 
-Without `HERDR_ENV=1`, a nonblank `HC_TERMINAL_ID` selects the [Herdr app](#herdr-app). Missing context for both stops TUI startup with an actionable instruction to run `review` inside Herdr or the Herdr app. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
+A nonblank `HC_TERMINAL_ID` selects the [Herdr app](#herdr-app) instead, even when `HERDR_ENV=1` is set, because the app's terminals inherit Herdr's context when Herdr launched herdr-core. Herdr panes started from an app terminal inherit `HC_TERMINAL_ID` too, so when Herdr context is also present and `herdr-app ls` fails or the window does not show the terminal, the action uses Herdr instead. Missing context for both stops TUI startup with an actionable instruction to run `review` inside Herdr or the Herdr app. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
 
 ## Herdr CLI sequence
 

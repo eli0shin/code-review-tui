@@ -4,4 +4,4 @@ The Herdr app is a separate product from Herdr: herdr-core runs its terminals, a
 
 `herdr-app do tab.new` takes a program rather than a shell command and has no environment option, so the tab runs `/usr/bin/env` with the child environment before `/bin/sh -c`. The app wraps that program in the login shell and leaves an interactive shell when it returns, so the cleanup ends the tab's own terminal instead of closing a tab by ID; the tab's ID is not known to the program it runs.
 
-`HERDR_ENV=1` keeps precedence, so Herdr running inside an app terminal still uses Herdr.
+`HERDR_ENV=1` keeps precedence, so Herdr running inside an app terminal still uses Herdr. Superseded by [ADR 0003](./0003-select-the-herdr-app-before-herdr.md): `HC_TERMINAL_ID` now takes precedence.
