@@ -433,9 +433,12 @@ function environmentArguments(
   ]);
 }
 
+// Herdr tabs are narrow, so the label leads with the pull request number and
+// drops the repository owner.
 function tabLabel(action: TabAction, pullRequest: PullRequestSummary): string {
   const name = action.kind === 'lumen' ? 'Lumen' : action.name;
-  return `${name} ${pullRequest.repository}#${pullRequest.number}`;
+  const repositoryName = pullRequest.repository.split('/').at(-1);
+  return `${name} #${pullRequest.number}@${repositoryName}`;
 }
 
 // The POSIX script a tab runs: the launched interaction, then its cleanup.
