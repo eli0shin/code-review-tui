@@ -101,7 +101,7 @@ describe('Herdr CLI adapter contract', () => {
         '--cwd',
         directory,
         '--label',
-        'Lumen acme/widgets#42',
+        'Lumen #42@widgets',
         '--no-focus',
         '--env',
         'KEEP=yes',
@@ -257,7 +257,7 @@ describe('Herdr CLI adapter contract', () => {
         '--cwd',
         directory,
         '--label',
-        'Review acme/widgets#42',
+        'Review #42@widgets',
         '--no-focus',
         '--env',
         'KEEP=yes',
@@ -311,7 +311,7 @@ describe('Herdr CLI adapter contract', () => {
         '--cwd',
         directory,
         '--label',
-        'Diff acme/widgets#42',
+        'Diff #42@widgets',
         '--no-focus',
         '--env',
         'KEEP=yes',
@@ -494,7 +494,7 @@ await reply({ ok: true });
     expect(create.slice(0, 2)).toEqual(['do', 'tab.new']);
     expect(JSON.parse(String(create[2]))).toEqual({
       space: 'sp1',
-      name: 'Review acme/widgets#42',
+      name: 'Review #42@widgets',
       folder: directory,
       argv: [
         '/usr/bin/env',
