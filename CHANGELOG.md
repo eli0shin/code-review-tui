@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.11.0
+
+### Minor Changes
+
+- [#91](https://github.com/eli0shin/code-review-tui/pull/91) [`8c7837d`](https://github.com/eli0shin/code-review-tui/commit/8c7837d17b724d75429da6b450fdbabdb2de1859) Thanks [@eli0shin](https://github.com/eli0shin)! - Add an optional `github.repositorySearch` that the Review Queue uses while repository scope is on, so a repository you own can keep showing pull requests you already reviewed (for example `is:pr state:open (review-requested:@me OR reviewed-by:@me)`) while the all-repositories queue keeps `github.search`. Each scope keeps its own session query edits. Without `github.repositorySearch`, repository scope keeps using `github.search`.
+
 ## 0.10.3
 
 ### Patch Changes
