@@ -1,9 +1,11 @@
 import type { TextareaRenderable } from '@opentui/core';
 import type { SystemTheme } from '../terminal/theme.ts';
 import { stopKey } from '../terminal/keys.ts';
+import type { SearchScope } from './use-review-queue.ts';
 
 export function SearchModal({
   text,
+  scope,
   validation,
   editorRef,
   onInput,
@@ -12,6 +14,7 @@ export function SearchModal({
   theme,
 }: {
   readonly text: string;
+  readonly scope: SearchScope;
   readonly validation: string | undefined;
   readonly editorRef: React.RefObject<TextareaRenderable | null>;
   readonly onInput: (text: string) => void;
@@ -37,7 +40,11 @@ export function SearchModal({
       flexDirection="column"
     >
       <text fg={theme?.foreground}>
-        <strong>Review Queue query</strong>
+        <strong>
+          {scope === 'repository'
+            ? 'Repository Review Queue query'
+            : 'Review Queue query'}
+        </strong>
       </text>
       <text fg={theme?.textMuted}>Applies only to this session.</text>
       <textarea

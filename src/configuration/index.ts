@@ -39,6 +39,7 @@ export type UpdateConfiguration = {
 export type ReviewConfiguration = {
   readonly githubSearch: readonly string[];
   readonly githubSearchText: string;
+  readonly githubRepositorySearchText: string | undefined;
   readonly refreshIntervalMinutes: number;
   readonly pageSize: number;
   readonly reviewCommand: string;
@@ -89,6 +90,8 @@ const defaultKeyBindings = {
 const defaultReviewConfigurationDocument = {
   github: {
     search: 'is:pr review-requested:@me state:open',
+    repositorySearch:
+      'is:pr state:open (review-requested:@me OR reviewed-by:@me)',
     refreshIntervalMinutes: 5,
     pageSize: 25,
   },
@@ -310,6 +313,7 @@ function validateReviewConfiguration(
   }
   const githubUnknown = rejectUnknownFields(value.github, [
     'search',
+    'repositorySearch',
     'refreshIntervalMinutes',
     'pageSize',
   ]);
@@ -319,16 +323,19 @@ function validateReviewConfiguration(
   if (value.github.search === undefined) {
     return failure(file, 'github.search', 'Required field is missing');
   }
-  const githubSearch = value.github.search;
-  const searchFailure = validateRequiredString(githubSearch);
-  if (searchFailure !== undefined) {
-    return failure(file, 'github.search', searchFailure);
+  const search = validateSearch(value.github.search, 'github.search', file);
+  if (!search.ok) return search;
+  const repositorySearch =
+    value.github.repositorySearch === undefined
+      ? undefined
+      : validateSearch(
+          value.github.repositorySearch,
+          'github.repositorySearch',
+          file
+        );
+  if (repositorySearch !== undefined && !repositorySearch.ok) {
+    return repositorySearch;
   }
-  if (typeof githubSearch !== 'string') {
-    return failure(file, 'github.search', 'Value must be a string');
-  }
-  const search = tokenizeSearch(githubSearch);
-  if (!search.ok) return failure(file, 'github.search', search.problem);
   const refreshIntervalMinutes =
     value.github.refreshIntervalMinutes === undefined
       ? 5
@@ -392,8 +399,9 @@ function validateReviewConfiguration(
   return {
     ok: true,
     value: {
-      githubSearch: search.value,
-      githubSearchText: githubSearch,
+      githubSearch: search.value.terms,
+      githubSearchText: search.value.text,
+      githubRepositorySearchText: repositorySearch?.value.text,
       refreshIntervalMinutes,
       pageSize,
       reviewCommand,
@@ -659,6 +667,24 @@ export function normalizeKeyDescriptor(descriptor: string): string {
   if (event === 'ctrl+alt+i') return 'alt+tab';
   if (event === 'ctrl+alt+m') return 'alt+enter';
   return event;
+}
+
+function validateSearch(
+  value: unknown,
+  field: string,
+  file: string
+): ValidationResult<{
+  readonly text: string;
+  readonly terms: readonly string[];
+}> {
+  const stringFailure = validateRequiredString(value);
+  if (stringFailure !== undefined) return failure(file, field, stringFailure);
+  if (typeof value !== 'string') {
+    return failure(file, field, 'Value must be a string');
+  }
+  const terms = tokenizeSearch(value);
+  if (!terms.ok) return failure(file, field, terms.problem);
+  return { ok: true, value: { text: value, terms: terms.value } };
 }
 
 function validateRequiredString(value: unknown): string | undefined {

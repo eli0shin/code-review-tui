@@ -81,6 +81,7 @@ export function QueueOverlays({
       {searchEditor.draft !== undefined ? (
         <SearchModal
           text={searchEditor.draft}
+          scope={searchEditor.scope}
           validation={searchEditor.validation}
           editorRef={searchEditor.editorRef}
           onInput={searchEditor.updateText}
