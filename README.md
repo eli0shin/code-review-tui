@@ -37,6 +37,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 {
   "github": {
     "search": "is:pr review-requested:@me state:open",
+    "repositorySearch": "is:pr state:open (review-requested:@me OR reviewed-by:@me)",
     "refreshIntervalMinutes": 5,
     "pageSize": 25
   },
@@ -70,7 +71,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 }
 ```
 
-`github.pageSize` controls how many PRs are fetched and enriched per page in either list. It defaults to 25 when omitted and accepts integers from 1 to 100. `github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
+`github.pageSize` controls how many PRs are fetched and enriched per page in either list. It defaults to 25 when omitted and accepts integers from 1 to 100. `github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.repositorySearch` is an optional second search that the Review Queue uses while repository scope is on; when omitted, scoped lists use `github.search`. Use it in repositories you own, where code owner review requests disappear after you review: `reviewed-by:@me` keeps showing pull requests you already reviewed, so you can see when the author addresses your comments. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
 See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
 
@@ -95,9 +96,9 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 
 Both lists load one page at a time, with no prefetch. The page indicator shows the current page and whether a next page exists. `p` / `n` changes pages and resets the Cursor to the first row. Changing the search, repository scope, or list also resets to page 1. Manual refresh (`r`) starts again at page 1; automatic refresh and refresh after a Review Submission reuse the current page's starting cursor (page 1 has no starting cursor). If that page becomes empty, Review returns to page 1. A page can show more rows than `github.pageSize` when it pulls in Stack layers, and a layer shown on an earlier page is not repeated. GitHub search exposes at most 1,000 results; narrow searches that exceed this limit. GitHub Enterprise Server requires version 3.18 or newer for paged advanced search.
 
-Press `/` in the Review Queue to edit its active GitHub search. `Enter` applies the query and immediately refetches; `Escape` cancels. Manual and automatic refreshes use the edited query, even after switching to My PRs and back. My PRs is unchanged and does not offer query editing. Nothing is saved to configuration: restarting `review` restores `github.search`. Invalid quotes, incomplete escapes, and empty queries keep the editor open with a diagnostic.
+Press `/` in the Review Queue to edit its active GitHub search. `Enter` applies the query and immediately refetches; `Escape` cancels. Manual and automatic refreshes use the edited query, even after switching to My PRs and back. My PRs is unchanged and does not offer query editing. With `github.repositorySearch` configured, `/` edits the query for the current scope (titled `Repository Review Queue query` while scoped), and each scope keeps its own edit. Nothing is saved to configuration: restarting `review` restores the configured searches. Invalid quotes, incomplete escapes, and empty queries keep the editor open with a diagnostic.
 
-Press `l` in either list to toggle between all repositories and the GitHub repository where you launched `review`. Review starts unscoped. The same scope applies to both lists and every refresh. It is separate from the saved or session-edited query and never saved to configuration. Existing `repo:` restrictions and Boolean queries stay intact. Scoped searches use the launch repository's GitHub host; GitHub Enterprise Server requires version 3.18 or newer. Outside a Git repository, or if its GitHub repository cannot be resolved, the toggle shows a diagnostic and leaves the list unscoped.
+Press `l` in either list to toggle between all repositories and the GitHub repository where you launched `review`. Review starts unscoped. The same scope applies to both lists and every refresh. While scoped, the Review Queue uses `github.repositorySearch` when it is configured. Scope never adds `repo:` to the saved or session-edited query and is never saved to configuration. Existing `repo:` restrictions and Boolean queries stay intact. Scoped searches use the launch repository's GitHub host; GitHub Enterprise Server requires version 3.18 or newer. Outside a Git repository, or if its GitHub repository cannot be resolved, the toggle shows a diagnostic and leaves the list unscoped.
 
 Each row shows the title, then repository and change details, then the review decision, check status, comment count, and labels. My PRs also marks drafts.
 

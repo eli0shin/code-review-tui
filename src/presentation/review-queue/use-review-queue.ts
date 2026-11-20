@@ -12,6 +12,8 @@ import type {
 
 const emptyReviewQueue: ReviewQueue = [];
 
+export type SearchScope = 'allRepositories' | 'repository';
+
 /** A visited page's cursor and the Stack layers already shown on earlier pages. */
 type PageStart = {
   readonly after: string;
@@ -21,12 +23,14 @@ type PageStart = {
 export function useReviewQueue({
   github,
   githubSearchText,
+  repositorySearchText,
   refreshIntervalMinutes,
   pageSize,
   repository,
 }: {
   readonly github: GitHub;
   readonly githubSearchText: string;
+  readonly repositorySearchText: string | undefined;
   readonly refreshIntervalMinutes: number;
   readonly pageSize: number;
   readonly repository: GitHubRepository | undefined;
@@ -37,7 +41,17 @@ export function useReviewQueue({
   const after = pageStart?.after;
   const [list, setList] = useState<PullRequestList>('reviewQueue');
   const listName = list === 'reviewQueue' ? 'Review Queue' : 'My PRs';
-  const [searchText, setSearchText] = useState(githubSearchText);
+  // Each search scope keeps its own session query. Without a configured
+  // repository search, repository scope shares the all-repositories query.
+  const [searchTexts, setSearchTexts] = useState({
+    allRepositories: githubSearchText,
+    repository: repositorySearchText,
+  });
+  const repositorySearch =
+    repository === undefined ? undefined : searchTexts.repository;
+  const searchScope: SearchScope =
+    repositorySearch === undefined ? 'allRepositories' : 'repository';
+  const searchText = repositorySearch ?? searchTexts.allRepositories;
   const search = useMemo(() => {
     const parsed = tokenizeSearch(searchText);
     if (!parsed.ok) throw new Error(parsed.problem);
@@ -123,7 +137,7 @@ export function useReviewQueue({
   function applySearch(text: string): ReturnType<typeof tokenizeSearch> {
     const parsed = tokenizeSearch(text);
     if (!parsed.ok) return parsed;
-    setSearchText(text);
+    setSearchTexts((current) => ({ ...current, [searchScope]: text }));
     resetPage();
     if (
       after === undefined &&
@@ -148,6 +162,7 @@ export function useReviewQueue({
     highlightedPullRequest: queue.at(cursorPosition),
     list,
     listName,
+    searchScope,
     searchText,
     pageNumber: pageStarts.length + 1,
     resetPage,

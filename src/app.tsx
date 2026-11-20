@@ -19,6 +19,7 @@ export async function launchApplication(
   const {
     githubSearch,
     githubSearchText,
+    githubRepositorySearchText,
     refreshIntervalMinutes,
     pageSize,
     reviewCommand,
@@ -46,6 +47,7 @@ export async function launchApplication(
         keyBindings={keyBindings}
         refreshIntervalMinutes={refreshIntervalMinutes}
         githubSearchText={githubSearchText}
+        repositorySearchText={githubRepositorySearchText}
         pageSize={pageSize}
         loadCurrentRepository={(signal) =>
           resolveCurrentRepository(workingDirectory, signal)

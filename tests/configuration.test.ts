@@ -17,6 +17,8 @@ const completeConfiguration = {
 const generatedConfiguration = {
   github: {
     search: 'is:pr review-requested:@me state:open',
+    repositorySearch:
+      'is:pr state:open (review-requested:@me OR reviewed-by:@me)',
     refreshIntervalMinutes: 5,
     pageSize: 25,
   },
@@ -129,6 +131,7 @@ describe('Review configuration contract', () => {
       value: {
         githubSearch: ['review-requested:@me', 'state:open'],
         githubSearchText: completeConfiguration.github.search,
+        githubRepositorySearchText: undefined,
         refreshIntervalMinutes: 5,
         pageSize: 25,
         reviewCommand: 'pi --prompt "Review $REVIEW_PR_URL"',
@@ -189,6 +192,7 @@ describe('Review configuration contract', () => {
       ...completeConfiguration,
       github: {
         search: 'label:"needs review" \'fix login\' author:octo\\ cat ""',
+        repositorySearch: 'is:pr (review-requested:@me OR reviewed-by:@me)',
         refreshIntervalMinutes: 10,
       },
       reviewCommand,
@@ -208,6 +212,8 @@ describe('Review configuration contract', () => {
         ],
         githubSearchText:
           'label:"needs review" \'fix login\' author:octo\\ cat ""',
+        githubRepositorySearchText:
+          'is:pr (review-requested:@me OR reviewed-by:@me)',
         refreshIntervalMinutes: 10,
         pageSize: 25,
         reviewCommand,
@@ -248,6 +254,8 @@ describe('Review configuration contract', () => {
       value: {
         githubSearch: ['is:pr', 'review-requested:@me', 'state:open'],
         githubSearchText: generatedConfiguration.github.search,
+        githubRepositorySearchText:
+          generatedConfiguration.github.repositorySearch,
         refreshIntervalMinutes: 5,
         pageSize: 25,
         reviewCommand: generatedConfiguration.reviewCommand,
@@ -345,6 +353,33 @@ describe('Review configuration contract', () => {
       value: { ...completeConfiguration, github: { search: ['state:open'] } },
       field: 'github.search',
       problem: /string/i,
+    },
+    {
+      name: 'wrong repository search type',
+      value: {
+        ...completeConfiguration,
+        github: { search: 'state:open', repositorySearch: ['state:open'] },
+      },
+      field: 'github.repositorySearch',
+      problem: /string/i,
+    },
+    {
+      name: 'blank repository search',
+      value: {
+        ...completeConfiguration,
+        github: { search: 'state:open', repositorySearch: ' \t\n' },
+      },
+      field: 'github.repositorySearch',
+      problem: /non-whitespace/i,
+    },
+    {
+      name: 'unclosed repository search quote',
+      value: {
+        ...completeConfiguration,
+        github: { search: 'state:open', repositorySearch: 'label:"wip' },
+      },
+      field: 'github.repositorySearch',
+      problem: /quote/i,
     },
     {
       name: 'blank required string',

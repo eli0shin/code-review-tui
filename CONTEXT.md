@@ -6,6 +6,10 @@
 The current GitHub search result containing pull requests that need the user's review.
 _Avoid_: Workflow queue, task list
 
+**Repository Search**:
+The optional Review Queue search used while repository scope restricts the lists to the launch repository. Without it, repository scope uses the all-repositories search.
+_Avoid_: Local filter, repo filter
+
 **Cursor**:
 The position in the Review Queue that highlights one visible pull request row. The cursor has no pull request identity.
 _Avoid_: Selection, selected pull request

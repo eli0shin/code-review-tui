@@ -6,7 +6,7 @@ import type { useReviewQueue } from './use-review-queue.ts';
 export function useQueueSearch(
   reviewQueue: Pick<
     ReturnType<typeof useReviewQueue>,
-    'list' | 'searchText' | 'applySearch'
+    'list' | 'searchScope' | 'searchText' | 'applySearch'
   >,
   onApplied: () => void
 ) {
@@ -48,5 +48,14 @@ export function useQueueSearch(
     }
   }
 
-  return { draft, validation, editorRef, open, close, updateText, handleKey };
+  return {
+    draft,
+    scope: reviewQueue.searchScope,
+    validation,
+    editorRef,
+    open,
+    close,
+    updateText,
+    handleKey,
+  };
 }

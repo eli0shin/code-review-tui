@@ -126,6 +126,7 @@ async function renderQueue(
     <ReviewQueuePage
       github={{ ...adapter, loadReviewQueue }}
       githubSearchText={config.githubSearchText}
+      repositorySearchText={config.githubRepositorySearchText}
       pageSize={config.pageSize}
       loadCurrentRepository={loadCurrentRepository}
       herdr={unusedHerdr}
@@ -313,6 +314,88 @@ test('repo scope is shared by both lists and refreshes, separate from edits, and
   expect(restarted.view.captureCharFrame()).toContain('All repositories');
   expect((await searches()).at(-1)).not.toContain('repo:acme/widgets');
   expect(await file.text()).toBe(originalConfig);
+});
+
+test('a configured repository search replaces the query while scoped, and each scope keeps its own session edits', async () => {
+  const repositorySearch =
+    'is:pr state:open (review-requested:@me OR reviewed-by:@me)';
+  const repositoryArguments = [
+    'is:pr',
+    'state:open',
+    '(review-requested:@me',
+    'OR',
+    'reviewed-by:@me)',
+  ];
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search: configuredSearch, repositorySearch },
+      reviewCommand: 'unused',
+      config: { updateBehavior: 'off' },
+    })
+  );
+  const resolution = Promise.withResolvers<CurrentRepositoryResult>();
+  const loadCurrentRepository = jest.fn(() => resolution.promise);
+  const { view } = await renderQueue(loadCurrentRepository);
+  await view.waitForFrame((frame) => frame.includes('Configured PR'));
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'review-requested:@me',
+    'state:open',
+    '-is:draft',
+  ]);
+
+  await act(async () => view.mockInput.pressKey('l'));
+  await act(async () => view.mockInput.pressKey('/'));
+  await view.renderOnce();
+  expect(view.captureCharFrame()).not.toContain('Review Queue query');
+  resolution.resolve({
+    ok: true,
+    repository: { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+  });
+  await view.waitForFrame((frame) => frame.includes('Scoped Configured PR'));
+  expect((await searches()).at(-1)).toEqual([
+    ...repositoryArguments,
+    'repo:acme/widgets',
+  ]);
+  await act(async () => view.mockInput.pressKey('/'));
+  const repositoryEditor = await view.waitForFrame((frame) =>
+    frame.includes('Repository Review Queue query')
+  );
+  expect(repositoryEditor).toContain(repositorySearch);
+  await replaceQuery(view, editedSearch);
+  await act(view.mockInput.pressEnter);
+  await view.waitForFrame((frame) => frame.includes('Scoped Draft PR'));
+  expect((await searches()).at(-1)).toEqual([
+    ...editedArguments,
+    'repo:acme/widgets',
+  ]);
+
+  await act(async () => view.mockInput.pressKey('l'));
+  await finishRefresh(view);
+  expect(view.captureCharFrame()).toContain('All repositories');
+  expect((await searches()).at(-1)).toEqual([
+    'is:pr',
+    'review-requested:@me',
+    'state:open',
+    '-is:draft',
+  ]);
+  await act(async () => view.mockInput.pressKey('/'));
+  const globalEditor = await view.waitForFrame((frame) =>
+    frame.includes('Review Queue query')
+  );
+  expect(globalEditor).not.toContain('Repository Review Queue query');
+  expect(globalEditor).toContain(configuredSearch);
+  await act(view.mockInput.pressEscape);
+  await view.waitForFrame((frame) => !frame.includes('Review Queue query'));
+
+  await act(async () => view.mockInput.pressKey('l'));
+  await view.waitForFrame((frame) => frame.includes('Scoped Draft PR'));
+  await finishRefresh(view);
+  expect((await searches()).at(-1)).toEqual([
+    ...editedArguments,
+    'repo:acme/widgets',
+  ]);
 });
 
 test('scope supports remapping and empty lists, while resolution failure leaves queries unscoped and can be retried', async () => {

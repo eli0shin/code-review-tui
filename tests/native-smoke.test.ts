@@ -165,6 +165,8 @@ describe('native review executable', () => {
     ).toEqual({
       github: {
         search: 'is:pr review-requested:@me state:open',
+        repositorySearch:
+          'is:pr state:open (review-requested:@me OR reviewed-by:@me)',
         refreshIntervalMinutes: 5,
         pageSize: 25,
       },

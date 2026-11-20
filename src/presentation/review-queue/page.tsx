@@ -30,6 +30,7 @@ type ReviewQueuePageProps = {
   readonly keyBindings: EffectiveKeyBindings;
   readonly refreshIntervalMinutes: number;
   readonly githubSearchText: string;
+  readonly repositorySearchText?: string;
   readonly pageSize?: number;
   readonly loadCurrentRepository?: (
     signal: AbortSignal
@@ -59,6 +60,7 @@ function ReviewQueue({
   keyBindings,
   refreshIntervalMinutes,
   githubSearchText,
+  repositorySearchText,
   pageSize = 25,
   loadCurrentRepository,
   onQuit,
@@ -70,6 +72,7 @@ function ReviewQueue({
   const reviewQueue = useReviewQueue({
     github,
     githubSearchText,
+    repositorySearchText,
     refreshIntervalMinutes,
     pageSize,
     repository: repositoryScope.repository,
@@ -140,7 +143,11 @@ function ReviewQueue({
       nextPullRequestPage: () => changePage('next'),
       togglePullRequestList: toggleList,
       toggleRepositoryScope,
-      editReviewQueueSearch: searchEditor.open,
+      // Resolving the repository can switch the search scope, so an editor
+      // opened now would apply its draft to the other scope's query.
+      editReviewQueueSearch: () => {
+        if (!repositoryScope.resolving) searchEditor.open();
+      },
       openDetails: () => withActivePullRequest(details.open),
       openInBrowser: () => withActivePullRequest(feedback.openInBrowser),
       openDiff: () => withActivePullRequest(feedback.openDiff),
