@@ -44,7 +44,7 @@ export function usePullRequestDetails(github: GitHub) {
     void queryClient.fetchQuery({
       queryKey: [...detailsQueryKey, target.url],
       queryFn: ({ signal }) =>
-        github.loadPullRequestDetails(target.url, signal),
+        github.loadPullRequestDetails(target.url, signal, { fresh: true }),
     });
   }
 

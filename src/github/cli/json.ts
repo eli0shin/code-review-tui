@@ -1,23 +1,6 @@
 import type { DiffSide } from '../../domain/pull-request.ts';
 import type { GitHubOperation, GitHubResult } from '../types.ts';
-import {
-  runGh,
-  failure,
-  describeError,
-  type ProcessOutput,
-} from './process.ts';
-
-export async function loadDetailSource<Value>(
-  arguments_: readonly string[],
-  operation: GitHubOperation,
-  url: string,
-  signal: AbortSignal,
-  parse: (value: unknown) => Value
-): Promise<GitHubResult<Value>> {
-  const processResult = await runGh(arguments_, '', operation, url, signal);
-  if (!processResult.ok) return processResult;
-  return parseOutput(processResult.value, operation, parse, url);
-}
+import { failure, describeError, type ProcessOutput } from './process.ts';
 
 export function parseOutput<Value>(
   output: ProcessOutput,
@@ -48,7 +31,7 @@ function parseJson(
   }
 }
 
-function validateJson<Value>(
+export function validateJson<Value>(
   value: unknown,
   stderr: string,
   operation: GitHubOperation,

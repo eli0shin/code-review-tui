@@ -1,20 +1,23 @@
 # GitHub CLI integration contract
 
-Research date: 2026-08-21. Validated against the installed GitHub CLI 2.97.0.
+Research date: 2026-08-21. Validated against the installed GitHub CLI 2.97.0. Reads moved to ghp 0.2.0 on 2026-11-21.
 
 ## Decision
 
-Use GitHub CLI as the complete GitHub boundary:
+Read GitHub through [ghp](https://github.com/eli0shin/gh-proxy) and write through GitHub CLI:
 
-| Operation                         | Command                           |
-| --------------------------------- | --------------------------------- |
-| Load one cross-repository PR page | `gh api graphql`                  |
-| Load pull request details         | `gh pr view <pull-request-url>`   |
-| Create a Review Submission        | `gh pr review <pull-request-url>` |
+| Operation                          | Command                             |
+| ---------------------------------- | ----------------------------------- |
+| Load one cross-repository PR page  | `ghp search`                        |
+| Load pull request details          | `ghp pr details <pull-request-url>` |
+| Create a Review Submission         | `gh pr review <pull-request-url>`   |
+| Mark a reviewed pull request stale | `ghp invalidate <pull-request-url>` |
+
+ghp keeps one GitHub cache shared by every process on the machine, including PR Watch sessions, and sends at most one batched request for each stale read. Many Review instances and agent sessions polling the same pull requests used to exhaust the GitHub GraphQL rate limit. Each read has a max age: a page up to 60 seconds old and details up to 15 seconds old are served from the cache. An explicit refresh (`r`) passes `--max-age 0`, which accepts only data fetched after the request.
 
 Use the pull request `url` from the Review Queue as the identity passed to all later commands. A number is only unique inside one repository. The URL also contains the host, owner, repository, and number.
 
-Do not call `gh auth`, read GitHub CLI configuration, or set authentication variables. Unscoped search inherits GitHub CLI's default host; scoped search supplies the resolved repository host with `--hostname`. Inherit the user's environment and let `gh` select its default host and active account. `GH_HOST`, when the user has set it, selects a host where the command cannot infer one. `gh auth switch` controls the active account for a host.[^gh-environment][^gh-auth-switch]
+Do not call `gh auth`, read GitHub CLI configuration, or set authentication variables. Unscoped search inherits GitHub CLI's default host: ghp uses `GH_HOST`, else the only host GitHub CLI is signed in to, else github.com. Scoped search supplies the resolved repository host with `--host`. ghp reads each host's token with `gh auth token`. Inherit the user's environment and let `gh` select its default host and active account. `GH_HOST`, when the user has set it, selects a host where the command cannot infer one. `gh auth switch` controls the active account for a host.[^gh-environment][^gh-auth-switch]
 
 This gives one cross-repository queue on the one host selected by GitHub CLI. A single GitHub search does not combine results from multiple hosts.
 
@@ -25,18 +28,15 @@ This gives one cross-repository queue on the one host selected by GitHub CLI. A 
 Tokenize the configured search and serialize its terms using GitHub CLI's keyword quoting. Group the intact query before intersecting `type:pr` and optional repository scope. Do not evaluate it as a shell command.
 
 ```text
-gh api graphql \
-  [--hostname <resolved-repository-host>] \
-  -f query='<search connection query>' \
-  -f 'searchQuery=( <serialized-search> ) type:pr [repo:OWNER/REPO]' \
-  -F size=25 \
-  [-f after=<page-start-cursor>]
-
-# Once for each URL on this page only, with bounded concurrency:
-gh pr view <pull-request-url> --json additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup
+ghp search '( <serialized-search> ) type:pr [repo:OWNER/REPO]' \
+  [--host <resolved-repository-host>] \
+  --size 25 \
+  [--after <page-start-cursor>] \
+  [--max-age 0] \
+  --consumer review
 ```
 
-The GraphQL query uses `search(query:$searchQuery,type:ISSUE_ADVANCED,first:$size,after:$after)` and asks for summary nodes plus `pageInfo { hasNextPage endCursor }`. The page size is configured, from 1 to 100. `after` is omitted on page 1. My PRs substitutes `is:pr author:@me state:open`. GitHub Enterprise Server requires 3.18 or newer for advanced search.
+ghp runs `search(query:$query,type:ISSUE_ADVANCED,first:$size,after:$after)` and returns summary nodes plus `pageInfo { hasNextPage endCursor }`. Each node also carries the fields Review used to read with one `gh pr view` per row, so a page is one read. The page size is configured, from 1 to 100. `after` is omitted on page 1. My PRs substitutes `is:pr author:@me state:open`. GitHub Enterprise Server requires 3.18 or newer for advanced search.
 
 For example, `label:"needs review"` tokenizes to `label:needs review` and serializes back to `label:"needs review"`. Terms without a colon are quoted as a whole when they contain whitespace or double quotes. Preserve intentionally grouped terms without variable, command, glob, or redirection expansion. The configuration contract specifies the tokenizer's quoting rules.
 
@@ -54,7 +54,7 @@ The configured value is a search query, not extra `gh` options. It can contain t
 
 ### JSON contract
 
-The command emits one GraphQL response. Validate `data.search.nodes` and `data.search.pageInfo` atomically; reject GraphQL errors and missing page metadata. Use these summary node fields:
+ghp prints one result: `{ "value": { "nodes", "pageInfo", "stacks" }, "fetchedAt", "stale", "error" }`. A result with a null `value` fails the load with `error` as its message. ghp exits 3 in that case and still prints the result. A value that failed to refresh (`stale` with an `error`) is still shown, so the queue stays usable while GitHub rate-limits requests. Validate `value.nodes`, `value.pageInfo`, and `value.stacks` atomically; reject missing page metadata. Use these summary node fields:
 
 - `url`: canonical cross-repository and cross-host identity.
 - `repository.nameWithOwner`: display repository, for example `cli/cli`.
@@ -62,25 +62,25 @@ The command emits one GraphQL response. Validate `data.search.nodes` and `data.s
 - `state`, `createdAt`, and `updatedAt`: state and stable timestamps for display or ordering.
 - `labels(first:100).nodes` and `comments.totalCount`: metadata shown on every row.
 - `state`: normalize GraphQL's uppercase state to the existing lowercase row contract.
-- `stack { number size entries(first:100) { nodes { pullRequest { url headRefName } } } }` and `stackEntry { position }`: GitHub native Stack membership. `stack` is null for a pull request outside a Stack. GitHub Enterprise Server schemas do not have these fields, and GitHub rejects the whole query with `Field 'stack' doesn't exist on type 'PullRequest'`. On that error, repeat the search without the Stack fields and keep using that query for the host, so rows have no Stack and no layers are pulled in. An entry's `pullRequest` can be null when the viewer cannot read that layer; skip it.
+- `stack { number size entries(first:100) { nodes { pullRequest { url headRefName } } } }` and `stackEntry { position }`: GitHub native Stack membership. `stack` is null for a pull request outside a Stack. GitHub Enterprise Server schemas do not have these fields. ghp then repeats the search without them, remembers that for the host, and returns `stacks: false`; rows then have no Stack and no layers are pulled in. An entry's `pullRequest` can be null when the viewer cannot read that layer; skip it.
+- `additions`, `deletions`, `changedFiles`, `reviewDecision` (empty when GitHub has none), `reviews`, and `statusCheckRollup`, in `gh pr view --json` shapes: the row's size, review status, and checks.
 
-The summary query does not request file count, additions, deletions, or review decision. Enrich only this page with `gh pr view` by canonical URL. Both lists request submitted reviews and the check rollup in that call. Summarize reviewer feedback from only the latest submitted review per reviewer (by submission time, ignoring pending reviews). An outstanding latest change request takes precedence over approvals; a later approval by the same reviewer replaces their earlier change request. This row summary describes reviewer feedback, not branch-protection eligibility. When there is no current approval or change request, retain GitHub's decision except that superseded approval/change-request decisions become `REVIEW_REQUIRED`. Run at most eight enrichment processes at once, preserve search order apart from grouping Stack layers, and publish the Review Queue only when every item passes validation. An enrichment failure fails the complete queue load.
+Summarize reviewer feedback from only the latest submitted review per reviewer (by submission time, ignoring pending reviews). An outstanding latest change request takes precedence over approvals; a later approval by the same reviewer replaces their earlier change request. This row summary describes reviewer feedback, not branch-protection eligibility. When there is no current approval or change request, retain GitHub's decision except that superseded approval/change-request decisions become `REVIEW_REQUIRED`. Preserve search order apart from grouping Stack layers, and publish the Review Queue only when every item passes validation.
 
-Do not parse human-readable output. `gh api graphql` supplies the API JSON response and remains responsible for authentication and host selection.
+Do not parse human-readable output.
 
 ### Pagination and limits
 
 The previous `gh search prs --limit 1000` command eagerly traversed REST pages and emitted a flat array with no page metadata. Its limit is a total result cap, not a page size.[^gh-search-prs-source][^gh-searcher-source] It cannot implement bounded navigation without re-fetching earlier results, so paged loading uses GraphQL search through `gh api` instead.
 
-Use GitHub's opaque end cursor only when `hasNextPage` is true. Reject missing or empty next cursors. Keep visited start cursors for previous-page navigation; never prefetch. Automatic refresh reuses the page start and manual refresh omits it. If a later page becomes empty, return to page 1. Only the active page's rows, including its pulled-in Stack layers, are enriched.
+Use GitHub's opaque end cursor only when `hasNextPage` is true. Reject missing or empty next cursors. Keep visited start cursors for previous-page navigation; never prefetch. Automatic refresh reuses the page start and manual refresh omits it. If a later page becomes empty, return to page 1. Only the active page's rows, including its pulled-in Stack layers, are loaded.
 
 ### Stack layers
 
 GitHub search has no Stack qualifier: `stack:<number>` and `is:stacked` match nothing, and `in:stack` is ignored. Head branches work instead. For each Stack on the page with layers missing from this page and earlier pages, run the same search intersected with those layers' head branches:
 
 ```text
--f 'searchQuery=( <serialized-search> ) type:pr [repo:OWNER/REPO] repo:STACK_OWNER/STACK_REPO (head:"<branch>" OR head:"<branch>")'
--F size=100
+ghp search '( <serialized-search> ) type:pr [repo:OWNER/REPO] repo:STACK_OWNER/STACK_REPO (head:"<branch>" OR head:"<branch>")' --size 100
 ```
 
 Quote every branch name: an unquoted `(` or `)` in a branch makes the whole OR group match nothing. `head:` matches branch names that start with the term and fork branches with the same name, so `head:"patch-1"` also returns `patch-18`. Ask for a full page of 100 to leave room for those matches, and keep only results whose URL is one of the requested layers. GitHub accepted a query of 31 `head:` terms and about 1,100 characters on github.com (validated 2026-10-07).
@@ -89,21 +89,15 @@ GraphQL search exposes at most 1,000 results; pagination does not bypass this bo
 
 ## Pull request details
 
-Load these sources independently by the captured canonical pull request URL:
+Load all details with one read by the captured canonical pull request URL:
 
 ```text
-gh pr view <url> --json number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests
-gh pr view <url> --json reviews
-gh pr view <url> --json statusCheckRollup
-gh pr view <url> --json comments
-gh api graphql --hostname <url-host> <review-thread-query-and-url-variables>
+ghp pr details <url> [--max-age 0] --consumer review
 ```
 
-`gh pr view` follows the `reviews` and `comments` GraphQL connections in pages of 100.[^gh-pr-pagination] The adapter follows `reviewThreads(first: 100, after: $threadsCursor)` until its page information reports no next page. Each thread response also includes comment page information. When one thread has more than 100 comments, the adapter follows that thread's `comments(first: 100, after: $commentsCursor)` connection until complete. It validates every page before it publishes the source. Each comment includes its file path, line or range, reply relationship, outdated state, and resolved thread state. For an outdated comment whose current line fields are null, use `originalLine` and `originalStartLine` so its original location remains visible. When GitHub returns a null inline-comment author for a deleted account, display the established `ghost` label and keep the remaining thread source available.
+The result's `value` holds `metadata` (the `gh pr view --json number,title,body,author,state,isDraft,url,createdAt,updatedAt,baseRefName,headRefName,additions,deletions,changedFiles,labels,reviewDecision,reviewRequests` shape), `reviews`, `statusCheckRollup`, and `comments` (the matching `gh pr view --json` shapes), and `reviewThreads`. ghp follows every connection to its end: reviews, comments, check contexts, review threads, and each thread's comments. Each review thread carries `id`, `isResolved`, `diffSide`, `startDiffSide`, and all of its comments. Each comment includes its file path, line or range, reply relationship, and outdated state. For an outdated comment whose current line fields are null, use `originalLine` and `originalStartLine` so its original location remains visible. When GitHub returns a null inline-comment author for a deleted account, display the established `ghost` label and keep the remaining thread source available.
 
-Derive only the GraphQL hostname, owner, repository, and pull request number from the captured URL. Pass the hostname to `gh api`; do not select credentials or make HTTP requests directly. GitHub CLI continues to own host authentication and account selection.
-
-Treat metadata, reviews, checks, issue comments, and review threads as five independent results. One failed process or invalid response must not discard the other successful sources. Preserve complete diagnostics on that source. The presentation groups inline comments by review thread and combines successful issue comments, reviews, and review threads by timestamp, placing each review thread at its first comment.
+Treat metadata, reviews, checks, issue comments, and review threads as five independent results. A failed read fails all five with the same diagnostics, but an invalid source must not discard the other valid sources. Preserve complete diagnostics on that source. The presentation groups inline comments by review thread and combines successful issue comments, reviews, and review threads by timestamp, placing each review thread at its first comment.
 
 The details fields have these uses:
 
@@ -136,7 +130,7 @@ Write the Review Submission message to stdin and then close stdin. For an approv
 
 GitHub CLI enforces exactly one decision flag. It also rejects blank comment and request-changes bodies. Its implementation resolves the URL and sends an `addPullRequestReview` GraphQL mutation with `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.[^gh-pr-review-source][^gh-add-review] These decisions match GitHub's create-review API. GitHub also documents that `COMMENT` and `REQUEST_CHANGES` require a body.[^github-rest-reviews]
 
-A successful non-TTY invocation has no required response payload. Use exit status 0 as success. On failure, preserve GitHub CLI's stderr for the user. GitHub CLI and GitHub remain responsible for authorization rules, such as whether the active account can approve that pull request.
+A successful non-TTY invocation has no required response payload. Use exit status 0 as success. Then run `ghp invalidate <pull-request-url>`, so the refresh that follows, and every other process, reads the pull request again instead of serving its cached state. The submission succeeded whether or not that command does. On failure, preserve GitHub CLI's stderr for the user. GitHub CLI and GitHub remain responsible for authorization rules, such as whether the active account can approve that pull request.
 
 This contract creates one top-level Review Submission. It does not create pending reviews or inline comments, which are outside this application's scope.
 
@@ -144,13 +138,13 @@ This contract creates one top-level Review Submission. It does not create pendin
 
 The application must:
 
-1. Start `gh` from `PATH`.
+1. Start `ghp` and `gh` from `PATH`.
 2. Inherit the user's environment.
 3. Pass the serialized configured search, page cursor, and the pull request URL under the Cursor only as data arguments.
-4. Parse stdout only after exit status 0.
+4. Parse `ghp` stdout after exit status 0 or 3, and `gh` stdout only after exit status 0.
 5. Show actionable command startup, authentication, API, parsing, and submission errors without trying to repair GitHub CLI configuration.
 
-The search implementation asks GitHub CLI configuration for its default host. GitHub CLI's HTTP transport then chooses the active token for each request's host.[^gh-search-host][^gh-http-auth] Detail and submission commands infer the host from the target URL. This keeps host, credentials, and account selection outside the application while still supporting GitHub Enterprise hosts that provide the required search syntax and APIs.
+ghp gets the token for each request's host from `gh auth token`, so GitHub CLI's active account stays the account Review uses. Detail and submission commands infer the host from the target URL. This keeps host, credentials, and account selection with GitHub CLI while still supporting GitHub Enterprise hosts that provide the required search syntax and APIs.
 
 ## Compatibility boundary
 

@@ -14,6 +14,50 @@ export async function runGh(
   signal: AbortSignal,
   environment: Readonly<NodeJS.ProcessEnv> = process.env
 ): Promise<GitHubResult<ProcessOutput>> {
+  return runProcess('gh', arguments_, stdin, operation, url, signal, {
+    environment,
+  });
+}
+
+/**
+ * Runs a ghp read. ghp exits 3 when a result has no value and still prints
+ * that result, with its error, as JSON.
+ */
+export function runGhp(
+  arguments_: readonly string[],
+  operation: GitHubOperation,
+  url: string | undefined,
+  signal: AbortSignal
+): Promise<GitHubResult<ProcessOutput>> {
+  return runProcess(
+    'ghp',
+    [...arguments_, '--consumer', 'review'],
+    '',
+    operation,
+    url,
+    signal,
+    { successCodes: [0, ghpMissingValueExitCode] }
+  );
+}
+
+/** ghp's exit status when a result has no value; it still prints the result. */
+export const ghpMissingValueExitCode = 3;
+
+async function runProcess(
+  executable: 'gh' | 'ghp',
+  arguments_: readonly string[],
+  stdin: string,
+  operation: GitHubOperation,
+  url: string | undefined,
+  signal: AbortSignal,
+  {
+    environment = process.env,
+    successCodes = [0],
+  }: {
+    readonly environment?: Readonly<NodeJS.ProcessEnv>;
+    readonly successCodes?: readonly number[];
+  }
+): Promise<GitHubResult<ProcessOutput>> {
   if (signal.aborted) {
     return failure({
       kind: 'interrupted',
@@ -24,7 +68,7 @@ export async function runGh(
     });
   }
 
-  const subprocess = spawn('gh', [...arguments_], {
+  const subprocess = spawn(executable, [...arguments_], {
     env: environment,
     shell: false,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -69,7 +113,7 @@ export async function runGh(
       kind: 'startup',
       operation,
       ...(url === undefined ? {} : { url }),
-      executable: 'gh',
+      executable,
       diagnostic: outcome.diagnostic,
     });
   }
@@ -92,7 +136,7 @@ export async function runGh(
       stderr: state.stderr,
     });
   }
-  if (outcome.exitCode !== 0) {
+  if (outcome.exitCode === null || !successCodes.includes(outcome.exitCode)) {
     return failure({
       kind: 'exit',
       operation,

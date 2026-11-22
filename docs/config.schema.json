@@ -27,7 +27,7 @@
           "minimum": 1,
           "maximum": 100,
           "default": 25,
-          "description": "Pull requests to fetch and enrich per page in either list."
+          "description": "Pull requests to fetch per page in either list."
         },
         "refreshIntervalMinutes": {
           "type": "integer",

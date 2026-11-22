@@ -1,8 +1,9 @@
 import type { PullRequestSummary } from '../../domain/pull-request.ts';
 import type { GitHubRepository, GitHubResult } from '../types.ts';
-import { runGh } from './process.ts';
+import { readGhp } from './ghp.ts';
+import { addSummaryStats } from './queue-enrichment.ts';
 import {
-  parseOutput,
+  validateJson,
   record,
   array,
   string,
@@ -11,27 +12,6 @@ import {
   nullableRecord,
   CompatibilityError,
 } from './json.ts';
-
-const queueQuery = (withStacks: boolean): string => `
-query($searchQuery:String!,$size:Int!,$after:String) {
-  search(query:$searchQuery,type:ISSUE_ADVANCED,first:$size,after:$after) {
-    nodes {
-      ... on PullRequest {
-        number title author { login } isDraft state createdAt updatedAt url
-        repository { nameWithOwner }
-        labels(first:100) { nodes { name } }
-        comments { totalCount }${
-          withStacks
-            ? `
-        stack { number size entries(first:100) { nodes { pullRequest { url headRefName } } } }
-        stackEntry { position }`
-            : ''
-        }
-      }
-    }
-    pageInfo { hasNextPage endCursor }
-  }
-}`;
 
 export type SearchPage = {
   readonly rows: readonly SearchRow[];
@@ -55,38 +35,40 @@ export type SearchPullRequests = (
   after: string | undefined
 ) => Promise<GitHubResult<SearchPage>>;
 
+/**
+ * One page of a pull request search through ghp. Each row arrives with its
+ * size, review decision, reviews, and checks, so no per-row reads follow.
+ * ghp drops the Stack fields on hosts without native Stacks.
+ */
 export async function runSearch(
   query: string,
   size: number,
   after: string | undefined,
-  withStacks: boolean,
   repository: GitHubRepository | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  fresh = false
 ): Promise<GitHubResult<SearchPage>> {
-  const processResult = await runGh(
+  const read = await readGhp(
     [
-      'api',
-      'graphql',
-      ...(repository === undefined ? [] : ['--hostname', repository.hostname]),
-      '-f',
-      `query=${queueQuery(withStacks)}`,
-      '-f',
-      `searchQuery=${query}`,
-      '-F',
-      `size=${size}`,
-      ...(after === undefined ? [] : ['-f', `after=${after}`]),
+      'search',
+      query,
+      // Without a repository, ghp searches GitHub CLI's default host.
+      ...(repository === undefined ? [] : ['--host', repository.hostname]),
+      '--size',
+      String(size),
+      ...(after === undefined ? [] : ['--after', after]),
+      ...(fresh ? ['--max-age', '0'] : []),
     ],
-    '',
     'reviewQueue',
     undefined,
-    signal,
-    repository === undefined
-      ? process.env
-      : { ...process.env, GH_HOST: repository.hostname }
+    signal
   );
-  if (!processResult.ok) return processResult;
-  return parseOutput(processResult.value, 'reviewQueue', (value) =>
-    parseSearchPage(value, withStacks)
+  if (!read.ok) return read;
+  return validateJson(
+    read.value.value,
+    read.value.stderr,
+    'reviewQueue',
+    parseSearchPage
   );
 }
 
@@ -111,30 +93,23 @@ export function searchTerm(term: string): string {
   return prefix + (/\s|"/.test(value) ? JSON.stringify(value) : value);
 }
 
-function parseSearchPage(value: unknown, withStacks: boolean): SearchPage {
-  const root = record(value, '$');
-  if (root.errors !== undefined) {
-    throw new CompatibilityError('GitHub CLI returned GraphQL search errors');
-  }
-  const data = record(root.data, '$.data');
-  const search = record(data.search, '$.data.search');
-  const pageInfo = record(search.pageInfo, '$.data.search.pageInfo');
-  const hasNextPage = boolean(
-    pageInfo.hasNextPage,
-    '$.data.search.pageInfo.hasNextPage'
-  );
+function parseSearchPage(value: unknown): SearchPage {
+  const page = record(value, '$');
+  const withStacks = boolean(page.stacks, '$.stacks');
+  const pageInfo = record(page.pageInfo, '$.pageInfo');
+  const hasNextPage = boolean(pageInfo.hasNextPage, '$.pageInfo.hasNextPage');
   const nextCursor = hasNextPage
-    ? string(pageInfo.endCursor, '$.data.search.pageInfo.endCursor')
+    ? string(pageInfo.endCursor, '$.pageInfo.endCursor')
     : null;
   if (nextCursor === '')
     throw new CompatibilityError('GitHub search returned an empty next cursor');
-  const rows = array(search.nodes, '$.data.search.nodes').map(
-    (value, index): SearchRow => {
-      const path = `$.data.search.nodes[${index}]`;
-      const item = record(value, path);
-      const labels = record(item.labels, `${path}.labels`);
-      const comments = record(item.comments, `${path}.comments`);
-      const summary = parseSummary(
+  const rows = array(page.nodes, '$.nodes').map((value, index): SearchRow => {
+    const path = `$.nodes[${index}]`;
+    const item = record(value, path);
+    const labels = record(item.labels, `${path}.labels`);
+    const comments = record(item.comments, `${path}.comments`);
+    const summary = addSummaryStats(
+      parseSummary(
         {
           ...item,
           author: item.author === null ? { login: 'ghost' } : item.author,
@@ -143,29 +118,27 @@ function parseSearchPage(value: unknown, withStacks: boolean): SearchPage {
           commentsCount: comments.totalCount,
         },
         path
-      );
-      const stack = withStacks
-        ? nullableRecord(item.stack, `${path}.stack`)
-        : null;
-      if (stack === null) return { pullRequest: summary, stackLayers: [] };
-      const stackEntry = record(item.stackEntry, `${path}.stackEntry`);
-      const entries = record(stack.entries, `${path}.stack.entries`);
-      return {
-        pullRequest: {
-          ...summary,
-          stack: {
-            number: integer(stack.number, `${path}.stack.number`),
-            position: integer(
-              stackEntry.position,
-              `${path}.stackEntry.position`
-            ),
-            size: integer(stack.size, `${path}.stack.size`),
-          },
+      ),
+      item,
+      path
+    );
+    const stack = withStacks
+      ? nullableRecord(item.stack, `${path}.stack`)
+      : null;
+    if (stack === null) return { pullRequest: summary, stackLayers: [] };
+    const stackEntry = record(item.stackEntry, `${path}.stackEntry`);
+    const entries = record(stack.entries, `${path}.stack.entries`);
+    return {
+      pullRequest: {
+        ...summary,
+        stack: {
+          number: integer(stack.number, `${path}.stack.number`),
+          position: integer(stackEntry.position, `${path}.stackEntry.position`),
+          size: integer(stack.size, `${path}.stack.size`),
         },
-        stackLayers: array(
-          entries.nodes,
-          `${path}.stack.entries.nodes`
-        ).flatMap((entryValue, entryIndex) => {
+      },
+      stackLayers: array(entries.nodes, `${path}.stack.entries.nodes`).flatMap(
+        (entryValue, entryIndex) => {
           const entryPath = `${path}.stack.entries.nodes[${entryIndex}]`;
           const entry = record(entryValue, entryPath);
           const layer = nullableRecord(
@@ -183,10 +156,10 @@ function parseSearchPage(value: unknown, withStacks: boolean): SearchPage {
                   ),
                 },
               ];
-        }),
-      };
-    }
-  );
+        }
+      ),
+    };
+  });
   return { rows, nextCursor };
 }
 

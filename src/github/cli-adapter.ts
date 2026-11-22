@@ -2,7 +2,7 @@ import type { ReviewDecision } from '../domain/pull-request.ts';
 import type { GitHub, GitHubResult } from './types.ts';
 import { createReviewQueueLoader } from './cli/review-queue.ts';
 import { loadPullRequestDetails } from './cli/pull-request-details.ts';
-import { runGh } from './cli/process.ts';
+import { runGh, runGhp } from './cli/process.ts';
 
 export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   return {
@@ -34,9 +34,18 @@ export function createGitHubCliAdapter(search: readonly string[]): GitHub {
         'reviewSubmission',
         submission.url,
         signal
-      ).then((result): GitHubResult<void> =>
-        result.ok ? { ok: true, value: undefined } : result
-      );
+      ).then(async (result): Promise<GitHubResult<void>> => {
+        if (!result.ok) return result;
+        // Later reads of this pull request, by any process, see the review.
+        // The review is submitted whether or not this succeeds.
+        await runGhp(
+          ['invalidate', submission.url],
+          'reviewSubmission',
+          submission.url,
+          signal
+        );
+        return { ok: true, value: undefined };
+      });
     },
   };
 }

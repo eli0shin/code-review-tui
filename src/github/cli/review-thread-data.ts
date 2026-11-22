@@ -71,35 +71,6 @@ export function parseReviewThreadPage(value: unknown): ReviewThreadPage {
   };
 }
 
-export function parseReviewThreadCommentPage(
-  value: unknown,
-  threadId: string
-): {
-  readonly comments: readonly PullRequestInlineComment[];
-  readonly nextCursor: string | null;
-} {
-  const data = record(record(value, '$').data, '$.data');
-  const node = record(data.node, '$.data.node');
-  const resolved = boolean(node.isResolved, '$.data.node.isResolved');
-  const comments = record(node.comments, '$.data.node.comments');
-  return {
-    comments: parseInlineCommentNodes(
-      comments.nodes,
-      '$.data.node.comments.nodes',
-      threadId,
-      resolved,
-      diffSide(node.diffSide, '$.data.node.diffSide'),
-      node.startDiffSide === null
-        ? null
-        : diffSide(node.startDiffSide, '$.data.node.startDiffSide')
-    ),
-    nextCursor: parseNextCursor(
-      comments.pageInfo,
-      '$.data.node.comments.pageInfo'
-    ),
-  };
-}
-
 function parseInlineCommentNodes(
   value: unknown,
   path: string,

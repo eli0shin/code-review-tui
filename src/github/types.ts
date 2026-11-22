@@ -20,6 +20,8 @@ export type PullRequestPageRequest = {
   readonly after?: string;
   /** Pull requests already shown on earlier pages, such as pulled-in Stack layers. */
   readonly excludeUrls?: readonly string[];
+  /** Read from GitHub rather than the shared cache: the user asked to refresh. */
+  readonly fresh?: boolean;
 };
 
 export type GitHubRepository = {
@@ -53,7 +55,7 @@ type FailureContext = {
 export type GitHubFailure =
   | (FailureContext & {
       readonly kind: 'startup';
-      readonly executable: 'gh';
+      readonly executable: 'gh' | 'ghp';
       readonly diagnostic: string;
     })
   | (FailureContext & {
@@ -93,7 +95,8 @@ export type GitHub = {
   ): Promise<GitHubResult<PullRequestPage>>;
   loadPullRequestDetails(
     url: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    options?: { readonly fresh?: boolean }
   ): Promise<PullRequestDetailSources>;
   openPullRequestInBrowser(
     url: string,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createGitHubCliAdapter } from '../src/github/cli-adapter.ts';
 import type { ReviewSubmission } from '../src/domain/pull-request.ts';
 import type { GitHubFailure, GitHubResult } from '../src/github/types.ts';
@@ -143,10 +143,6 @@ let originalPath: string | undefined;
 let originalMode: string | undefined;
 let originalStdout: string | undefined;
 let originalStderr: string | undefined;
-let originalStatsStdout: string | undefined;
-let originalGraphqlStdout: string | undefined;
-let originalThreadPageStdout: string | undefined;
-let originalCommentPageStdout: string | undefined;
 let originalMarker: string | undefined;
 let originalResponses: string | undefined;
 
@@ -154,21 +150,16 @@ beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'review-gh-'));
   originalPath = process.env.PATH;
   originalMode = process.env.FAKE_GH_MODE;
-  originalStdout = process.env.FAKE_GH_STDOUT;
+  originalStdout = process.env.FAKE_GHP_STDOUT;
   originalStderr = process.env.FAKE_GH_STDERR;
-  originalStatsStdout = process.env.FAKE_GH_STATS_STDOUT;
-  originalGraphqlStdout = process.env.FAKE_GH_GRAPHQL_STDOUT;
-  originalThreadPageStdout = process.env.FAKE_GH_THREAD_PAGE_STDOUT;
-  originalCommentPageStdout = process.env.FAKE_GH_COMMENT_PAGE_STDOUT;
   originalMarker = process.env.REVIEW_TEST_MARKER;
-  originalResponses = process.env.FAKE_GH_RESPONSES;
+  originalResponses = process.env.FAKE_GHP_RESPONSES;
 
-  const executable = join(directory, 'gh');
-  await writeFile(
-    executable,
-    `#!/usr/bin/env bun
+  // One fake serves as gh (browser, Review Submission) and as ghp (reads).
+  const fake = `#!/usr/bin/env bun
 import { appendFileSync, closeSync } from 'node:fs';
-const record = process.env.FAKE_GH_RECORD;
+import { basename } from 'node:path';
+const bin = basename(process.argv[1]);
 let stdin = '';
 if (process.env.FAKE_GH_MODE === 'close-input') {
   closeSync(0);
@@ -178,40 +169,22 @@ if (process.env.FAKE_GH_MODE === 'close-input') {
 }
 if (process.env.FAKE_GH_STDERR) await Bun.stderr.write(process.env.FAKE_GH_STDERR);
 const argv = process.argv.slice(2);
-appendFileSync(record, JSON.stringify({
-  argv,
-  stdin,
-  marker: process.env.REVIEW_TEST_MARKER,
-  ...(argv.includes('--hostname') ? { host: process.env.GH_HOST } : {}),
-}) + '\\n');
+appendFileSync(process.env.FAKE_GH_RECORD, JSON.stringify({ bin, argv, stdin, marker: process.env.REVIEW_TEST_MARKER }) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
-const responses = process.env.FAKE_GH_RESPONSES ? JSON.parse(process.env.FAKE_GH_RESPONSES) : [];
-const matched = responses.find(([needle]) => argv.some((value) => value.includes(needle)));
-if (matched?.[2]) {
-  await Bun.stderr.write(matched[3] ?? '');
-  await Bun.stdout.write(matched[1]);
-  process.exit(matched[2]);
-}
-const stdout = matched ? matched[1] : argv.some((value) => value.startsWith('threadId=')) && process.env.FAKE_GH_COMMENT_PAGE_STDOUT
-  ? process.env.FAKE_GH_COMMENT_PAGE_STDOUT
-  : argv.some((value) => value.startsWith('threadsCursor=')) && process.env.FAKE_GH_THREAD_PAGE_STDOUT
-    ? process.env.FAKE_GH_THREAD_PAGE_STDOUT
-    : argv[0] === 'api' && process.env.FAKE_GH_GRAPHQL_STDOUT
-      ? process.env.FAKE_GH_GRAPHQL_STDOUT
-  : argv[0] === 'pr' && argv[1] === 'view' && process.env.FAKE_GH_STATS_STDOUT
-    ? process.env.FAKE_GH_STATS_STDOUT
-    : process.env.FAKE_GH_STDOUT;
-if (stdout) {
-  if (argv.some((value) => value.startsWith('searchQuery=')) && stdout.startsWith('[')) {
-    const nodes = JSON.parse(stdout).map((item) => ({ ...item, labels: { nodes: item.labels }, comments: { totalCount: item.commentsCount }, stack: item.stack ?? null }));
-    await Bun.stdout.write(JSON.stringify({ data: { search: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } }));
-  } else await Bun.stdout.write(stdout);
+if (bin === 'ghp' && argv[0] !== 'invalidate') {
+  const responses = process.env.FAKE_GHP_RESPONSES ? JSON.parse(process.env.FAKE_GHP_RESPONSES) : [];
+  const matched = responses.find(([needle]) => argv.some((value) => value.includes(needle)));
+  const stdout = matched ? matched[1] : process.env.FAKE_GHP_STDOUT;
+  if (stdout) await Bun.stdout.write(stdout);
+  if (matched?.[2]) process.exit(matched[2]);
 }
 process.exit(process.env.FAKE_GH_MODE === 'close-input' ? 29 : Number(process.env.FAKE_GH_MODE || 0));
-`
-  );
-  await chmod(executable, 0o755);
+`;
+  for (const name of ['gh', 'ghp']) {
+    await writeFile(join(directory, name), fake);
+    await chmod(join(directory, name), 0o755);
+  }
   process.env.PATH = `${directory}:${originalPath ?? ''}`;
   process.env.FAKE_GH_RECORD = join(directory, 'record.json');
   process.env.REVIEW_TEST_MARKER = 'inherited';
@@ -220,38 +193,25 @@ process.exit(process.env.FAKE_GH_MODE === 'close-input' ? 29 : Number(process.en
 afterEach(async () => {
   restoreEnvironment('PATH', originalPath);
   restoreEnvironment('FAKE_GH_MODE', originalMode);
-  restoreEnvironment('FAKE_GH_STDOUT', originalStdout);
+  restoreEnvironment('FAKE_GHP_STDOUT', originalStdout);
   restoreEnvironment('FAKE_GH_STDERR', originalStderr);
-  restoreEnvironment('FAKE_GH_STATS_STDOUT', originalStatsStdout);
-  restoreEnvironment('FAKE_GH_GRAPHQL_STDOUT', originalGraphqlStdout);
-  restoreEnvironment('FAKE_GH_THREAD_PAGE_STDOUT', originalThreadPageStdout);
-  restoreEnvironment('FAKE_GH_COMMENT_PAGE_STDOUT', originalCommentPageStdout);
   restoreEnvironment('REVIEW_TEST_MARKER', originalMarker);
-  restoreEnvironment('FAKE_GH_RESPONSES', originalResponses);
+  restoreEnvironment('FAKE_GHP_RESPONSES', originalResponses);
   delete process.env.FAKE_GH_RECORD;
   await rm(directory, { recursive: true, force: true });
 });
 
 describe('GitHub CLI adapter contract', () => {
-  test('fetches exactly one requested page and enriches only its rows in search order', async () => {
-    const nodes = [42, 43].map((number) => ({
-      ...queueJson[0],
-      number,
-      url: `https://github.example/acme/widgets/pull/${number}`,
-      state: 'OPEN',
-      labels: { nodes: queueJson[0].labels },
-      comments: { totalCount: 4 },
-      stack: null,
-    }));
-    process.env.FAKE_GH_STDOUT = JSON.stringify({
-      data: {
-        search: {
-          nodes,
-          pageInfo: { hasNextPage: true, endCursor: 'next-page' },
-        },
-      },
-    });
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+  test('reads exactly one requested page, with each row’s stats, in one ghp read', async () => {
+    const nodes = [42, 43].map((number) =>
+      queueNode({
+        ...queueJson[0],
+        number,
+        url: `https://github.example/acme/widgets/pull/${number}`,
+        state: 'OPEN',
+      })
+    );
+    process.env.FAKE_GHP_STDOUT = ghpSearch(nodes, 'next-page');
     const result = await createGitHubCliAdapter([
       'is:pr',
       '-label:wip',
@@ -264,45 +224,36 @@ describe('GitHub CLI adapter contract', () => {
       { size: 2, after: 'page-start' }
     );
     expect(result.ok && result.value.nextCursor).toBe('next-page');
-    expect(result.ok && result.value.queue.map((row) => row.number)).toEqual([
-      42, 43,
+    expect(
+      result.ok && result.value.queue.map((row) => [row.number, row.additions])
+    ).toEqual([
+      [42, 12],
+      [43, 12],
     ]);
     expect(result.ok && result.value.queue[0]?.state).toBe('open');
     const records = await readRecords();
-    expect(records).toHaveLength(3);
-    expect(records[0].argv.slice(4)).toEqual([
-      '-f',
-      'searchQuery=( is:pr -label:wip label:"needs review" ) type:pr',
-      '-F',
-      'size=2',
-      '-f',
-      'after=page-start',
-    ]);
-    expect(
-      records
-        .slice(1)
-        .map((item) => item.argv[2])
-        .sort()
-    ).toEqual(nodes.map((node) => node.url));
+    expect(records).toHaveLength(1);
+    expect(records[0]).toEqual({
+      bin: 'ghp',
+      argv: [
+        'search',
+        '( is:pr -label:wip label:"needs review" ) type:pr',
+        '--size',
+        '2',
+        '--after',
+        'page-start',
+        '--consumer',
+        'review',
+      ],
+      stdin: '',
+      marker: 'inherited',
+    });
   });
 
   test('keeps a page available when a PR author account has been deleted', async () => {
-    const node = {
-      ...queueJson[0],
-      author: null,
-      labels: { nodes: queueJson[0].labels },
-      comments: { totalCount: 4 },
-      stack: null,
-    };
-    process.env.FAKE_GH_STDOUT = JSON.stringify({
-      data: {
-        search: {
-          nodes: [node],
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-    });
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    process.env.FAKE_GHP_STDOUT = ghpSearch([
+      queueNode({ ...queueJson[0], author: null }),
+    ]);
     const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
       new AbortController().signal
     );
@@ -313,18 +264,18 @@ describe('GitHub CLI adapter contract', () => {
   });
 
   test('pulls in Stack layers that match the search and orders each Stack from its top layer down', async () => {
-    process.env.FAKE_GH_RESPONSES = JSON.stringify([
+    process.env.FAKE_GHP_RESPONSES = JSON.stringify([
       [
         '(head:',
-        searchResponse([
+        ghpSearch([
           stackNode(41, 1, [41, 42, 43, 44]),
           // A prefix match or fork branch with the same name is not a layer.
           searchNode(99),
         ]),
       ],
       [
-        'searchQuery=',
-        searchResponse(
+        'type:pr',
+        ghpSearch(
           [
             searchNode(50),
             stackNode(43, 3, [41, 42, 43, 44]),
@@ -335,7 +286,6 @@ describe('GitHub CLI adapter contract', () => {
         ),
       ],
     ]);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
     const result = await createGitHubCliAdapter([
       'is:pr',
       'review-requested:@me',
@@ -357,38 +307,24 @@ describe('GitHub CLI adapter contract', () => {
       position: 4,
       size: 4,
     });
-    const searches = (await readRecords()).filter(
-      (record) => record.argv[0] === 'api'
-    );
-    expect(searches.map((record) => record.argv.slice(4))).toEqual([
+    const searches = await searchRecords();
+    expect(
+      searches.map((record) => [record.argv[1], option(record, '--size')])
+    ).toEqual([
+      ['( is:pr review-requested:@me ) type:pr', '25'],
       [
-        '-f',
-        'searchQuery=( is:pr review-requested:@me ) type:pr',
-        '-F',
-        'size=25',
-      ],
-      [
-        '-f',
-        'searchQuery=( is:pr review-requested:@me ) type:pr repo:acme/widgets (head:"layer-41" OR head:"layer-42")',
-        '-F',
-        'size=100',
+        '( is:pr review-requested:@me ) type:pr repo:acme/widgets (head:"layer-41" OR head:"layer-42")',
+        '100',
       ],
     ]);
   });
 
   test('skips pull requests shown on earlier pages and moves past a page that only repeats them', async () => {
-    process.env.FAKE_GH_RESPONSES = JSON.stringify([
-      ['(head:', searchResponse([])],
-      [
-        'after=second-page',
-        searchResponse([stackNode(42, 2, [41, 42])], 'third-page'),
-      ],
-      [
-        'after=third-page',
-        searchResponse([searchNode(70), stackNode(81, 1, [81, 82])]),
-      ],
+    process.env.FAKE_GHP_RESPONSES = JSON.stringify([
+      ['(head:', ghpSearch([])],
+      ['second-page', ghpSearch([stackNode(42, 2, [41, 42])], 'third-page')],
+      ['third-page', ghpSearch([searchNode(70), stackNode(81, 1, [81, 82])])],
     ]);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
     const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
       new AbortController().signal,
       'reviewQueue',
@@ -405,95 +341,43 @@ describe('GitHub CLI adapter contract', () => {
       ok: true,
       value: { queue: [{ number: 70 }, { number: 81 }], nextCursor: null },
     });
-    const searches = (await readRecords()).filter(
-      (record) => record.argv[0] === 'api'
-    );
-    expect(searches.map((record) => record.argv.at(-1))).toEqual([
-      'after=second-page',
-      'after=third-page',
-      'size=100',
-    ]);
-    expect(searches[2]?.argv).toContain(
-      'searchQuery=( is:pr ) type:pr repo:acme/widgets (head:"layer-82")'
+    const searches = await searchRecords();
+    expect(
+      searches.map(
+        (record) => option(record, '--after') ?? option(record, '--size')
+      )
+    ).toEqual(['second-page', 'third-page', '100']);
+    expect(searches[2]?.argv[1]).toBe(
+      '( is:pr ) type:pr repo:acme/widgets (head:"layer-82")'
     );
   });
 
-  test('caches unsupported Stack fields by host and adapter instance', async () => {
+  test('reads plain rows from a host without native Stacks', async () => {
     const {
       stack: _stack,
       stackEntry: _stackEntry,
       ...plainNode
     } = searchNode(42);
-    process.env.FAKE_GH_RESPONSES = JSON.stringify([
-      [
-        'stackEntry { position }',
-        JSON.stringify({
-          errors: [
-            {
-              extensions: { code: 'undefinedField', fieldName: 'stack' },
-              message: "Field 'stack' doesn't exist on type 'PullRequest'",
-            },
-          ],
-        }),
-        1,
-        "gh: Field 'stack' doesn't exist on type 'PullRequest'\n",
-      ],
-      ['searchQuery=', searchResponse([plainNode])],
-    ]);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
-    const github = createGitHubCliAdapter(['is:pr']);
-    const repository = {
-      nameWithOwner: 'acme/widgets',
-      hostname: 'github.example',
-    };
-
-    for (let load = 0; load < 2; load += 1) {
-      const result = await github.loadReviewQueue(
-        new AbortController().signal,
-        'reviewQueue',
-        undefined,
-        repository
-      );
-      expect(result).toMatchObject({
-        ok: true,
-        value: { queue: [{ number: 42 }] },
-      });
-      expect(result.ok && result.value.queue[0]).not.toHaveProperty('stack');
-    }
-    // A different host and a new adapter must each try their own Stack query.
-    expect(
-      await github.loadReviewQueue(new AbortController().signal)
-    ).toMatchObject({
+    process.env.FAKE_GHP_STDOUT = ghpSearch([plainNode], null, false);
+    const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      { nameWithOwner: 'acme/widgets', hostname: 'github.example' }
+    );
+    expect(result).toMatchObject({
       ok: true,
       value: { queue: [{ number: 42 }] },
     });
-    const anotherGitHub = createGitHubCliAdapter(['is:pr']);
-    expect(
-      await anotherGitHub.loadReviewQueue(
-        new AbortController().signal,
-        'reviewQueue',
-        undefined,
-        repository
-      )
-    ).toMatchObject({ ok: true, value: { queue: [{ number: 42 }] } });
-    const searches = (await readRecords()).filter(
-      (record) => record.argv[0] === 'api'
-    );
-    expect(
-      searches.map((record) =>
-        record.argv
-          .find((argument) => argument.startsWith('query='))
-          ?.includes('stackEntry')
-      )
-    ).toEqual([true, false, false, true, false, true, false]);
+    expect(result.ok && result.value.queue[0]).not.toHaveProperty('stack');
+    const searches = await searchRecords();
+    expect(searches).toHaveLength(1);
+    expect(option(searches[0], '--host')).toBe('github.example');
   });
 
   test('rejects a Stack without the pull request position', async () => {
-    process.env.FAKE_GH_RESPONSES = JSON.stringify([
-      [
-        'searchQuery=',
-        searchResponse([{ ...stackNode(42, 2, [41, 42]), stackEntry: null }]),
-      ],
+    process.env.FAKE_GHP_STDOUT = ghpSearch([
+      { ...stackNode(42, 2, [41, 42]), stackEntry: null },
     ]);
     const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
       new AbortController().signal
@@ -503,43 +387,28 @@ describe('GitHub CLI adapter contract', () => {
       failure: {
         kind: 'incompatibleData',
         diagnostic:
-          'GitHub CLI returned incompatible data: $.data.search.nodes[0].stackEntry must be an object',
+          'GitHub CLI returned incompatible data: $.nodes[0].stackEntry must be an object',
       },
     });
   });
 
-  for (const response of [
-    { data: { search: { nodes: [] } } },
+  for (const page of [
+    { nodes: [], stacks: true },
     {
-      data: {
-        search: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } },
-      },
+      nodes: [],
+      pageInfo: { hasNextPage: true, endCursor: null },
+      stacks: true,
     },
+    { nodes: [], pageInfo: { hasNextPage: true, endCursor: '' }, stacks: true },
     {
-      data: {
-        search: { nodes: [], pageInfo: { hasNextPage: true, endCursor: '' } },
-      },
+      nodes: [null],
+      pageInfo: { hasNextPage: false, endCursor: null },
+      stacks: true,
     },
-    {
-      data: {
-        search: {
-          nodes: [null],
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-    },
-    {
-      errors: [{ message: 'Search failed' }],
-      data: {
-        search: {
-          nodes: [],
-          pageInfo: { hasNextPage: false, endCursor: null },
-        },
-      },
-    },
+    { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
   ]) {
-    test(`rejects incompatible page responses before enrichment: ${JSON.stringify(response)}`, async () => {
-      process.env.FAKE_GH_STDOUT = JSON.stringify(response);
+    test(`rejects incompatible page responses: ${JSON.stringify(page)}`, async () => {
+      process.env.FAKE_GHP_STDOUT = ghpResult(page);
       const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
         new AbortController().signal
       );
@@ -550,9 +419,72 @@ describe('GitHub CLI adapter contract', () => {
       expect(await readRecords()).toHaveLength(1);
     });
   }
+
+  test("reports GitHub's error when ghp has no page to serve", async () => {
+    process.env.FAKE_GHP_RESPONSES = JSON.stringify([
+      [
+        'type:pr',
+        JSON.stringify({
+          value: null,
+          fetchedAt: null,
+          stale: true,
+          error:
+            'GitHub graphql requests paused until 2026-11-21T12:00:00.000Z: rate limit exhausted',
+        }),
+        3,
+      ],
+    ]);
+    const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      failure: {
+        kind: 'exit',
+        operation: 'reviewQueue',
+        exitCode: 3,
+        stderr:
+          'GitHub graphql requests paused until 2026-11-21T12:00:00.000Z: rate limit exhausted',
+      },
+    });
+  });
+
+  test('keeps showing a page that failed to refresh', async () => {
+    process.env.FAKE_GHP_STDOUT = JSON.stringify({
+      value: { nodes: [queueNode()], pageInfo: lastPage, stacks: true },
+      fetchedAt: 1,
+      stale: true,
+      error: 'rate limit exhausted',
+    });
+    const result = await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: { queue: [{ number: 42 }] },
+    });
+  });
+
+  test('an explicit refresh reads past the shared cache', async () => {
+    process.env.FAKE_GHP_STDOUT = ghpSearch([queueNode()]);
+    const github = createGitHubCliAdapter(['is:pr']);
+    await github.loadReviewQueue(new AbortController().signal);
+    await github.loadReviewQueue(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      undefined,
+      { size: 25, fresh: true }
+    );
+    const searches = await searchRecords();
+    expect(searches.map((record) => option(record, '--max-age'))).toEqual([
+      undefined,
+      '0',
+    ]);
+  });
+
   test('loads the Review Queue with exact argv, inherited environment, and domain conversion', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    process.env.FAKE_GHP_STDOUT = ghpSearch([queueNode()]);
     const github = createGitHubCliAdapter([
       'review-requested:@me',
       'team:platform reviewers',
@@ -586,26 +518,16 @@ describe('GitHub CLI adapter contract', () => {
         ],
       },
     });
-    const records = await readRecords();
-    expect(records[0].argv[0]).toBe('api');
-    expect(records[0].argv[1]).toBe('graphql');
-    expect(records[0].argv[3]).toContain('type:ISSUE_ADVANCED');
-    expect(records[0].argv.slice(4)).toEqual([
-      '-f',
-      'searchQuery=( review-requested:@me team:"platform reviewers" ) type:pr',
-      '-F',
-      'size=25',
-    ]);
-    expect(records[0].stdin).toBe('');
-    expect(records[0].marker).toBe('inherited');
-    expect(records.slice(1)).toEqual([
+    expect(await readRecords()).toEqual([
       {
+        bin: 'ghp',
         argv: [
-          'pr',
-          'view',
-          'https://github.example/acme/widgets/pull/42',
-          '--json',
-          'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup',
+          'search',
+          '( review-requested:@me team:"platform reviewers" ) type:pr',
+          '--size',
+          '25',
+          '--consumer',
+          'review',
         ],
         stdin: '',
         marker: 'inherited',
@@ -613,27 +535,36 @@ describe('GitHub CLI adapter contract', () => {
     ]);
   });
 
+  test("leaves an unscoped search on GitHub CLI's default host", async () => {
+    process.env.FAKE_GHP_STDOUT = ghpSearch([queueNode()]);
+    await createGitHubCliAdapter(['is:pr']).loadReviewQueue(
+      new AbortController().signal
+    );
+    expect((await searchRecords())[0]?.argv).not.toContain('--host');
+  });
+
   for (const list of ['reviewQueue', 'authored'] as const) {
     test(`${list} replaces an earlier change request with the same reviewer’s later approval`, async () => {
-      process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
-      process.env.FAKE_GH_STATS_STDOUT = JSON.stringify({
-        ...queueStatsJson,
-        reviewDecision: 'CHANGES_REQUESTED',
-        reviews: [
-          {
-            author: { login: 'reviewer' },
-            state: 'CHANGES_REQUESTED',
-            submittedAt: '2026-08-21T10:00:00Z',
-            body: 'Please fix this',
-          },
-          {
-            author: { login: 'reviewer' },
-            state: 'APPROVED',
-            submittedAt: '2026-08-21T11:00:00Z',
-            body: 'Fixed, thanks',
-          },
-        ],
-      });
+      process.env.FAKE_GHP_STDOUT = ghpSearch([
+        queueNode(queueJson[0], {
+          ...queueStatsJson,
+          reviewDecision: 'CHANGES_REQUESTED',
+          reviews: [
+            {
+              author: { login: 'reviewer' },
+              state: 'CHANGES_REQUESTED',
+              submittedAt: '2026-08-21T10:00:00Z',
+              body: 'Please fix this',
+            },
+            {
+              author: { login: 'reviewer' },
+              state: 'APPROVED',
+              submittedAt: '2026-08-21T11:00:00Z',
+              body: 'Fixed, thanks',
+            },
+          ],
+        }),
+      ]);
 
       const result = await createGitHubCliAdapter([]).loadReviewQueue(
         new AbortController().signal,
@@ -644,15 +575,12 @@ describe('GitHub CLI adapter contract', () => {
         ok: true,
         value: { queue: [{ reviewDecision: 'APPROVED' }] },
       });
-      expect((await readRecords())[1].argv.at(-1)?.split(',')).toContain(
-        'reviews'
-      );
+      expect(await readRecords()).toHaveLength(1);
     });
   }
 
   test('snapshots configured searches per adapter and keeps session overrides temporary', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    process.env.FAKE_GHP_STDOUT = ghpSearch([queueNode()]);
     const search = ['is:pr', 'label:original'];
     const github = createGitHubCliAdapter(search);
     search[1] = 'label:changed';
@@ -676,24 +604,16 @@ describe('GitHub CLI adapter contract', () => {
     expect(
       (await anotherGitHub.loadReviewQueue(new AbortController().signal)).ok
     ).toBe(true);
-    const searches = (await readRecords()).filter(
-      (record) => record.argv[0] === 'api'
-    );
-    expect(
-      searches.map((record) =>
-        record.argv.find((argument) => argument.startsWith('searchQuery='))
-      )
-    ).toEqual([
-      'searchQuery=( is:pr label:original ) type:pr',
-      'searchQuery=( is:pr label:session ) type:pr',
-      'searchQuery=( is:pr label:original ) type:pr',
-      'searchQuery=( is:pr label:changed ) type:pr',
+    expect((await searchRecords()).map((record) => record.argv[1])).toEqual([
+      '( is:pr label:original ) type:pr',
+      '( is:pr label:session ) type:pr',
+      '( is:pr label:original ) type:pr',
+      '( is:pr label:changed ) type:pr',
     ]);
   });
 
   test('adds repo scope as a structured qualifier without rewriting raw or Boolean queries', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
+    process.env.FAKE_GHP_STDOUT = ghpSearch([queueNode()]);
     const repository = {
       nameWithOwner: 'acme/widgets',
       hostname: 'github.example',
@@ -712,14 +632,11 @@ describe('GitHub CLI adapter contract', () => {
         repository
       );
       expect(scoped.ok && scoped.value.queue.length).toBe(1);
-      const records = await readRecords();
-      expect(records.at(-2)?.argv).toContain(
-        `searchQuery=( ${query.join(' ')} ) type:pr repo:acme/widgets`
+      const last = (await searchRecords()).at(-1);
+      expect(last?.argv[1]).toBe(
+        `( ${query.join(' ')} ) type:pr repo:acme/widgets`
       );
-      expect(records.at(-2)?.argv.slice(2, 4)).toEqual([
-        '--hostname',
-        'github.example',
-      ]);
+      expect(option(last, '--host')).toBe('github.example');
     }
     await github.loadReviewQueue(
       new AbortController().signal,
@@ -727,22 +644,27 @@ describe('GitHub CLI adapter contract', () => {
       undefined,
       repository
     );
-    expect((await readRecords()).at(-2)?.argv).toContain(
-      'searchQuery=( is:pr author:@me state:open ) type:pr repo:acme/widgets'
+    expect((await searchRecords()).at(-1)?.argv[1]).toBe(
+      '( is:pr author:@me state:open ) type:pr repo:acme/widgets'
     );
     await github.loadReviewQueue(new AbortController().signal);
-    expect((await readRecords()).at(-2)?.argv).toContain(
-      `searchQuery=( ${queries[0].join(' ')} ) type:pr`
+    expect((await searchRecords()).at(-1)?.argv[1]).toBe(
+      `( ${queries[0].join(' ')} ) type:pr`
     );
   });
 
   test('repo scope preserves negative qualifiers and confines the query and results to the resolved host', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify([
-      ...queueJson,
-      { ...queueJson[0], repository: { nameWithOwner: 'other/project' } },
-      { ...queueJson[0], url: 'https://github.com/acme/widgets/pull/42' },
+    process.env.FAKE_GHP_STDOUT = ghpSearch([
+      queueNode(),
+      queueNode({
+        ...queueJson[0],
+        repository: { nameWithOwner: 'other/project' },
+      }),
+      queueNode({
+        ...queueJson[0],
+        url: 'https://github.com/acme/widgets/pull/42',
+      }),
     ]);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify(queueStatsJson);
     const github = createGitHubCliAdapter(['is:pr', '-repo:other/project']);
     const scoped = await github.loadReviewQueue(
       new AbortController().signal,
@@ -752,23 +674,23 @@ describe('GitHub CLI adapter contract', () => {
     );
     expect(scoped.ok && scoped.value.queue.length).toBe(1);
     const records = await readRecords();
-    expect(records).toHaveLength(2);
-    expect(records[0].argv).toContain(
-      'searchQuery=( is:pr -repo:other/project ) type:pr repo:acme/widgets'
+    expect(records).toHaveLength(1);
+    expect(records[0]?.argv[1]).toBe(
+      '( is:pr -repo:other/project ) type:pr repo:acme/widgets'
     );
-    expect(records[0]).toHaveProperty('host', 'github.example');
-    expect(records[1].argv[2]).toBe(queueJson[0].url);
+    expect(option(records[0], '--host')).toBe('github.example');
   });
 
   test('searches open PRs authored by the active GitHub user without changing the configured search', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(queueJson);
-    process.env.FAKE_GH_STATS_STDOUT = JSON.stringify({
-      ...queueStatsJson,
-      reviewDecision: 'REVIEW_REQUIRED',
-      statusCheckRollup: [
-        { name: 'build', status: 'COMPLETED', conclusion: 'FAILURE' },
-      ],
-    });
+    process.env.FAKE_GHP_STDOUT = ghpSearch([
+      queueNode(queueJson[0], {
+        ...queueStatsJson,
+        reviewDecision: 'REVIEW_REQUIRED',
+        statusCheckRollup: [
+          { name: 'build', status: 'COMPLETED', conclusion: 'FAILURE' },
+        ],
+      }),
+    ]);
     const github = createGitHubCliAdapter([
       'review-requested:@me',
       'state:open',
@@ -792,40 +714,23 @@ describe('GitHub CLI adapter contract', () => {
     const queue = await github.loadReviewQueue(new AbortController().signal);
     expect(queue).toMatchObject({
       ok: true,
-      value: { queue: [{ reviewDecision: 'REVIEW_REQUIRED' }] },
+      value: {
+        queue: [
+          {
+            reviewDecision: 'REVIEW_REQUIRED',
+            checks: [{ name: 'build', state: 'FAILURE' }],
+          },
+        ],
+      },
     });
-    expect(queue).toMatchObject({
-      ok: true,
-      value: { queue: [{ checks: [{ name: 'build', state: 'FAILURE' }] }] },
-    });
-    const records = await readRecords();
-    expect(records[0].argv).toContain(
-      'searchQuery=( is:pr author:@me state:open ) type:pr'
-    );
-    expect(records[2].argv).toContain(
-      'searchQuery=( review-requested:@me state:open ) type:pr'
-    );
-    expect([records[1].argv, records[3].argv]).toEqual([
-      [
-        'pr',
-        'view',
-        queueJson[0].url,
-        '--json',
-        'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup',
-      ],
-      [
-        'pr',
-        'view',
-        queueJson[0].url,
-        '--json',
-        'additions,deletions,changedFiles,reviewDecision,reviews,statusCheckRollup',
-      ],
+    expect((await readRecords()).map((record) => record.argv[1])).toEqual([
+      '( is:pr author:@me state:open ) type:pr',
+      '( review-requested:@me state:open ) type:pr',
     ]);
   });
 
   test('shows only the latest run of each check', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify({
-      ...completeDetailsJson,
+    process.env.FAKE_GHP_STDOUT = ghpDetails({
       statusCheckRollup: [
         {
           name: 'lint',
@@ -881,7 +786,6 @@ describe('GitHub CLI adapter contract', () => {
         },
       ],
     });
-    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);
 
     const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
       detailsJson.url,
@@ -899,9 +803,8 @@ describe('GitHub CLI adapter contract', () => {
     });
   });
 
-  test('loads independent complete pull request detail sources by canonical URL', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
-    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);
+  test('loads every pull request detail source from one ghp read by canonical URL', async () => {
+    process.env.FAKE_GHP_STDOUT = ghpDetails();
     const github = createGitHubCliAdapter([]);
 
     const result = await github.loadPullRequestDetails(
@@ -1003,24 +906,35 @@ describe('GitHub CLI adapter contract', () => {
       ],
     });
 
-    const records = await readRecords();
-    expect(records).toHaveLength(5);
-    expect(records.map((record) => record.argv.slice(0, 4))).toContainEqual([
-      'pr',
-      'view',
-      detailsJson.url,
-      '--json',
+    expect(await readRecords()).toEqual([
+      {
+        bin: 'ghp',
+        argv: ['pr', 'details', detailsJson.url, '--consumer', 'review'],
+        stdin: '',
+        marker: 'inherited',
+      },
     ]);
-    const graphql = records.find((record) => record.argv[0] === 'api');
-    expect(graphql?.argv).not.toContain('--paginate');
-    expect(graphql?.argv).not.toContain('--slurp');
-    expect(graphql?.argv).toContain('owner=acme');
-    expect(graphql?.argv).toContain('repository=widgets');
-    expect(graphql?.argv).toContain('number=42');
-    expect(graphql?.marker).toBe('inherited');
   });
 
-  test('loads every review-thread and long-thread comment page', async () => {
+  test('an explicit details refresh reads past the shared cache', async () => {
+    process.env.FAKE_GHP_STDOUT = ghpDetails();
+    await createGitHubCliAdapter([]).loadPullRequestDetails(
+      detailsJson.url,
+      new AbortController().signal,
+      { fresh: true }
+    );
+    expect((await readRecord())?.argv).toEqual([
+      'pr',
+      'details',
+      detailsJson.url,
+      '--max-age',
+      '0',
+      '--consumer',
+      'review',
+    ]);
+  });
+
+  test('reads every review thread with all of its comments in order', async () => {
     const inlineComment = {
       databaseId: 91,
       author: { login: 'inline-reviewer' },
@@ -1035,68 +949,23 @@ describe('GitHub CLI adapter contract', () => {
       outdated: false,
       replyTo: null,
     };
-    process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
-    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify({
-      data: {
-        repository: {
-          pullRequest: {
-            reviewThreads: {
-              nodes: [
-                {
-                  id: 'PRRT_first',
-                  isResolved: false,
-                  diffSide: 'LEFT',
-                  startDiffSide: 'LEFT',
-                  comments: {
-                    nodes: [inlineComment],
-                    pageInfo: {
-                      hasNextPage: true,
-                      endCursor: 'comments-next',
-                    },
-                  },
-                },
-              ],
-              pageInfo: { hasNextPage: true, endCursor: 'threads-next' },
-            },
-          },
-        },
-      },
-    });
-    process.env.FAKE_GH_THREAD_PAGE_STDOUT = JSON.stringify({
-      data: {
-        repository: {
-          pullRequest: {
-            reviewThreads: {
-              nodes: [
-                {
-                  id: 'PRRT_second',
-                  isResolved: true,
-                  diffSide: 'RIGHT',
-                  startDiffSide: null,
-                  comments: {
-                    nodes: [{ ...inlineComment, databaseId: 93 }],
-                    pageInfo: { hasNextPage: false, endCursor: null },
-                  },
-                },
-              ],
-              pageInfo: { hasNextPage: false, endCursor: null },
-            },
-          },
-        },
-      },
-    });
-    process.env.FAKE_GH_COMMENT_PAGE_STDOUT = JSON.stringify({
-      data: {
-        node: {
+    process.env.FAKE_GHP_STDOUT = ghpDetails({
+      reviewThreads: [
+        {
+          id: 'PRRT_first',
           isResolved: false,
           diffSide: 'LEFT',
           startDiffSide: 'LEFT',
-          comments: {
-            nodes: [{ ...inlineComment, databaseId: 92 }],
-            pageInfo: { hasNextPage: false, endCursor: null },
-          },
+          comments: [inlineComment, { ...inlineComment, databaseId: 92 }],
         },
-      },
+        {
+          id: 'PRRT_second',
+          isResolved: true,
+          diffSide: 'RIGHT',
+          startDiffSide: null,
+          comments: [{ ...inlineComment, databaseId: 93 }],
+        },
+      ],
     });
 
     const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
@@ -1123,13 +992,6 @@ describe('GitHub CLI adapter contract', () => {
           id: '92',
           threadId: 'PRRT_first',
           resolved: false,
-          source: {
-            diffHunk: inlineComment.diffHunk,
-            side: 'LEFT',
-            startSide: 'LEFT',
-            line: 5,
-            startLine: 3,
-          },
         }),
         expect.objectContaining({
           id: '93',
@@ -1145,34 +1007,11 @@ describe('GitHub CLI adapter contract', () => {
         }),
       ],
     });
-    const graphqlRecords = (await readRecords()).filter(
-      (record) => record.argv[0] === 'api'
-    );
-    expect(graphqlRecords).toHaveLength(3);
-    for (const record of graphqlRecords) {
-      const query = record.argv.find((argument) =>
-        argument.startsWith('query=')
-      );
-      expect(query).toContain('diffHunk');
-      expect(query).toContain('diffSide');
-      expect(query).toContain('startDiffSide');
-    }
-    expect(
-      graphqlRecords.some((record) =>
-        record.argv.includes('threadsCursor=threads-next')
-      )
-    ).toBe(true);
-    expect(
-      graphqlRecords.some((record) =>
-        record.argv.includes('commentsCursor=comments-next')
-      )
-    ).toBe(true);
   });
 
   test('keeps original hunk coordinates distinct from shifted current comment ranges', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify(completeDetailsJson);
-    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(
-      reviewThreadsJson,
+    process.env.FAKE_GHP_STDOUT = JSON.stringify(
+      JSON.parse(ghpDetails()),
       (key, value: unknown) => {
         if (key === 'line') return 50;
         if (key === 'startLine') return 48;
@@ -1208,6 +1047,7 @@ describe('GitHub CLI adapter contract', () => {
 
     expect(result).toEqual({ ok: true, value: undefined });
     expect(await readRecord()).toEqual({
+      bin: 'gh',
       argv: ['pr', 'view', detailsJson.url, '--web'],
       stdin: '',
       marker: 'inherited',
@@ -1219,7 +1059,7 @@ describe('GitHub CLI adapter contract', () => {
     ['approve', '--approve', ''],
     ['requestChanges', '--request-changes', 'Please fix this'],
   ] as const) {
-    test(`submits ${decision} with exact argv and message stdin`, async () => {
+    test(`submits ${decision} with exact argv and message stdin, then marks the cached pull request stale`, async () => {
       const github = createGitHubCliAdapter([]);
       const submission = {
         url: detailsJson.url,
@@ -1230,17 +1070,38 @@ describe('GitHub CLI adapter contract', () => {
       expect(
         await github.submitReview(submission, new AbortController().signal)
       ).toEqual({ ok: true, value: undefined });
-      expect(await readRecord()).toEqual({
-        argv: ['pr', 'review', detailsJson.url, flag, '--body-file', '-'],
-        stdin: message,
-        marker: 'inherited',
-      });
+      expect(await readRecords()).toEqual([
+        {
+          bin: 'gh',
+          argv: ['pr', 'review', detailsJson.url, flag, '--body-file', '-'],
+          stdin: message,
+          marker: 'inherited',
+        },
+        {
+          bin: 'ghp',
+          argv: ['invalidate', detailsJson.url, '--consumer', 'review'],
+          stdin: '',
+          marker: 'inherited',
+        },
+      ]);
     });
   }
 
+  test('a submitted review succeeds even when ghp is missing', async () => {
+    await rm(join(directory, 'ghp'));
+    // Keep Bun for the fake gh, without any installed ghp.
+    process.env.PATH = `${directory}:${dirname(process.execPath)}`;
+    expect(
+      await createGitHubCliAdapter([]).submitReview(
+        { url: detailsJson.url, decision: 'approve', message: '' },
+        new AbortController().signal
+      )
+    ).toEqual({ ok: true, value: undefined });
+  });
+
   test('keeps independent startup failures on every detail source', async () => {
     process.env.PATH = directory;
-    await rm(join(directory, 'gh'));
+    await rm(join(directory, 'ghp'));
     const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
       detailsJson.url,
       new AbortController().signal
@@ -1255,8 +1116,8 @@ describe('GitHub CLI adapter contract', () => {
       'pullRequestReviews',
     ]);
     for (const failure of failures) {
-      expect(failure).toMatchObject({ kind: 'startup', executable: 'gh' });
-      expect(diagnosticOf(failure)).toContain('gh');
+      expect(failure).toMatchObject({ kind: 'startup', executable: 'ghp' });
+      expect(diagnosticOf(failure)).toContain('ghp');
     }
   });
 
@@ -1279,11 +1140,9 @@ describe('GitHub CLI adapter contract', () => {
   });
 
   test('reports malformed and incompatible detail-source data without hiding other results', async () => {
-    process.env.FAKE_GH_STDOUT = JSON.stringify({
-      ...completeDetailsJson,
-      labels: [{ color: 'ffffff' }],
+    process.env.FAKE_GHP_STDOUT = ghpDetails({
+      metadata: { ...detailsMetadata(), labels: [{ color: 'ffffff' }] },
     });
-    process.env.FAKE_GH_GRAPHQL_STDOUT = JSON.stringify(reviewThreadsJson);
     const result = await createGitHubCliAdapter([]).loadPullRequestDetails(
       detailsJson.url,
       new AbortController().signal
@@ -1302,7 +1161,7 @@ describe('GitHub CLI adapter contract', () => {
   });
 
   test('reports queue malformed data and Review Submission process signals', async () => {
-    process.env.FAKE_GH_STDOUT = '{not-json';
+    process.env.FAKE_GHP_STDOUT = '{not-json';
     process.env.FAKE_GH_STDERR = 'compatibility warning\n';
     const github = createGitHubCliAdapter([]);
     const malformed = failureOf(
@@ -1372,6 +1231,79 @@ describe('GitHub CLI adapter contract', () => {
   });
 });
 
+const lastPage = { hasNextPage: false, endCursor: null };
+
+function ghpResult(value: unknown): string {
+  return JSON.stringify({ value, fetchedAt: 1, stale: false, error: null });
+}
+
+// A `ghp search` page: GitHub search nodes with each row's stats.
+function ghpSearch(
+  nodes: readonly unknown[],
+  endCursor: string | null = null,
+  stacks = true
+): string {
+  return ghpResult({
+    nodes: nodes.map((node) =>
+      node !== null && typeof node === 'object'
+        ? { ...queueStatsJson, ...node }
+        : node
+    ),
+    pageInfo: { hasNextPage: endCursor !== null, endCursor },
+    stacks,
+  });
+}
+
+// A search node from a gh search fixture row, with its stats.
+function queueNode(
+  item: Record<string, unknown> = queueJson[0],
+  stats: Record<string, unknown> = queueStatsJson
+) {
+  const { labels, commentsCount, ...rest } = item;
+  return {
+    ...rest,
+    labels: { nodes: labels ?? [] },
+    comments: { totalCount: commentsCount ?? 0 },
+    stack: null,
+    stackEntry: null,
+    ...stats,
+  };
+}
+
+function detailsMetadata(): Record<string, unknown> {
+  const { latestReviews: _latestReviews, ...metadata } = detailsJson;
+  return metadata;
+}
+
+// A `ghp pr details` value: gh pr view shapes plus every review thread.
+function ghpDetails(overrides: Record<string, unknown> = {}): string {
+  return ghpResult({
+    metadata: detailsMetadata(),
+    reviews: completeDetailsJson.reviews,
+    statusCheckRollup: completeDetailsJson.statusCheckRollup,
+    comments: completeDetailsJson.comments,
+    reviewThreads:
+      reviewThreadsJson.data.repository.pullRequest.reviewThreads.nodes.map(
+        (thread) => ({ ...thread, comments: thread.comments.nodes })
+      ),
+    ...overrides,
+  });
+}
+
+async function searchRecords(): Promise<readonly ProcessRecord[]> {
+  return (await readRecords()).filter(
+    (record) => record.bin === 'ghp' && record.argv[0] === 'search'
+  );
+}
+
+function option(
+  record: ProcessRecord | undefined,
+  name: string
+): string | undefined {
+  const index = record?.argv.indexOf(name) ?? -1;
+  return index < 0 ? undefined : record?.argv[index + 1];
+}
+
 function pullRequestUrl(number: number): string {
   return `https://github.example/acme/widgets/pull/${number}`;
 }
@@ -1415,21 +1347,8 @@ function stackNode(
   };
 }
 
-function searchResponse(
-  nodes: readonly unknown[],
-  endCursor: string | null = null
-): string {
-  return JSON.stringify({
-    data: {
-      search: {
-        nodes,
-        pageInfo: { hasNextPage: endCursor !== null, endCursor },
-      },
-    },
-  });
-}
-
 type ProcessRecord = {
+  readonly bin: 'gh' | 'ghp';
   readonly argv: readonly string[];
   readonly stdin: string;
   readonly marker: string;
@@ -1439,7 +1358,7 @@ async function readRecords(): Promise<readonly ProcessRecord[]> {
   const lines = (await readFile(recordPath(), 'utf8')).trim().split('\n');
   return lines.map((line) => {
     const parsed: unknown = JSON.parse(line);
-    if (!isProcessRecord(parsed)) throw new Error('invalid fake gh record');
+    if (!isProcessRecord(parsed)) throw new Error('invalid fake record');
     return parsed;
   });
 }
@@ -1448,6 +1367,8 @@ function isProcessRecord(value: unknown): value is ProcessRecord {
   return (
     typeof value === 'object' &&
     value !== null &&
+    'bin' in value &&
+    (value.bin === 'gh' || value.bin === 'ghp') &&
     'argv' in value &&
     Array.isArray(value.argv) &&
     value.argv.every((argument) => typeof argument === 'string') &&
