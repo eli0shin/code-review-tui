@@ -38,16 +38,17 @@ const views: Awaited<ReturnType<typeof testRender>>[] = [];
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'review-search-'));
   originalPath = process.env.PATH;
-  const executable = join(directory, 'gh');
-  await Bun.write(
-    executable,
-    `#!/usr/bin/env bun
+  // One fake serves ghp's searches and gh's other commands.
+  const fake = `#!/usr/bin/env bun
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { tokenizeSearch } from ${JSON.stringify(join(process.cwd(), 'src/configuration/index.ts'))};
 const argv = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(directory, 'calls.jsonl'))}, JSON.stringify(argv) + '\\n');
-if (argv.some((arg) => arg.startsWith('searchQuery='))) {
-  const text = argv.find((arg) => arg.startsWith('searchQuery=')).slice('searchQuery='.length);
+const option = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+const result = (value, error = null) => JSON.stringify({ value, fetchedAt: 1, stale: value === null, error });
+const page = (nodes, pageInfo) => result({ nodes: nodes.map((node) => ({ additions: 1, deletions: 0, changedFiles: 1, reviewDecision: '', reviews: [], statusCheckRollup: [], ...node })), pageInfo, stacks: true });
+if (argv[0] === 'search') {
+  const text = argv[1];
   const end = text.lastIndexOf(' ) type:pr');
   const parsed = tokenizeSearch(text.slice(2, end));
   if (!parsed.ok) throw new Error(parsed.problem);
@@ -56,18 +57,18 @@ if (argv.some((arg) => arg.startsWith('searchQuery='))) {
   appendFileSync(${JSON.stringify(join(directory, 'searches.jsonl'))}, JSON.stringify(search) + '\\n');
   if (search.includes('slow:test') && !search.includes('repo:acme/widgets')) await Bun.sleep(30_000);
   if (search.includes('empty:test')) {
-    console.log(JSON.stringify({ data: { search: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } } }));
+    console.log(page([], { hasNextPage: false, endCursor: null }));
     process.exit(0);
   }
   if (search.includes('bad:query')) {
-    console.error('Unsupported search qualifier');
-    process.exit(1);
+    console.log(result(null, 'Unsupported search qualifier'));
+    process.exit(3);
   }
-  const after = argv.find((arg) => arg.startsWith('after='))?.slice(6);
+  const after = option('--after');
   const modeFile = ${JSON.stringify(join(directory, 'mode'))};
   const mode = existsSync(modeFile) ? readFileSync(modeFile, 'utf8') : '';
   if (after && mode === 'slow') await Bun.sleep(30_000);
-  if (after && mode === 'error') { console.error('Page search failed'); process.exit(1); }
+  if (after && mode === 'error') { console.log(result(null, 'Page search failed')); process.exit(3); }
   const paginated = search.includes('page:test');
   const nodes = paginated ? (after && mode === 'empty' ? [] : [1, 2].map((row) => ({
     number: (after ? 20 : 10) + row, title: 'Page ' + (after ? 2 : 1) + ' PR ' + row,
@@ -82,13 +83,13 @@ if (argv.some((arg) => arg.startsWith('searchQuery='))) {
     url: 'https://github.com/acme/widgets/pull/7', repository: { nameWithOwner: 'acme/widgets' },
     labels: { nodes: [] }, comments: { totalCount: 0 }, stack: null
   }];
-  console.log(JSON.stringify({ data: { search: { nodes, pageInfo: { hasNextPage: paginated && !after, endCursor: paginated && !after ? 'page-one-end' : null } } } }));
-} else {
-  console.log(JSON.stringify({ additions: 1, deletions: 0, changedFiles: 1, reviewDecision: '', reviews: [], statusCheckRollup: [] }));
+  console.log(page(nodes, { hasNextPage: paginated && !after, endCursor: paginated && !after ? 'page-one-end' : null }));
 }
-`
-  );
-  await chmod(executable, 0o755);
+`;
+  for (const name of ['gh', 'ghp']) {
+    await Bun.write(join(directory, name), fake);
+    await chmod(join(directory, name), 0o755);
+  }
   process.env.PATH = `${directory}:${originalPath ?? ''}`;
   await Bun.write(
     join(directory, 'review', 'config.json'),
@@ -195,9 +196,11 @@ async function calls(): Promise<string[][]> {
 }
 
 async function pageRequests() {
-  return (await calls()).filter((argv) =>
-    argv.some((arg) => arg.startsWith('searchQuery='))
-  );
+  return (await calls()).filter((argv) => argv[0] === 'search');
+}
+
+function optionOf(argv: readonly string[] | undefined, name: string) {
+  return argv?.includes(name) ? argv[argv.indexOf(name) + 1] : undefined;
 }
 
 async function configurePages(keyBindings?: Record<string, string[]>) {
@@ -663,14 +666,15 @@ test('changing the query aborts an obsolete fetch and cannot display its results
   expect((await searches()).at(-1)).toEqual(editedArguments);
 });
 
-test('pages fetch and enrich only their own rows, reset the Cursor, and manual refresh restarts', async () => {
+test('pages fetch only their own rows, with their stats, reset the Cursor, and manual refresh restarts fresh', async () => {
   await configurePages();
   const { view, loadReviewQueue } = await renderQueue();
   await view.waitForFrame((frame) => frame.includes('Page 1 PR 2'));
   expect(view.captureCharFrame()).toContain('Page 1 · p previous · n next');
   expect(await pageRequests()).toHaveLength(1);
-  expect((await pageRequests())[0]).toContain('size=2');
-  expect((await calls()).filter((argv) => argv[0] === 'pr')).toHaveLength(2);
+  expect(optionOf((await pageRequests())[0], '--size')).toBe('2');
+  // Rows arrive with their stats: no read per row.
+  expect((await calls()).filter((argv) => argv[0] === 'pr')).toHaveLength(0);
   await act(async () => view.mockInput.pressKey('p'));
   expect(await pageRequests()).toHaveLength(1);
   await act(async () => view.mockInput.pressKey('j'));
@@ -678,7 +682,7 @@ test('pages fetch and enrich only their own rows, reset the Cursor, and manual r
   await view.waitForFrame((frame) => frame.includes('Page 2 PR 2'));
   expect(view.captureCharFrame()).toContain('Page 2 · p previous · last page');
   expect(await pageRequests()).toHaveLength(2);
-  expect((await pageRequests())[1]).toContain('after=page-one-end');
+  expect(optionOf((await pageRequests())[1], '--after')).toBe('page-one-end');
   // Stack layers pulled onto page 1 must not repeat on page 2.
   expect(loadReviewQueue.mock.calls.at(-1)?.[4]).toEqual({
     size: 2,
@@ -688,7 +692,7 @@ test('pages fetch and enrich only their own rows, reset the Cursor, and manual r
       'https://github.com/acme/widgets/pull/12',
     ],
   });
-  expect((await calls()).filter((argv) => argv[0] === 'pr')).toHaveLength(4);
+  expect((await calls()).filter((argv) => argv[0] === 'pr')).toHaveLength(0);
   await act(async () => view.mockInput.pressKey('b'));
   await view.waitForFrame(async () =>
     (await calls()).some((argv) => argv.includes('--web'))
@@ -705,20 +709,19 @@ test('pages fetch and enrich only their own rows, reset the Cursor, and manual r
   await view.waitForFrame(
     (frame) => frame.includes('Page 1 PR 1') && !frame.includes('refreshing…')
   );
-  expect(
-    (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-  ).toBe(false);
+  expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
   await act(async () => view.mockInput.pressKey('n'));
   await view.waitForFrame(
     (frame) => frame.includes('Page 2 PR 1') && !frame.includes('refreshing…')
   );
+  expect(optionOf((await pageRequests()).at(-1), '--max-age')).toBeUndefined();
   await act(async () => view.mockInput.pressKey('r'));
   await view.waitForFrame(
     (frame) => frame.includes('Page 1 PR 1') && !frame.includes('refreshing…')
   );
-  expect(
-    (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-  ).toBe(false);
+  expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
+  // An explicit refresh reads past the shared cache.
+  expect(optionOf((await pageRequests()).at(-1), '--max-age')).toBe('0');
 });
 
 test('automatic refresh reuses the page start, retains failures, and returns empty pages to page 1', async () => {
@@ -741,7 +744,9 @@ test('automatic refresh reuses the page start, retains failures, and returns emp
   };
   await poll();
   await finishRefresh(view);
-  expect((await pageRequests()).at(-1)).toContain('after=page-one-end');
+  expect(optionOf((await pageRequests()).at(-1), '--after')).toBe(
+    'page-one-end'
+  );
   await Bun.write(join(directory, 'mode'), 'error');
   await poll();
   await view.waitForFrame((frame) => frame.includes('Page search failed'));
@@ -752,13 +757,11 @@ test('automatic refresh reuses the page start, retains failures, and returns emp
     (frame) => frame.includes('Page 1 PR 1') && !frame.includes('refreshing…')
   );
   const requests = await pageRequests();
-  expect(requests.at(-2)).toContain('after=page-one-end');
-  expect(requests.at(-1)?.some((arg) => arg.startsWith('after='))).toBe(false);
+  expect(optionOf(requests.at(-2), '--after')).toBe('page-one-end');
+  expect(requests.at(-1)?.includes('--after')).toBe(false);
   await poll();
   await finishRefresh(view);
-  expect(
-    (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-  ).toBe(false);
+  expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
   // An empty page is cached. It must be re-fetched if rows later return.
   await Bun.write(join(directory, 'mode'), '');
   const beforeRevisit = (await pageRequests()).length;
@@ -767,7 +770,9 @@ test('automatic refresh reuses the page start, retains failures, and returns emp
     (frame) => frame.includes('Page 2 PR 1') && !frame.includes('refreshing…')
   );
   expect(await pageRequests()).toHaveLength(beforeRevisit + 1);
-  expect((await pageRequests()).at(-1)).toContain('after=page-one-end');
+  expect(optionOf((await pageRequests()).at(-1), '--after')).toBe(
+    'page-one-end'
+  );
 });
 
 test('query, scope, and list changes reset pagination, including applying an unchanged query', async () => {
@@ -787,9 +792,7 @@ test('query, scope, and list changes reset pagination, including applying an unc
     await view.waitForFrame(
       (frame) => frame.includes('Page 1 PR 1') && !frame.includes('refreshing…')
     );
-    expect(
-      (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-    ).toBe(false);
+    expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
   };
   await next();
   await act(async () => view.mockInput.pressKey('/'));
@@ -803,9 +806,7 @@ test('query, scope, and list changes reset pagination, including applying an unc
   await next();
   await act(async () => view.mockInput.pressKey('m'));
   await view.waitForFrame((frame) => frame.includes('Authored PR'));
-  expect(
-    (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-  ).toBe(false);
+  expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
   await act(async () => view.mockInput.pressKey('m'));
   await first();
   await next();
@@ -814,9 +815,7 @@ test('query, scope, and list changes reset pagination, including applying an unc
   await replaceQuery(view, editedSearch);
   await act(view.mockInput.pressEnter);
   await view.waitForFrame((frame) => frame.includes('Draft PR'));
-  expect(
-    (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-  ).toBe(false);
+  expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
 });
 
 test('scope changes fetch only page 1, including toggles with a cached launch repository', async () => {
@@ -868,9 +867,7 @@ test('remapped page keys work and manual refresh cancels an obsolete page fetch'
     (frame) => frame.includes('Page 1 PR 1') && !frame.includes('refreshing…')
   );
   expect(oldSignal?.aborted).toBe(true);
-  expect(
-    (await pageRequests()).at(-1)?.some((arg) => arg.startsWith('after='))
-  ).toBe(false);
+  expect((await pageRequests()).at(-1)?.includes('--after')).toBe(false);
   await Bun.write(join(directory, 'mode'), '');
   await act(async () => view.mockInput.pressKey(']'));
   await view.waitForFrame((frame) => frame.includes('Page 2 PR 1'));

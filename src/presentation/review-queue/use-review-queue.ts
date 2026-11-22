@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { tokenizeSearch } from '../../configuration/index.ts';
 import type { ReviewQueue } from '../../domain/pull-request.ts';
 import type {
@@ -36,6 +36,8 @@ export function useReviewQueue({
   readonly repository: GitHubRepository | undefined;
 }) {
   const [cursor, setCursor] = useState(0);
+  // Set by an explicit refresh, so its load skips the shared GitHub cache.
+  const freshLoadRef = useRef(false);
   const [pageStarts, setPageStarts] = useState<readonly PageStart[]>([]);
   const pageStart = pageStarts.at(-1);
   const after = pageStart?.after;
@@ -68,12 +70,14 @@ export function useReviewQueue({
       pageStart,
     ],
     async queryFn({ signal }) {
+      const fresh = freshLoadRef.current;
+      freshLoadRef.current = false;
       const result = await github.loadReviewQueue(
         signal,
         list,
         list === 'reviewQueue' ? search : undefined,
         repository,
-        { size: pageSize, ...pageStart }
+        { size: pageSize, ...pageStart, ...(fresh ? { fresh } : {}) }
       );
       if (!result.ok) throw result.failure;
       return result.value;
@@ -98,6 +102,7 @@ export function useReviewQueue({
   }
 
   function refreshFromStart(): void {
+    freshLoadRef.current = true;
     setCursor(0);
     if (after === undefined) void query.refetch();
     else setPageStarts([]);

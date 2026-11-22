@@ -8,6 +8,7 @@ Run `review` inside a Herdr pane or a Herdr app tab. The application loads the c
 
 - x64 or arm64 macOS, or glibc Linux. musl Linux is not supported.
 - [GitHub CLI](https://cli.github.com/) installed and authenticated with `gh auth login`.
+- [ghp](https://github.com/eli0shin/gh-proxy) 0.2.0 or newer installed and available on `PATH`. Review reads GitHub through ghp's cache, which every process on the machine shares, so many Review instances and agent sessions don't exhaust the GitHub rate limit. Install it with `curl -fsSL https://raw.githubusercontent.com/eli0shin/gh-proxy/main/install.sh | bash`.
 - [Herdr](https://herdr.dev/) installed and available on `PATH`, or the Herdr app with `herdr-app` on `PATH`.
 - [Lumen](https://github.com/jnsahaj/lumen) installed and available on `PATH` if you do not configure a Diff Command.
 
@@ -71,7 +72,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
 }
 ```
 
-`github.pageSize` controls how many PRs are fetched and enriched per page in either list. It defaults to 25 when omitted and accepts integers from 1 to 100. `github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.repositorySearch` is an optional second search that the Review Queue uses while repository scope is on; when omitted, scoped lists use `github.search`. Use it in repositories you own, where code owner review requests disappear after you review: `reviewed-by:@me` keeps showing pull requests you already reviewed, so you can see when the author addresses your comments. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
+`github.pageSize` controls how many PRs are fetched per page in either list. It defaults to 25 when omitted and accepts integers from 1 to 100. `github.search` contains GitHub pull request search terms, not extra `gh` flags. `github.repositorySearch` is an optional second search that the Review Queue uses while repository scope is on; when omitted, scoped lists use `github.search`. Use it in repositories you own, where code owner review requests disappear after you review: `reviewed-by:@me` keeps showing pull requests you already reviewed, so you can see when the author addresses your comments. `github.refreshIntervalMinutes` controls automatic refresh of the active list (Review Queue or My PRs); it defaults to 5 minutes when omitted. My PRs always uses `is:pr author:@me state:open` and does not change the configured search. `diffCommand`, `keyBindings`, and `config` are optional. An action that is present in `keyBindings` replaces that action's complete default list.
 
 See the [configuration contract](docs/configuration-contract.md) for all accepted key descriptors and validation rules.
 

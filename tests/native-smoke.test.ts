@@ -41,6 +41,11 @@ beforeAll(async () => {
     join(bin, 'gh'),
     `#!/bin/sh\nprintf '%s\\n' "$*" >> "$FAKE_GH_RECORD"\nif [ -n "$FAKE_GH_HANG" ]; then\n  printf '%s' "$$" > "$FAKE_GH_HANG"\n  trap '' TERM\n  while :; do sleep 1; done\nfi\nprintf '{"data":{"search":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}'\n`
   );
+  // The Review Queue reads its searches through ghp.
+  await writeExecutable(
+    join(bin, 'ghp'),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$FAKE_GH_RECORD"\nif [ -n "$FAKE_GH_HANG" ]; then\n  printf '%s' "$$" > "$FAKE_GH_HANG"\n  trap '' TERM\n  while :; do sleep 1; done\nfi\nprintf '{"value":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null},"stacks":true},"fetchedAt":1,"stale":false,"error":null}'\n`
+  );
   await writeExecutable(
     join(bin, 'herdr'),
     `#!/bin/sh\nprintf '%s\\n' "$*" >> "$FAKE_HERDR_RECORD"\nexit 99\n`
@@ -96,7 +101,7 @@ describe('native review executable', () => {
     expect(stripTerminalControls(await stdout)).toContain('No reviews waiting');
     expect(await stderr).toBe('');
     expect(await Bun.file(ghRecord).text()).toContain(
-      'searchQuery=( review-requested:@me state:open ) type:pr -F size=25'
+      'search ( review-requested:@me state:open ) type:pr --size 25'
     );
     expect(await Bun.file(herdrRecord).exists()).toBe(false);
   });
@@ -130,7 +135,7 @@ describe('native review executable', () => {
     );
     expect(await stderr).toBe('');
     expect(await Bun.file(record).text()).toContain(
-      'searchQuery=( is:pr author:@me state:open ) type:pr -F size=25'
+      'search ( is:pr author:@me state:open ) type:pr --size 25'
     );
   });
 

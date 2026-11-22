@@ -17,7 +17,7 @@ Load the Review Queue in these cases only:
 
 Returning from Lumen, a Diff Command, or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
 
-Use the paged `gh api graphql` search invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). Preserve the order from GitHub CLI, with one exception: list each Stack's layers together where the Stack first appears, highest layer first. Do not otherwise sort or filter results in the application.
+Use the paged `ghp search` invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). An explicit refresh (`r`) and the refresh after a Review Submission read fresh data; the page mount, page changes, and automatic refresh accept ghp's shared data up to 60 seconds old. Preserve the order from GitHub CLI, with one exception: list each Stack's layers together where the Stack first appears, highest layer first. Do not otherwise sort or filter results in the application.
 
 When a page contains a Stack layer, also load that Stack's other layers that match the same search. GitHub search has no Stack qualifier, so intersect the search with the missing layers' head branches and keep only results whose URLs are those layers. Never show a layer that does not match the search. Do not page further to find layers.
 
@@ -26,7 +26,7 @@ TanStack React Query owns request deduplication, polling, status, caching, and c
 A load is atomic:
 
 - Keep the current Review Queue visible while a refresh is active.
-- Replace it only after the search and every bounded-concurrency row-metadata enrichment exit successfully and all JSON passes validation. The enrichment includes review decision, submitted reviews, and check rollup for both lists. The row's review status summarizes only each reviewer's latest submitted review: current change requests take precedence, otherwise current approvals are shown. Superseded reviews do not contribute. This is a reviewer-feedback summary, not branch-protection eligibility.
+- Replace it only after every search for the page succeeds and all JSON passes validation. Each row includes its review decision, submitted reviews, and check rollup in both lists. The row's review status summarizes only each reviewer's latest submitted review: current change requests take precedence, otherwise current approvals are shown. Superseded reviews do not contribute. This is a reviewer-feedback summary, not branch-protection eligibility.
 - Treat malformed JSON, a non-array result, or any item without a required field as a failed load. Do not display a partial result.
 - An empty valid array is a successful load and an empty Review Queue.
 
@@ -61,7 +61,7 @@ A submission failure does not refresh or change the Review Queue.
 
 ## Pagination and result limits
 
-Fetch and enrich only the current page, bounded by `github.pageSize` (default 25, integer 1–100). Do not prefetch. GitHub returns an opaque end cursor and `hasNextPage`; the interface retains the start cursors of visited pages so `p` can go back without fetching every earlier page. Show the current page number, effective `p` / `n` bindings, and the last-page indicator.
+Fetch only the current page, bounded by `github.pageSize` (default 25, integer 1–100). Do not prefetch. GitHub returns an opaque end cursor and `hasNextPage`; the interface retains the start cursors of visited pages so `p` can go back without fetching every earlier page. Show the current page number, effective `p` / `n` bindings, and the last-page indicator.
 
 Each visited page start also keeps the URLs shown on earlier pages. A later page omits those pull requests, so a Stack layer pulled onto an earlier page does not repeat. A page can therefore show more or fewer rows than the page size. When every row of a GitHub page was shown earlier, load the following GitHub page in its place, so an empty page still means there are no more results.
 
