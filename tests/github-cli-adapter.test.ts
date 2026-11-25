@@ -172,6 +172,12 @@ const argv = process.argv.slice(2);
 appendFileSync(process.env.FAKE_GH_RECORD, JSON.stringify({ bin, argv, stdin, marker: process.env.REVIEW_TEST_MARKER }) + '\\n');
 if (process.env.FAKE_GH_MODE === 'wait') await Bun.sleep(30_000);
 if (process.env.FAKE_GH_MODE === 'signal') process.kill(process.pid, 'SIGTERM');
+if (bin === 'gh' && argv[0] === 'api' && process.env.FAKE_GH_API_PAGES) {
+  // Each page's cursor names the next page's index.
+  const pages = JSON.parse(process.env.FAKE_GH_API_PAGES);
+  const after = argv.find((value) => value.startsWith('after='));
+  await Bun.stdout.write(JSON.stringify(pages[after ? Number(after.slice('after=page-'.length)) : 0]));
+}
 if (bin === 'ghp' && argv[0] !== 'invalidate') {
   const responses = process.env.FAKE_GHP_RESPONSES ? JSON.parse(process.env.FAKE_GHP_RESPONSES) : [];
   const matched = responses.find(([needle]) => argv.some((value) => value.includes(needle)));
@@ -198,6 +204,7 @@ afterEach(async () => {
   restoreEnvironment('REVIEW_TEST_MARKER', originalMarker);
   restoreEnvironment('FAKE_GHP_RESPONSES', originalResponses);
   delete process.env.FAKE_GH_RECORD;
+  delete process.env.FAKE_GH_API_PAGES;
   await rm(directory, { recursive: true, force: true });
 });
 
@@ -651,6 +658,114 @@ describe('GitHub CLI adapter contract', () => {
     expect((await searchRecords()).at(-1)?.argv[1]).toBe(
       `( ${queries[0].join(' ')} ) type:pr`
     );
+  });
+
+  test('intersects a repository filter with the intact query and scope, ORing several repositories', async () => {
+    process.env.FAKE_GHP_STDOUT = ghpSearch([queueNode()]);
+    const github = createGitHubCliAdapter(['is:pr', 'a', 'OR', 'b']);
+    await github.loadReviewQueue(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      undefined,
+      { size: 25 },
+      ['acme/api']
+    );
+    expect((await searchRecords()).at(-1)?.argv[1]).toBe(
+      '( is:pr a OR b ) type:pr repo:acme/api'
+    );
+    await github.loadReviewQueue(
+      new AbortController().signal,
+      'authored',
+      undefined,
+      { nameWithOwner: 'acme/widgets', hostname: 'github.example' },
+      { size: 25 },
+      ['acme/api', 'other/service']
+    );
+    expect((await searchRecords()).at(-1)?.argv[1]).toBe(
+      '( is:pr author:@me state:open ) type:pr repo:acme/widgets (repo:acme/api OR repo:other/service)'
+    );
+  });
+
+  test('lists every repository in a search with gh api graphql, following pages and counting pull requests', async () => {
+    const page = (names: readonly (string | null)[], next: string | null) => ({
+      data: {
+        search: {
+          nodes: names.map((name) =>
+            name === null ? {} : { repository: { nameWithOwner: name } }
+          ),
+          pageInfo: { hasNextPage: next !== null, endCursor: next },
+        },
+      },
+    });
+    process.env.FAKE_GH_API_PAGES = JSON.stringify([
+      page(['acme/widgets', 'other/service', null], 'page-1'),
+      page(['other/service', 'acme/api', 'other/service'], null),
+    ]);
+    const github = createGitHubCliAdapter(['is:pr', 'review-requested:@me']);
+    const result = await github.loadReviewQueueRepositories(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      { nameWithOwner: 'acme/widgets', hostname: 'github.example' }
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { nameWithOwner: 'other/service', count: 3 },
+        { nameWithOwner: 'acme/api', count: 1 },
+        { nameWithOwner: 'acme/widgets', count: 1 },
+      ],
+    });
+    const calls = (await readRecords()).filter((record) => record.bin === 'gh');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.argv.slice(0, 4)).toEqual([
+      'api',
+      'graphql',
+      '--hostname',
+      'github.example',
+    ]);
+    expect(calls[0]?.argv).toContain(
+      'searchQuery=( is:pr review-requested:@me ) type:pr repo:acme/widgets'
+    );
+    expect(calls[0]?.argv.some((value) => value.startsWith('after='))).toBe(
+      false
+    );
+    expect(calls[1]?.argv.slice(-2)).toEqual(['-f', 'after=page-1']);
+
+    await github.loadReviewQueueRepositories(
+      new AbortController().signal,
+      'authored',
+      undefined,
+      undefined
+    );
+    const unscoped = (await readRecords()).filter(
+      (record) => record.bin === 'gh'
+    );
+    expect(unscoped[2]?.argv).not.toContain('--hostname');
+    expect(unscoped[2]?.argv).toContain(
+      'searchQuery=( is:pr author:@me state:open ) type:pr'
+    );
+  });
+
+  test('reports a failed repository search', async () => {
+    process.env.FAKE_GH_MODE = '1';
+    process.env.FAKE_GH_STDERR = 'API rate limit exceeded';
+    const github = createGitHubCliAdapter(['is:pr']);
+    const result = await github.loadReviewQueueRepositories(
+      new AbortController().signal,
+      'reviewQueue',
+      undefined,
+      undefined
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Expected a failure');
+    expect(result.failure).toMatchObject({
+      kind: 'exit',
+      operation: 'reviewQueueRepositories',
+      exitCode: 1,
+      stderr: 'API rate limit exceeded',
+    });
   });
 
   test('repo scope preserves negative qualifiers and confines the query and results to the resolved host', async () => {

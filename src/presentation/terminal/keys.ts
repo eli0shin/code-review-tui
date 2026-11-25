@@ -60,5 +60,5 @@ export function pullRequestActionHints(
 
 export function footerText(keyBindings: EffectiveKeyBindings): string {
   const movement = `${keyBindings.selectNext[0]}/${keyBindings.selectPrevious[0]}`;
-  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${pullRequestActionHints(keyBindings)}  ${formatBindings(keyBindings.togglePullRequestList)} lists  ${formatBindings(keyBindings.showHelp)} help`;
+  return `${movement} move  ${formatBindings(keyBindings.openDetails)} details  ${pullRequestActionHints(keyBindings)}  ${formatBindings(keyBindings.togglePullRequestList)} lists  ${formatBindings(keyBindings.filterRepositories)} filter  ${formatBindings(keyBindings.showHelp)} help`;
 }

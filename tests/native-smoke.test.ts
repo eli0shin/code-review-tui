@@ -188,6 +188,7 @@ describe('native review executable', () => {
         togglePullRequestList: ['m'],
         toggleRepositoryScope: ['l'],
         editReviewQueueSearch: ['/'],
+        filterRepositories: ['f'],
         refresh: ['r'],
         previousPullRequestPage: ['p'],
         nextPullRequestPage: ['n'],

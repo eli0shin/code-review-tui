@@ -9,6 +9,7 @@ Read GitHub through [ghp](https://github.com/eli0shin/gh-proxy) and write throug
 | Operation                          | Command                             |
 | ---------------------------------- | ----------------------------------- |
 | Load one cross-repository PR page  | `ghp search`                        |
+| List the repositories in a search  | `gh api graphql`                    |
 | Load pull request details          | `ghp pr details <pull-request-url>` |
 | Create a Review Submission         | `gh pr review <pull-request-url>`   |
 | Mark a reviewed pull request stale | `ghp invalidate <pull-request-url>` |
@@ -51,6 +52,27 @@ review-requested:@me state:open
 `review-requested:@me` includes requests to the active user and requests to a team that contains that user. GitHub removes a matching review request after that user or team reviews. If the intended queue must contain only direct requests, use `user-review-requested:@me` instead.[^github-pr-search]
 
 The configured value is a search query, not extra `gh` options. It can contain terms, qualifiers, negated qualifiers, and supported Boolean syntax. Passing it as the value of `searchQuery` also permits a query that starts with a negated qualifier such as `-label:wip`.[^gh-search]
+
+### Repository Filter
+
+Each list's search can be intersected with a Repository Filter, after any repository scope:
+
+```text
+ghp search '( <serialized-search> ) type:pr [repo:OWNER/REPO] [repo:A | (repo:A OR repo:B)]' ...
+```
+
+Several `repo:` qualifiers separated by spaces would all have to match in advanced search, so several repositories are joined with `OR` in parentheses.
+
+The Repository Filter panel lists every repository in the search without the filter. That needs every page, and the enriched `ghp search` costs about five rate-limit points and takes seconds for 100 rows. A search that asks only for each pull request's repository costs one point and returns in about half a second, so the panel reads GitHub directly instead of through ghp's shared cache:
+
+```text
+gh api graphql [--hostname <resolved-repository-host>] \
+  -f query='query($searchQuery:String!,$after:String) { search(query:$searchQuery,type:ISSUE_ADVANCED,first:100,after:$after) { nodes { ... on PullRequest { repository { nameWithOwner } } } pageInfo { hasNextPage endCursor } } }' \
+  -f searchQuery='( <serialized-search> ) type:pr [repo:OWNER/REPO]' \
+  [-f after=<cursor>]
+```
+
+The adapter follows `endCursor` until `hasNextPage` is false. GitHub search stops after 1,000 results, so this takes at most 10 requests. It counts pull requests per `nameWithOwner` and skips nodes that are not pull requests. Review keeps the result in memory and reloads it once a minute while the list is shown.
 
 ### JSON contract
 

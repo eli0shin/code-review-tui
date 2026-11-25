@@ -47,7 +47,16 @@ appendFileSync(${JSON.stringify(join(directory, 'calls.jsonl'))}, JSON.stringify
 const option = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
 const result = (value, error = null) => JSON.stringify({ value, fetchedAt: 1, stale: value === null, error });
 const page = (nodes, pageInfo) => result({ nodes: nodes.map((node) => ({ additions: 1, deletions: 0, changedFiles: 1, reviewDecision: '', reviews: [], statusCheckRollup: [], ...node })), pageInfo, stacks: true });
-if (argv[0] === 'search') {
+if (argv[0] === 'api' && argv[1] === 'graphql') {
+  const text = argv.find((arg) => arg.startsWith('searchQuery=')).slice('searchQuery='.length);
+  const after = argv.find((arg) => arg.startsWith('after='));
+  appendFileSync(${JSON.stringify(join(directory, 'repository-searches.jsonl'))}, JSON.stringify([text, after ?? null]) + '\\n');
+  const names = !text.includes('repos:test') ? ['acme/widgets'] : after ? ['other/service'] : ['acme/widgets', 'acme/api', 'acme/widgets'];
+  console.log(JSON.stringify({ data: { search: {
+    nodes: names.map((nameWithOwner) => ({ repository: { nameWithOwner } })),
+    pageInfo: text.includes('repos:test') && !after ? { hasNextPage: true, endCursor: 'repositories-page-one' } : { hasNextPage: false, endCursor: null },
+  } } }));
+} else if (argv[0] === 'search') {
   const text = argv[1];
   const end = text.lastIndexOf(' ) type:pr');
   const parsed = tokenizeSearch(text.slice(2, end));
@@ -401,13 +410,126 @@ test('a configured repository search replaces the query while scoped, and each s
   ]);
 });
 
+test('the repository filter lists every page of the search, checks repositories, shows only one, keeps a filter per list, and clears on scope', async () => {
+  await Bun.write(
+    join(directory, 'review', 'config.json'),
+    JSON.stringify({
+      github: { search: 'is:pr repos:test' },
+      reviewCommand: 'unused',
+      config: { updateBehavior: 'off' },
+    })
+  );
+  const intervalSpy = jest.spyOn(globalThis, 'setInterval');
+  const loadCurrentRepository = jest.fn(async () => ({
+    ok: true as const,
+    repository: { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
+  }));
+  const { view } = await renderQueue(loadCurrentRepository);
+  const repositorySearches = async (): Promise<(string | null)[][]> =>
+    (await Bun.file(join(directory, 'repository-searches.jsonl')).text())
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const value: unknown = JSON.parse(line);
+        if (
+          !Array.isArray(value) ||
+          !value.every(
+            (part: unknown) => part === null || typeof part === 'string'
+          )
+        )
+          throw new Error('Expected a recorded search');
+        return value;
+      });
+  const waitForSearch = async (expected: readonly string[]) => {
+    await view.waitForFrame(
+      async (frame) =>
+        frame.includes(' open ') &&
+        !frame.includes('refreshing…') &&
+        JSON.stringify((await searches()).at(-1)) === JSON.stringify(expected)
+    );
+  };
+  const list = await view.waitForFrame((frame) =>
+    frame.includes('Configured PR')
+  );
+  expect(list).toContain('f filter');
+  await view.waitForFrame(
+    async () => (await repositorySearches()).length === 2
+  );
+  expect(await repositorySearches()).toEqual([
+    ['( is:pr repos:test ) type:pr', null],
+    ['( is:pr repos:test ) type:pr', 'after=repositories-page-one'],
+  ]);
+  expect(intervalSpy.mock.calls.some(([, delay]) => delay === 60_000)).toBe(
+    true
+  );
+
+  await act(async () => view.mockInput.pressKey('f'));
+  const panel = await view.waitForFrame((frame) =>
+    frame.includes('Filter repositories')
+  );
+  expect(panel).not.toContain('Loading repositories');
+  expect(panel).toMatch(/› All repositories/);
+  expect(panel).toMatch(/\[ \] acme\/widgets\s+2/);
+  expect(panel.indexOf('acme/widgets')).toBeLessThan(panel.indexOf('acme/api'));
+  expect(panel.indexOf('acme/api')).toBeLessThan(
+    panel.indexOf('other/service')
+  );
+
+  await act(async () => view.mockInput.pressKey('j'));
+  await act(async () => view.mockInput.pressKey('j'));
+  await act(async () => view.mockInput.pressKey(' '));
+  await waitForSearch(['is:pr', 'repos:test', 'repo:acme/api']);
+  expect(view.captureCharFrame()).toMatch(/› \[x\] acme\/api/);
+  await act(async () => view.mockInput.pressKey('j'));
+  await act(async () => view.mockInput.pressKey(' '));
+  await waitForSearch([
+    'is:pr',
+    'repos:test',
+    '(repo:acme/api OR repo:other/service)',
+  ]);
+  await act(async () => view.mockInput.pressKey('q'));
+  const filtered = await view.waitForFrame(
+    (frame) => !frame.includes('Filter repositories')
+  );
+  expect(filtered).toContain('acme/api +1 1 open');
+
+  await act(async () => view.mockInput.pressKey('f'));
+  await view.waitForFrame((frame) => frame.includes('› All repositories'));
+  await act(async () => view.mockInput.pressKey('j'));
+  await act(async () => view.mockInput.pressKey('j'));
+  await act(view.mockInput.pressEnter);
+  await waitForSearch(['is:pr', 'repos:test', 'repo:acme/api']);
+  expect(view.captureCharFrame()).not.toContain('Filter repositories');
+  expect(view.captureCharFrame()).toContain('acme/api 1 open');
+
+  await act(async () => view.mockInput.pressKey('m'));
+  await waitForSearch(['is:pr', 'author:@me', 'state:open']);
+  expect(view.captureCharFrame()).toContain('All repositories');
+  await act(async () => view.mockInput.pressKey('m'));
+  await waitForSearch(['is:pr', 'repos:test', 'repo:acme/api']);
+
+  await act(async () => view.mockInput.pressKey('l'));
+  await waitForSearch(['is:pr', 'repos:test', 'repo:acme/widgets']);
+  await act(async () => view.mockInput.pressKey('m'));
+  await waitForSearch([
+    'is:pr',
+    'author:@me',
+    'state:open',
+    'repo:acme/widgets',
+  ]);
+  await act(async () => view.mockInput.pressKey('l'));
+  await act(async () => view.mockInput.pressKey('m'));
+  await waitForSearch(['is:pr', 'repos:test']);
+  expect(view.captureCharFrame()).toContain('All repositories');
+});
+
 test('scope supports remapping and empty lists, while resolution failure leaves queries unscoped and can be retried', async () => {
   await Bun.write(
     join(directory, 'review', 'config.json'),
     JSON.stringify({
       github: { search: 'is:pr empty:test' },
       reviewCommand: 'unused',
-      keyBindings: { toggleRepositoryScope: ['f'] },
+      keyBindings: { toggleRepositoryScope: ['w'] },
     })
   );
   let attempts = 0;
@@ -429,11 +551,11 @@ test('scope supports remapping and empty lists, while resolution failure leaves 
   await view.waitForFrame((frame) => frame.includes('No reviews waiting'));
   await act(async () => view.mockInput.pressKey('l'));
   expect(loadCurrentRepository).not.toHaveBeenCalled();
-  await act(async () => view.mockInput.pressKey('f'));
+  await act(async () => view.mockInput.pressKey('w'));
   await view.waitForFrame((frame) => frame.includes('No GitHub remote'));
   expect(view.captureCharFrame()).not.toContain('All repositories');
   expect(await searches()).toHaveLength(1);
-  await act(async () => view.mockInput.pressKey('f'));
+  await act(async () => view.mockInput.pressKey('w'));
   await view.waitForFrame(
     async (frame) =>
       frame.includes('No reviews waiting') && (await searches()).length === 2
@@ -450,7 +572,7 @@ test('scope supports remapping and empty lists, while resolution failure leaves 
     view.mockInput.pressKey('?');
   });
   await view.waitForFrame((frame) =>
-    frame.includes('f  toggle launch repository scope')
+    frame.includes('w  toggle launch repository scope')
   );
 });
 
@@ -611,7 +733,7 @@ test('supports a remapped editor key, multiline queries, and an empty Review Que
     JSON.stringify({
       github: { search },
       reviewCommand: 'unused',
-      keyBindings: { editReviewQueueSearch: ['f'] },
+      keyBindings: { editReviewQueueSearch: ['w'] },
     })
   );
   const { view } = await renderQueue();
@@ -619,7 +741,7 @@ test('supports a remapped editor key, multiline queries, and an empty Review Que
   await act(async () => view.mockInput.pressKey('/'));
   await view.renderOnce();
   expect(view.captureCharFrame()).not.toContain('Review Queue query');
-  await act(async () => view.mockInput.pressKey('f'));
+  await act(async () => view.mockInput.pressKey('w'));
   const editor = await view.waitForFrame((frame) =>
     frame.includes('Review Queue query')
   );

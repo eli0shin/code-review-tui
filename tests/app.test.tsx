@@ -96,9 +96,14 @@ function success<Value>(value: Value): GitHubResult<Value> {
 // exercised through the production adapter in review-queue-search.test.tsx.
 type GitHub = Omit<
   ProductionGitHub,
-  'openPullRequestInBrowser' | 'loadReviewQueue'
+  'openPullRequestInBrowser' | 'loadReviewQueue' | 'loadReviewQueueRepositories'
 > &
-  Partial<Pick<ProductionGitHub, 'openPullRequestInBrowser'>> & {
+  Partial<
+    Pick<
+      ProductionGitHub,
+      'openPullRequestInBrowser' | 'loadReviewQueueRepositories'
+    >
+  > & {
     loadReviewQueue(
       ...args: Parameters<ProductionGitHub['loadReviewQueue']>
     ): Promise<GitHubResult<ReviewQueue>>;
@@ -109,6 +114,8 @@ function withPages(github: GitHub): ProductionGitHub {
     ...github,
     openPullRequestInBrowser:
       github.openPullRequestInBrowser ?? unusedOpenPullRequestInBrowser,
+    loadReviewQueueRepositories:
+      github.loadReviewQueueRepositories ?? (async () => success([])),
     async loadReviewQueue(...args) {
       const result = await github.loadReviewQueue(...args);
       return result.ok
@@ -144,6 +151,7 @@ const defaultKeyBindings = {
   togglePullRequestList: ['m'],
   toggleRepositoryScope: ['l'],
   editReviewQueueSearch: ['/'],
+  filterRepositories: ['f'],
   refresh: ['r'],
   previousPullRequestPage: ['p'],
   nextPullRequestPage: ['n'],
@@ -2069,7 +2077,7 @@ describe('Pull request detail actions', () => {
       {
         ...defaultKeyBindings,
         openInBrowser: ['x'],
-        openDiff: ['f'],
+        openDiff: ['w'],
         runReviewCommand: ['v'],
         composeReviewSubmission: ['a'],
       },
@@ -2557,7 +2565,8 @@ describe('Review Submission', () => {
       'reviewQueue',
       ['is:pr', 'review-requested:@me', 'state:open'],
       { nameWithOwner: 'acme/widgets', hostname: 'github.com' },
-      { size: 25 }
+      { size: 25 },
+      []
     );
     view.renderer.destroy();
   });

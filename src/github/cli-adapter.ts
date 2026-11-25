@@ -1,5 +1,6 @@
 import type { ReviewDecision } from '../domain/pull-request.ts';
 import type { GitHub, GitHubResult } from './types.ts';
+import { createQueueRepositoriesLoader } from './cli/queue-repositories.ts';
 import { createReviewQueueLoader } from './cli/review-queue.ts';
 import { loadPullRequestDetails } from './cli/pull-request-details.ts';
 import { runGh, runGhp } from './cli/process.ts';
@@ -7,6 +8,7 @@ import { runGh, runGhp } from './cli/process.ts';
 export function createGitHubCliAdapter(search: readonly string[]): GitHub {
   return {
     loadReviewQueue: createReviewQueueLoader(search),
+    loadReviewQueueRepositories: createQueueRepositoriesLoader(search),
     loadPullRequestDetails,
     async openPullRequestInBrowser(url, signal) {
       return runGh(

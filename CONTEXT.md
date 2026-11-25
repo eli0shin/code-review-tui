@@ -10,6 +10,10 @@ _Avoid_: Workflow queue, task list
 The optional Review Queue search used while repository scope restricts the lists to the launch repository. Without it, repository scope uses the all-repositories search.
 _Avoid_: Local filter, repo filter
 
+**Repository Filter**:
+The session-only set of repositories that the active list shows. Each list keeps its own. It is chosen in a panel that lists every repository in the list's search, and an empty set shows every repository.
+_Avoid_: Repo picker, repository scope
+
 **Cursor**:
 The position in the Review Queue that highlights one visible pull request row. The cursor has no pull request identity.
 _Avoid_: Selection, selected pull request

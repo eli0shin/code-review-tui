@@ -15,6 +15,8 @@ Load the Review Queue in these cases only:
 3. at the configured `github.refreshIntervalMinutes` (default: 5 minutes) while the page is mounted; and
 4. immediately after a successful Review Submission.
 
+The [Repository Filter](configuration-contract.md#repository-filter)'s repository list loads separately: when the list, its query, or repository scope changes, and once a minute while the list is shown. Its failures appear only in the panel and do not affect the list.
+
 Returning from Lumen, a Diff Command, or the Review Command does not imply that GitHub changed, so it does not cause an additional refresh.
 
 Use the paged `ghp search` invocation and JSON shape in the [GitHub CLI integration contract](research/github-cli-integration-contract.md). An explicit refresh (`r`) and the refresh after a Review Submission read fresh data; the page mount, page changes, and automatic refresh accept ghp's shared data up to 60 seconds old. Preserve the order from GitHub CLI, with one exception: list each Stack's layers together where the Stack first appears, highest layer first. Do not otherwise sort or filter results in the application.
@@ -65,7 +67,7 @@ Fetch only the current page, bounded by `github.pageSize` (default 25, integer 1
 
 Each visited page start also keeps the URLs shown on earlier pages. A later page omits those pull requests, so a Stack layer pulled onto an earlier page does not repeat. A page can therefore show more or fewer rows than the page size. When every row of a GitHub page was shown earlier, load the following GitHub page in its place, so an empty page still means there are no more results.
 
-Page navigation resets the Cursor to the first row. Search, repository scope, and list changes discard the visited-page cursors and reset to page 1. Manual refresh also starts at page 1. Automatic refresh and post-submission refresh reuse the current page's start cursor; page 1 has no start cursor. An empty successful later page returns to page 1. A failed refresh keeps the last complete successful page, with diagnostics. The query key includes the list, query, repository scope, page size, and page's start cursor, keeping old-page responses separate and cancelling obsolete requests.
+Page navigation resets the Cursor to the first row. Search, repository scope, Repository Filter, and list changes discard the visited-page cursors and reset to page 1. Manual refresh also starts at page 1. Automatic refresh and post-submission refresh reuse the current page's start cursor; page 1 has no start cursor. An empty successful later page returns to page 1. A failed refresh keeps the last complete successful page, with diagnostics. The query key includes the list, query, repository scope, Repository Filter, page size, and page's start cursor, keeping old-page responses separate and cancelling obsolete requests.
 
 GitHub Search exposes at most 1,000 matches. Narrow the search when more results are needed. Cursor pagination does not bypass GitHub's search limit.
 

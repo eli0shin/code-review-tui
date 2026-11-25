@@ -29,7 +29,7 @@ export function HelpOverlay({
       left="37.5%"
       top="15%"
       width="25%"
-      height={list === 'reviewQueue' ? 20 : 19}
+      height={list === 'reviewQueue' ? 21 : 20}
       zIndex={10}
       border
       borderColor={theme?.foreground}
@@ -65,6 +65,9 @@ export function HelpOverlay({
           {line('editReviewQueueSearch', 'edit Review Queue query')}
         </text>
       ) : null}
+      <text fg={theme?.foreground}>
+        {line('filterRepositories', 'filter repositories')}
+      </text>
       <text fg={theme?.foreground}>
         {line('previousPullRequestPage', 'previous PR page')}
       </text>
