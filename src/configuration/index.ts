@@ -14,6 +14,7 @@ export const queueActions = [
   'togglePullRequestList',
   'toggleRepositoryScope',
   'editReviewQueueSearch',
+  'filterRepositories',
   'refresh',
   'previousPullRequestPage',
   'nextPullRequestPage',
@@ -75,6 +76,7 @@ const defaultKeyBindings = {
   togglePullRequestList: ['m'],
   toggleRepositoryScope: ['l'],
   editReviewQueueSearch: ['/'],
+  filterRepositories: ['f'],
   refresh: ['r'],
   previousPullRequestPage: ['p'],
   nextPullRequestPage: ['n'],
@@ -503,6 +505,7 @@ function validateKeyBindings(
         effective,
         'editReviewQueueSearch'
       ),
+      filterRepositories: getEffectiveBindings(effective, 'filterRepositories'),
       refresh: getEffectiveBindings(effective, 'refresh'),
       previousPullRequestPage: getEffectiveBindings(
         effective,

@@ -5,6 +5,7 @@ import { formatBindings } from '../terminal/keys.ts';
 import type { SystemTheme } from '../terminal/theme.ts';
 import { ReviewQueueContent } from './content.tsx';
 import type { useQueueFeedback } from './use-queue-feedback.ts';
+import { repositoryFilterLabel } from './use-repository-filter.ts';
 import type { useRepositoryScope } from './use-repository-scope.ts';
 import type { useReviewQueue } from './use-review-queue.ts';
 
@@ -70,7 +71,10 @@ export function ReviewQueueScreen({
         queue={queue}
         cursorPosition={cursorPosition}
         pageStatusText={pageStatusText}
-        scopeLabel={repositoryScope.label}
+        scopeLabel={
+          repositoryFilterLabel(reviewQueue.repositoryFilter) ??
+          repositoryScope.label
+        }
         scopeDiagnostic={repositoryScope.diagnostic}
         resolvingRepository={repositoryScope.resolving}
         refreshing={query.isFetching}

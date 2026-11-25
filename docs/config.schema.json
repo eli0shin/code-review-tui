@@ -103,6 +103,10 @@
           "$ref": "#/$defs/bindingList",
           "default": ["/"]
         },
+        "filterRepositories": {
+          "$ref": "#/$defs/bindingList",
+          "default": ["f"]
+        },
         "toggleRepositoryScope": {
           "$ref": "#/$defs/bindingList",
           "default": ["l"]

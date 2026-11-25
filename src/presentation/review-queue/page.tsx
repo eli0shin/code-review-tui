@@ -19,6 +19,7 @@ import { ReviewQueueScreen } from './screen.tsx';
 import { useQueueFeedback } from './use-queue-feedback.ts';
 import { useQueueKeyboard } from './use-queue-keyboard.ts';
 import { useQueueSearch } from './use-queue-search.ts';
+import { useRepositoryFilter } from './use-repository-filter.ts';
 import { useRepositoryScope } from './use-repository-scope.ts';
 import { useReviewQueue } from './use-review-queue.ts';
 
@@ -92,9 +93,18 @@ function ReviewQueue({
     details.refresh();
   });
   const searchEditor = useQueueSearch(reviewQueue, feedback.reset);
+  const repositoryFilter = useRepositoryFilter({
+    github,
+    reviewQueue,
+    repository: repositoryScope.repository,
+    keyBindings,
+    onChanged: feedback.reset,
+  });
   const [helpOpen, setHelpOpen] = useState(false);
   const activeFailure =
-    searchEditor.draft === undefined && details.target === undefined
+    searchEditor.draft === undefined &&
+    !repositoryFilter.open &&
+    details.target === undefined
       ? feedback.failureOverlay
       : undefined;
 
@@ -114,6 +124,7 @@ function ReviewQueue({
 
   function toggleRepositoryScope(): void {
     void repositoryScope.toggle(() => {
+      reviewQueue.clearRepositoryFilters();
       reviewQueue.resetPage();
       feedback.reset();
     });
@@ -129,6 +140,7 @@ function ReviewQueue({
   const { queueOwnsInput, failureViewerRef } = useQueueKeyboard({
     keyBindings,
     searchEditor,
+    repositoryFilter,
     submission,
     details,
     helpOpen,
@@ -147,6 +159,10 @@ function ReviewQueue({
       // opened now would apply its draft to the other scope's query.
       editReviewQueueSearch: () => {
         if (!repositoryScope.resolving) searchEditor.open();
+      },
+      // Resolution clears the repository filter, so wait for it.
+      filterRepositories: () => {
+        if (!repositoryScope.resolving) repositoryFilter.openPanel();
       },
       openDetails: () => withActivePullRequest(details.open),
       openInBrowser: () => withActivePullRequest(feedback.openInBrowser),
@@ -177,6 +193,7 @@ function ReviewQueue({
         feedback={feedback}
         submission={submission}
         searchEditor={searchEditor}
+        repositoryFilter={repositoryFilter}
         helpOpen={helpOpen}
         list={reviewQueue.list}
         activeFailure={activeFailure}

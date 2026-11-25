@@ -54,6 +54,7 @@ On the first `review` startup, Review creates `$XDG_CONFIG_HOME/review/config.js
     "togglePullRequestList": ["m"],
     "toggleRepositoryScope": ["l"],
     "editReviewQueueSearch": ["/"],
+    "filterRepositories": ["f"],
     "refresh": ["r"],
     "previousPullRequestPage": ["p"],
     "nextPullRequestPage": ["n"],
@@ -90,6 +91,7 @@ See the [configuration contract](docs/configuration-contract.md) for all accepte
 | `m`          | Switch between the Review Queue and My PRs.       |
 | `l`          | Toggle scope to the repo where Review launched.   |
 | `/`          | Edit the Review Queue query for this session.     |
+| `f`          | Filter the current list by repository.            |
 | `p` / `n`    | Go to the previous / next PR page.                |
 | `r`          | Refresh the current list from page 1.             |
 | `?`          | Show the effective Review Queue keys.             |
@@ -101,11 +103,13 @@ Press `/` in the Review Queue to edit its active GitHub search. `Enter` applies 
 
 Press `l` in either list to toggle between all repositories and the GitHub repository where you launched `review`. Review starts unscoped. The same scope applies to both lists and every refresh. While scoped, the Review Queue uses `github.repositorySearch` when it is configured. Scope never adds `repo:` to the saved or session-edited query and is never saved to configuration. Existing `repo:` restrictions and Boolean queries stay intact. Scoped searches use the launch repository's GitHub host; GitHub Enterprise Server requires version 3.18 or newer. Outside a Git repository, or if its GitHub repository cannot be resolved, the toggle shows a diagnostic and leaves the list unscoped.
 
+Press `f` in either list to open the repository filter. It lists every repository in the list's search, across all pages, with how many pull requests each has. Move with `j`/`k`, press `space` to check or uncheck a repository (the list updates right away, and you can check several), press `enter` to show only the repository under the cursor, and press `q` or `Escape` to close the panel. `All repositories` clears the filter. Each list keeps its own filter for the session, and toggling scope with `l` clears it. The repository list refreshes in the background once a minute, so the panel usually opens immediately.
+
 Each row shows the title, then repository and change details, then the review decision, check status, comment count, and labels. My PRs also marks drafts.
 
 Rows for a layer of a GitHub native stack show `stack 3/4` after the pull request number, where 1 is the bottom layer. Rows stay in search order, except that a stack's layers are listed together where the stack first appears, highest layer first, so you can review from the bottom of the list upward. When a page has one layer of a stack, Review also loads that stack's other layers that match the same search, even if they would be on a later page. Layers that do not match the search, such as drafts excluded by the query or layers you have already reviewed, are not shown. GitHub Enterprise Server does not have native stacks, so its rows have no stack label. Pull request details include reviewers, checks, the rendered Markdown description, and the complete review conversation. Inline review comments are grouped into review threads: each thread shows its location, resolved state, and source context once, followed by its comments, and resolved threads are dimmed. Descriptions, issue comments, submitted review bodies, and inline review comment bodies use OpenTUI's Markdown renderer. Embedded HTML is stripped to its text: tags, images, link targets, and comments are removed, except that images in Markdown table rows keep their alt text, and fenced and inline code is left unchanged. Drag across text to copy the selection to the clipboard. Use the configured previous/next keys to scroll by one line, `Ctrl+U`/`Ctrl+D` to move by half a page, `g`/`Home` and `Shift+G`/`End` to move to the start and end, `r` to refresh, `e` to show complete source diagnostics, and `q`/`Escape` to return to the unchanged list.
 
-The browser (`b`), diff (`d`), Review Command (`c`), and Review Submission (`s`) shortcuts also work in pull request details, including configured replacements for those keys. They act on the pull request shown in details, even if the list refreshes underneath it. Closing or completing a Review Submission returns to details; a successful submission refreshes both details and the list. List-switching, search, and scope shortcuts remain list-only.
+The browser (`b`), diff (`d`), Review Command (`c`), and Review Submission (`s`) shortcuts also work in pull request details, including configured replacements for those keys. They act on the pull request shown in details, even if the list refreshes underneath it. Closing or completing a Review Submission returns to details; a successful submission refreshes both details and the list. List-switching, search, scope, and repository filter shortcuts remain list-only.
 
 The Review Command runs as the exact configured POSIX shell command. It receives `REVIEW_PR_URL`, `REVIEW_PR_REPOSITORY`, `REVIEW_PR_NUMBER`, `REVIEW_PR_TITLE`, `REVIEW_PR_AUTHOR`, `REVIEW_PR_IS_DRAFT`, `REVIEW_PR_STATE`, `REVIEW_PR_CREATED_AT`, and `REVIEW_PR_UPDATED_AT`. Quote variable references when one value must stay one shell argument.
 

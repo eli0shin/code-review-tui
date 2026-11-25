@@ -17,6 +17,29 @@ import { loadMissingStackLayers } from './stack-layers.ts';
 
 const authoredSearch = ['is:pr', 'author:@me', 'state:open'] as const;
 
+/**
+ * Matches gh search's keyword quoting and intersects the intact query with PR
+ * type, scope, and the repository filter outside its Boolean expression.
+ */
+export function listSearchQuery(
+  list: PullRequestList,
+  search: readonly string[],
+  repository: GitHubRepository | undefined,
+  repositories: readonly string[] = []
+): string {
+  const listSearch = list === 'authored' ? authoredSearch : search;
+  const scope =
+    repository === undefined ? '' : ` repo:${repository.nameWithOwner}`;
+  const filterTerms = repositories.map((name) => `repo:${name}`);
+  const filter =
+    filterTerms.length === 0
+      ? ''
+      : filterTerms.length === 1
+        ? ` ${filterTerms[0]}`
+        : ` (${filterTerms.join(' OR ')})`;
+  return `( ${listSearch.map(searchTerm).join(' ')} ) type:pr${scope}${filter}`;
+}
+
 export function createReviewQueueLoader(
   search: readonly string[]
 ): GitHub['loadReviewQueue'] {
@@ -27,12 +50,10 @@ export function createReviewQueueLoader(
     list: PullRequestList = 'reviewQueue',
     search = searchArguments,
     repository?: GitHubRepository,
-    page: PullRequestPageRequest = { size: 25 }
+    page: PullRequestPageRequest = { size: 25 },
+    repositories: readonly string[] = []
   ) {
-    const listSearch = list === 'authored' ? authoredSearch : search;
-    // Match gh search's keyword quoting and intersect the intact query with
-    // PR type and scope outside its Boolean expression.
-    const query = `( ${listSearch.map(searchTerm).join(' ')} ) type:pr${repository === undefined ? '' : ` repo:${repository.nameWithOwner}`}`;
+    const query = listSearchQuery(list, search, repository, repositories);
     const searchPullRequests: SearchPullRequests = (searchQuery, size, after) =>
       runSearch(searchQuery, size, after, repository, signal, page.fresh);
     const excluded = new Set(page.excludeUrls);

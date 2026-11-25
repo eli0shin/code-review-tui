@@ -34,6 +34,7 @@ A complete example is:
     "togglePullRequestList": ["m"],
     "toggleRepositoryScope": ["l"],
     "editReviewQueueSearch": ["/"],
+    "filterRepositories": ["f"],
     "refresh": ["r"],
     "previousPullRequestPage": ["p"],
     "nextPullRequestPage": ["n"],
@@ -85,6 +86,14 @@ The Review Queue query editor uses the same tokenization rules. It opens with th
 
 Repository scope is a separate session-only toggle, initially off. When enabled, both lists and their manual, automatic, and post-submission refreshes are restricted to the GitHub repository resolved from the launch directory, and the Review Queue uses the repository query described above. Scope does not add a `repo:` term to the saved query or the query editor's text. The raw query, including `repo:` terms and nested Boolean expressions, stays intact. The serialized query is grouped before intersecting `type:pr` and a separate `repo:` qualifier in advanced GraphQL search, preserving the query's Boolean meaning. Resolution requires a Git repository and uses `gh repo view` from the launch directory (ignoring `GH_REPO`); failures leave the list unscoped and show a diagnostic. The canonical repository URL determines the GitHub host for scoped searches, including Enterprise hosts. Turning scope off restores the normal search host. For GitHub Enterprise Server, resolution checks `/meta` and requires version 3.18 or newer: older servers use legacy search that ORs repository qualifiers and cannot safely intersect the intact query, so the toggle remains off with a diagnostic. Restarting restores unscoped queries.
 
+## Repository Filter
+
+`filterRepositories` opens a panel listing every repository in the active list's search, with its matching pull request count, sorted by count and then name. The list covers every page of the search, scope included, and ignores the current Repository Filter. While the list is shown, Review loads it in the background once a minute, so the panel usually opens with data; it shows a loading line otherwise, and an error line if the load failed.
+
+In the panel, the `selectPrevious` and `selectNext` bindings move the panel's cursor. `space` checks or unchecks the repository under it and refetches the list immediately. `enter` shows only that repository and closes the panel. On the `All repositories` row, both clear the filter. `escape`, the `quit` bindings, and `filterRepositories` close the panel and keep the checked repositories. A checked repository that is no longer in the search stays in the panel, with a count of 0, so it can be unchecked.
+
+Each list keeps its own Repository Filter for the session; nothing is saved to configuration. The header shows the filter in place of `All repositories`: one repository's name, or the first name and `+N` for more. The filter is intersected with the grouped query, after any repository scope, as `repo:OWNER/REPO` for one repository or `(repo:A OR repo:B)` for several. Changing the filter resets to page 1. Toggling repository scope clears both lists' filters. The panel does not open while the launch repository is still resolving.
+
 ## Key bindings
 
 The configurable bindings apply to the Review Queue and its pull request details modal. The modal owns all input while it is open and uses the navigation actions listed below. A Review Command, a Diff Command, Lumen, the query editor, and the Review Submission editor own their input while active; Review Queue bindings must not intercept that input.
@@ -111,6 +120,7 @@ The actions have these meanings:
 | `togglePullRequestList`   | `m`              | Switch between the Review Queue and My PRs when a list owns input.        |
 | `toggleRepositoryScope`   | `l`              | Toggle launch-repository scope for both lists when a list owns input.     |
 | `editReviewQueueSearch`   | `/`              | Edit the active Review Queue query for this session, not My PRs.          |
+| `filterRepositories`      | `f`              | Open the Repository Filter for the active list.                           |
 | `refresh`                 | `r`              | Restart the active list at page 1, or refresh the details modal.          |
 | `previousPullRequestPage` | `p`              | Load the previous PR page and reset the Cursor to the first row.          |
 | `nextPullRequestPage`     | `n`              | Load the next PR page, if available, and reset the Cursor.                |

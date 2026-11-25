@@ -60,12 +60,20 @@ export function useReviewQueue({
     return parsed.value;
   }, [searchText]);
 
+  // Each list keeps its own repository filter; empty shows every repository.
+  const [repositoryFilters, setRepositoryFilters] = useState<
+    Readonly<Record<PullRequestList, readonly string[]>>
+  >({ reviewQueue: [], authored: [] });
+  const repositoryFilter = repositoryFilters[list];
+  const listSearch = list === 'reviewQueue' ? search : undefined;
+
   const query = useQuery<PullRequestPage, GitHubFailure>({
     queryKey: [
       'reviewQueue',
       list,
-      list === 'reviewQueue' ? search : null,
+      listSearch ?? null,
       repository,
+      repositoryFilter,
       pageSize,
       pageStart,
     ],
@@ -75,9 +83,10 @@ export function useReviewQueue({
       const result = await github.loadReviewQueue(
         signal,
         list,
-        list === 'reviewQueue' ? search : undefined,
+        listSearch,
         repository,
-        { size: pageSize, ...pageStart, ...(fresh ? { fresh } : {}) }
+        { size: pageSize, ...pageStart, ...(fresh ? { fresh } : {}) },
+        repositoryFilter
       );
       if (!result.ok) throw result.failure;
       return result.value;
@@ -153,6 +162,15 @@ export function useReviewQueue({
     return parsed;
   }
 
+  function setRepositoryFilter(names: readonly string[]): void {
+    setRepositoryFilters((current) => ({ ...current, [list]: names }));
+    resetPage();
+  }
+
+  function clearRepositoryFilters(): void {
+    setRepositoryFilters({ reviewQueue: [], authored: [] });
+  }
+
   function moveCursor(direction: 'previous' | 'next'): void {
     const nextPosition = cursorPosition + (direction === 'next' ? 1 : -1);
     if (nextPosition >= 0 && nextPosition < queue.length) {
@@ -169,12 +187,16 @@ export function useReviewQueue({
     listName,
     searchScope,
     searchText,
+    listSearch,
+    repositoryFilter,
     pageNumber: pageStarts.length + 1,
     resetPage,
     refreshFromStart,
     changePage,
     toggleList,
     applySearch,
+    setRepositoryFilter,
+    clearRepositoryFilters,
     moveCursor,
   };
 }

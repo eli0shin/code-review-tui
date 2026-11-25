@@ -9,18 +9,21 @@ import type { useReviewSubmission } from '../submission/use-review-submission.ts
 import { FailureOverlay, failureMessage } from '../terminal/diagnostics.tsx';
 import type { SystemTheme } from '../terminal/theme.ts';
 import { HelpOverlay } from './help.tsx';
+import { RepositoryFilterModal } from './repository-filter-modal.tsx';
 import { SearchModal } from './search-modal.tsx';
 import type {
   QueueFailureOverlay,
   useQueueFeedback,
 } from './use-queue-feedback.ts';
 import type { useQueueSearch } from './use-queue-search.ts';
+import type { useRepositoryFilter } from './use-repository-filter.ts';
 
 export function QueueOverlays({
   details,
   feedback,
   submission,
   searchEditor,
+  repositoryFilter,
   helpOpen,
   list,
   activeFailure,
@@ -35,6 +38,7 @@ export function QueueOverlays({
   >;
   readonly submission: ReturnType<typeof useReviewSubmission>;
   readonly searchEditor: ReturnType<typeof useQueueSearch>;
+  readonly repositoryFilter: ReturnType<typeof useRepositoryFilter>;
   readonly helpOpen: boolean;
   readonly list: PullRequestList;
   readonly activeFailure: QueueFailureOverlay | undefined;
@@ -86,6 +90,17 @@ export function QueueOverlays({
           editorRef={searchEditor.editorRef}
           onInput={searchEditor.updateText}
           onClose={searchEditor.close}
+          terminal={terminal}
+          theme={theme}
+        />
+      ) : null}
+      {repositoryFilter.open ? (
+        <RepositoryFilterModal
+          rows={repositoryFilter.rows}
+          cursorPosition={repositoryFilter.cursorPosition}
+          loading={repositoryFilter.loading}
+          failure={repositoryFilter.failure}
+          keyBindings={keyBindings}
           terminal={terminal}
           theme={theme}
         />

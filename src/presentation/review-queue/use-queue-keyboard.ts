@@ -10,10 +10,12 @@ import type { useReviewSubmission } from '../submission/use-review-submission.ts
 import { matchesAction, queueActionForKey, stopKey } from '../terminal/keys.ts';
 import type { QueueFailureOverlay } from './use-queue-feedback.ts';
 import type { useQueueSearch } from './use-queue-search.ts';
+import type { useRepositoryFilter } from './use-repository-filter.ts';
 
 export function useQueueKeyboard({
   keyBindings,
   searchEditor,
+  repositoryFilter,
   submission,
   details,
   helpOpen,
@@ -26,6 +28,10 @@ export function useQueueKeyboard({
   readonly searchEditor: Pick<
     ReturnType<typeof useQueueSearch>,
     'draft' | 'handleKey'
+  >;
+  readonly repositoryFilter: Pick<
+    ReturnType<typeof useRepositoryFilter>,
+    'open' | 'handleKey'
   >;
   readonly submission: Pick<
     ReturnType<typeof useReviewSubmission>,
@@ -55,6 +61,10 @@ export function useQueueKeyboard({
       submission.handleKey(key);
       return;
     }
+    if (repositoryFilter.open) {
+      repositoryFilter.handleKey(key);
+      return;
+    }
     if (activeFailure !== undefined) {
       stopKey(key);
       const action = queueActionForKey(key, keyBindings);
@@ -63,7 +73,8 @@ export function useQueueKeyboard({
         action === 'previousPullRequestPage' ||
         action === 'togglePullRequestList' ||
         action === 'toggleRepositoryScope' ||
-        action === 'editReviewQueueSearch'
+        action === 'editReviewQueueSearch' ||
+        action === 'filterRepositories'
       ) {
         actions[action]?.();
       } else if (key.name === 'escape') {
@@ -112,6 +123,7 @@ export function useQueueKeyboard({
 
   const queueOwnsInput =
     searchEditor.draft === undefined &&
+    !repositoryFilter.open &&
     submission.draft === undefined &&
     details.target === undefined &&
     !helpOpen &&

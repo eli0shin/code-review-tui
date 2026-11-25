@@ -29,8 +29,15 @@ export type GitHubRepository = {
   readonly hostname: string;
 };
 
+/** A repository in a list's search and how many of its pull requests match. */
+export type RepositoryCount = {
+  readonly nameWithOwner: string;
+  readonly count: number;
+};
+
 export type GitHubOperation =
   | 'reviewQueue'
+  | 'reviewQueueRepositories'
   | 'pullRequestMetadata'
   | 'pullRequestReviews'
   | 'pullRequestChecks'
@@ -91,8 +98,17 @@ export type GitHub = {
     list?: PullRequestList,
     search?: readonly string[],
     repository?: GitHubRepository,
-    page?: PullRequestPageRequest
+    page?: PullRequestPageRequest,
+    /** Show only these repositories' pull requests; empty shows every repository. */
+    repositories?: readonly string[]
   ): Promise<GitHubResult<PullRequestPage>>;
+  /** Every repository in a list's search, without a repository filter. */
+  loadReviewQueueRepositories(
+    signal: AbortSignal,
+    list: PullRequestList,
+    search: readonly string[] | undefined,
+    repository: GitHubRepository | undefined
+  ): Promise<GitHubResult<readonly RepositoryCount[]>>;
   loadPullRequestDetails(
     url: string,
     signal: AbortSignal,
