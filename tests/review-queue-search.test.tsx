@@ -448,7 +448,10 @@ test('the repository filter lists every page of the search, checks repositories,
         JSON.stringify((await searches()).at(-1)) === JSON.stringify(expected)
     );
   };
-  await view.waitForFrame((frame) => frame.includes('Configured PR'));
+  const list = await view.waitForFrame((frame) =>
+    frame.includes('Configured PR')
+  );
+  expect(list).toContain('f filter');
   await view.waitForFrame(
     async () => (await repositorySearches()).length === 2
   );
