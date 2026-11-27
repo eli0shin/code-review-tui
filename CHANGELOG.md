@@ -1,5 +1,11 @@
 # code-review-tui
 
+## 0.14.0
+
+### Minor Changes
+
+- [#97](https://github.com/eli0shin/code-review-tui/pull/97) [`3e7b083`](https://github.com/eli0shin/code-review-tui/commit/3e7b0835bd6d516ae0ae30c5623be34684954088) Thanks [@eli0shin](https://github.com/eli0shin)! - Drive herdr-frontend instead of the Herdr app when `${XDG_CONFIG_HOME:-$HOME/.config}/herdr/frontend` contains `herdr-frontend`. Each action reads the file, so a switch applies to the next diff or Review Command without restarting `review`. herdr-core starts the new tab's terminal, and herdr-frontend names and focuses the tab. A missing or unreadable file keeps the Herdr app.
+
 ## 0.13.0
 
 ### Minor Changes
