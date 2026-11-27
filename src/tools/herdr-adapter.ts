@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { access, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { PullRequestSummary } from '../domain/pull-request.ts';
 import type {
   Herdr,
@@ -37,7 +39,14 @@ type ProcessOutput = {
 
 // Herdr (the TUI) and the Herdr app are separate products. In the app, the
 // terminals run in herdr-core and `herdr-app` arranges them in tabs.
-type HerdrProgram = 'herdr' | 'herdr-app';
+// herdr-frontend is another window over herdr-core with the same `ls | do`
+// CLI; the frontend selection file names which of the two `review` drives.
+type AppProgram = 'herdr-app' | 'herdr-frontend';
+type HerdrProgram = 'herdr' | AppProgram | 'hc';
+
+// How long herdr-frontend may take to place a new terminal in its tab.
+const FRONTEND_TAB_TIMEOUT_MS = 5000;
+const FRONTEND_TAB_POLL_MS = 50;
 
 type OpenTab = (
   action: TabAction,
@@ -182,14 +191,11 @@ async function openHerdrAppTab(
     );
   }
 
-  const listed = await runHerdr(
-    ['ls'],
-    herdrEnvironment,
-    'createTab',
-    'herdr-app'
-  );
+  // Read for each action, so switching apps applies without a restart.
+  const app = await selectedApp(herdrEnvironment);
+  const listed = await runHerdr(['ls'], herdrEnvironment, 'createTab', app);
   const space = listed.ok
-    ? findTerminalSpace(listed.value, reviewQueueTerminal)
+    ? findTerminalSpace(listed.value, reviewQueueTerminal, app)
     : listed;
   if (!space.ok) {
     return fallback
@@ -201,24 +207,30 @@ async function openHerdrAppTab(
   const environment = Object.entries(
     childEnvironment(options.environment, action, pullRequest)
   ).filter(([name]) => !name.startsWith('HC_'));
-  const cleanup = `herdr-app do pane.focus ${shellQuote(JSON.stringify({ terminal: reviewQueueTerminal }))}; herdr-app do terminal.kill "{\\"terminal\\":\\"$HC_TERMINAL_ID\\"}"`;
-  const created = await runHerdr(
-    [
-      'do',
-      'tab.new',
-      JSON.stringify({
-        space: space.value,
-        name: tabLabel(action, pullRequest),
-        folder: options.workingDirectory,
-        argv: [
-          '/usr/bin/env',
-          ...environment.map(([name, value]) => `${name}=${value}`),
-          '/bin/sh',
-          '-c',
-          tabScript(action, pullRequest, cleanup),
-        ],
-      }),
+  const focusQueue = `${app} do ${app === 'herdr-app' ? 'pane.focus' : 'agent.focus'} ${shellQuote(JSON.stringify({ terminal: reviewQueueTerminal }))}`;
+  // The Herdr app leaves a shell when the program returns, so the tab ends its
+  // own terminal. A terminal `hc run` starts ends with its program.
+  const cleanup =
+    app === 'herdr-app'
+      ? `${focusQueue}; herdr-app do terminal.kill "{\\"terminal\\":\\"$HC_TERMINAL_ID\\"}"`
+      : focusQueue;
+  const tab = {
+    space: space.value,
+    name: tabLabel(action, pullRequest),
+    folder: options.workingDirectory,
+    argv: [
+      '/usr/bin/env',
+      ...environment.map(([name, value]) => `${name}=${value}`),
+      '/bin/sh',
+      '-c',
+      tabScript(action, pullRequest, cleanup),
     ],
+  };
+  if (app === 'herdr-frontend') {
+    return openFrontendTab(herdrEnvironment, tab);
+  }
+  const created = await runHerdr(
+    ['do', 'tab.new', JSON.stringify(tab)],
     herdrEnvironment,
     'createTab',
     'herdr-app'
@@ -226,40 +238,244 @@ async function openHerdrAppTab(
   return created.ok ? { ok: true } : created;
 }
 
-function findTerminalSpace(
-  output: ProcessOutput,
+// herdr-frontend has no `tab.new`. herdr-core starts the terminal with the
+// labels that place it in a new tab of the space, then the window names the
+// tab and focuses its terminal once it shows it.
+async function openFrontendTab(
+  herdrEnvironment: Readonly<NodeJS.ProcessEnv>,
+  tab: {
+    readonly space: string;
+    readonly name: string;
+    readonly folder: string;
+    readonly argv: readonly string[];
+  }
+): Promise<HerdrResult> {
+  const tabId = `tb${randomUUID().replaceAll('-', '')}`;
+  const run = await runHerdr(
+    [
+      'run',
+      '--bg',
+      '--keep',
+      '--no-parent',
+      '--json',
+      '--cwd',
+      tab.folder,
+      '--label',
+      `herdr.space=${tab.space}`,
+      '--label',
+      `herdr.tab=${tabId}`,
+      '--',
+      ...tab.argv,
+    ],
+    herdrEnvironment,
+    'createTab',
+    'hc'
+  );
+  if (!run.ok) return run;
+  const terminal = parseStartedTerminal(run.value);
+  if (!terminal.ok) return terminal;
+
+  // A command that returns at once can end before the window places or
+  // focuses its terminal; it still ran, so that is not a failure.
+  const shown = await waitForFrontendTab(
+    herdrEnvironment,
+    tabId,
+    terminal.value
+  );
+  if (shown === 'ended') return { ok: true };
+  if (shown !== 'shown') {
+    // Don't leave a command running where nothing shows it.
+    await runHerdr(
+      ['kill', terminal.value],
+      herdrEnvironment,
+      'createTab',
+      'hc'
+    );
+    return shown;
+  }
+
+  const rename = await runHerdr(
+    ['do', 'tab.rename', JSON.stringify({ id: tabId, name: tab.name })],
+    herdrEnvironment,
+    'createTab',
+    'herdr-frontend'
+  );
+  const focus = rename.ok
+    ? await runHerdr(
+        ['do', 'agent.focus', JSON.stringify({ terminal: terminal.value })],
+        herdrEnvironment,
+        'focusTab',
+        'herdr-frontend'
+      )
+    : rename;
+  if (focus.ok || (await terminalEnded(herdrEnvironment, terminal.value))) {
+    return { ok: true };
+  }
+  return focus;
+}
+
+async function waitForFrontendTab(
+  herdrEnvironment: Readonly<NodeJS.ProcessEnv>,
+  tabId: string,
   terminal: string
+): Promise<
+  'shown' | 'ended' | { readonly ok: false; readonly failure: HerdrFailure }
+> {
+  const deadline = Date.now() + FRONTEND_TAB_TIMEOUT_MS;
+  for (;;) {
+    const listed = await runHerdr(
+      ['ls'],
+      herdrEnvironment,
+      'createTab',
+      'herdr-frontend'
+    );
+    if (!listed.ok) return listed;
+    const parsed = parseJson(listed.value, 'herdr-frontend CLI');
+    if (!parsed.ok) return parsed;
+    const shown = localSpaces(parsed.value).some((space) =>
+      spaceTabs(space).some(
+        (tab) => tab.id === tabId && tabShowsTerminal(tab, terminal)
+      )
+    );
+    if (shown) return 'shown';
+    // herdr-frontend places only live terminals.
+    if (await terminalEnded(herdrEnvironment, terminal)) return 'ended';
+    if (Date.now() >= deadline) {
+      return failed(
+        'createTab',
+        `The herdr-frontend window did not show the new tab within ${FRONTEND_TAB_TIMEOUT_MS / 1000} seconds.`,
+        undefined,
+        listed.value.stderr
+      );
+    }
+    await sleep(FRONTEND_TAB_POLL_MS);
+  }
+}
+
+// Whether herdr-core reports the terminal finished or no longer has it.
+async function terminalEnded(
+  herdrEnvironment: Readonly<NodeJS.ProcessEnv>,
+  terminal: string
+): Promise<boolean> {
+  const got = await runHerdr(
+    ['get', '--json', terminal],
+    herdrEnvironment,
+    'createTab',
+    'hc'
+  );
+  if (!got.ok) return got.failure.stderr?.includes('"not_found"') ?? false;
+  const parsed = parseJson(got.value, 'herdr-core CLI');
+  return (
+    parsed.ok && isRecord(parsed.value) && parsed.value.state === 'finished'
+  );
+}
+
+// Missing, unreadable, or unknown contents select the Herdr app.
+async function selectedApp(
+  environment: Readonly<NodeJS.ProcessEnv>
+): Promise<AppProgram> {
+  const configHome =
+    environment.XDG_CONFIG_HOME ||
+    (environment.HOME ? join(environment.HOME, '.config') : undefined);
+  if (configHome === undefined) return 'herdr-app';
+  try {
+    const selection = await readFile(
+      join(configHome, 'herdr', 'frontend'),
+      'utf8'
+    );
+    return selection.trim() === 'herdr-frontend'
+      ? 'herdr-frontend'
+      : 'herdr-app';
+  } catch {
+    return 'herdr-app';
+  }
+}
+
+function parseStartedTerminal(
+  output: ProcessOutput
 ):
   | { readonly ok: true; readonly value: string }
   | { readonly ok: false; readonly failure: HerdrFailure } {
-  const parsed = parseJson(output, 'Herdr app CLI');
+  const parsed = parseJson(output, 'herdr-core CLI');
   if (!parsed.ok) return parsed;
-  const spaces =
-    isRecord(parsed.value) && Array.isArray(parsed.value.spaces)
-      ? parsed.value.spaces
-      : [];
-  for (const space of spaces) {
-    // Spaces on other machines hold their terminals there.
-    if (!isRecord(space) || space.machine || typeof space.id !== 'string') {
-      continue;
-    }
-    const tabs = Array.isArray(space.tabs) ? space.tabs : [];
-    const shown = tabs.some(
-      (tab) =>
-        isRecord(tab) &&
-        Array.isArray(tab.terminals) &&
-        tab.terminals.some(
-          (candidate) => isRecord(candidate) && candidate.terminal === terminal
-        )
-    );
-    if (shown) return { ok: true, value: space.id };
+  const record = isRecord(parsed.value) ? parsed.value : {};
+  const address =
+    record.address ??
+    (isRecord(record.terminal) ? record.terminal.address : undefined);
+  if (typeof address === 'string' && address) {
+    return { ok: true, value: address };
   }
   return failed(
     'createTab',
-    'The Herdr app window does not show this terminal. Run review in a Herdr app tab on this computer.',
+    'herdr-core CLI returned incompatible terminal data: address must be a string',
     undefined,
     output.stderr
   );
+}
+
+function findTerminalSpace(
+  output: ProcessOutput,
+  terminal: string,
+  app: AppProgram
+):
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly failure: HerdrFailure } {
+  const parsed = parseJson(output, cliName(app));
+  if (!parsed.ok) return parsed;
+  for (const space of localSpaces(parsed.value)) {
+    if (spaceTabs(space).some((tab) => tabShowsTerminal(tab, terminal))) {
+      return { ok: true, value: space.id };
+    }
+  }
+  const window = app === 'herdr-app' ? 'Herdr app' : 'herdr-frontend';
+  return failed(
+    'createTab',
+    `The ${window} window does not show this terminal. Run review in a ${window} tab on this computer.`,
+    undefined,
+    output.stderr
+  );
+}
+
+// The spaces on this computer in an `ls` listing. Spaces on other machines
+// hold their terminals there.
+function localSpaces(
+  listing: unknown
+): (Record<string, unknown> & { readonly id: string })[] {
+  const spaces =
+    isRecord(listing) && Array.isArray(listing.spaces) ? listing.spaces : [];
+  return spaces.filter(
+    (space): space is Record<string, unknown> & { readonly id: string } =>
+      isRecord(space) && !space.machine && typeof space.id === 'string'
+  );
+}
+
+function spaceTabs(space: Record<string, unknown>): Record<string, unknown>[] {
+  return Array.isArray(space.tabs) ? space.tabs.filter(isRecord) : [];
+}
+
+function tabShowsTerminal(
+  tab: Record<string, unknown>,
+  terminal: string
+): boolean {
+  return (
+    Array.isArray(tab.terminals) &&
+    tab.terminals.some(
+      (candidate) => isRecord(candidate) && candidate.terminal === terminal
+    )
+  );
+}
+
+function cliName(program: HerdrProgram): string {
+  switch (program) {
+    case 'herdr':
+      return 'Herdr CLI';
+    case 'herdr-app':
+      return 'Herdr app CLI';
+    case 'herdr-frontend':
+      return 'herdr-frontend CLI';
+    case 'hc':
+      return 'herdr-core CLI';
+  }
 }
 
 async function runHerdr(
@@ -271,7 +487,7 @@ async function runHerdr(
   | { readonly ok: true; readonly value: ProcessOutput }
   | { readonly ok: false; readonly failure: HerdrFailure }
 > {
-  const cli = program === 'herdr' ? 'Herdr CLI' : 'Herdr app CLI';
+  const cli = cliName(program);
   const subprocess = spawn(program, [...arguments_], {
     env: { ...environment },
     shell: false,
@@ -308,8 +524,10 @@ async function runHerdr(
       operation,
       `${cli} failed while trying to ${operationDescription(operation)}.`,
       outcome.exitCode ?? -1,
-      // `herdr-app do` reports its error as JSON on stdout.
-      program === 'herdr-app' ? stderr || stdout : stderr
+      // `herdr-app do` and `herdr-frontend do` report errors as JSON on stdout.
+      program === 'herdr-app' || program === 'herdr-frontend'
+        ? stderr || stdout
+        : stderr
     );
   }
   return { ok: true, value: { stdout, stderr } };

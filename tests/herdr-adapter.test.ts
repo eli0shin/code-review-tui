@@ -477,6 +477,331 @@ await reply({ ok: true });
 `
     );
     await chmod(executable, 0o755);
+
+    // herdr-frontend places a terminal labeled for a new tab on a later
+    // listing, the way it adopts terminals that herdr-core starts.
+    const frontend = join(directory, 'herdr-frontend');
+    await writeFile(
+      frontend,
+      `#!/usr/bin/env bun
+const record = process.env.FAKE_HERDR_RECORD;
+const state = process.env.FAKE_FRONTEND_STATE;
+const args = process.argv.slice(2);
+await Bun.write(record, (await Bun.file(record).exists() ? await Bun.file(record).text() : '') + JSON.stringify(['herdr-frontend', ...args]) + '\\n');
+const reply = async (value, code = 0) => { await Bun.stdout.write(JSON.stringify(value, null, 2) + '\\n'); process.exit(code); };
+if (args[0] === 'ls') {
+  const spaces = [
+    { id: 'vps/sp2', name: 'remote', machine: 'vps', tabs: [{ id: 'vps/tb2', terminals: [{ terminal: 'vps/t8' }] }] },
+    { id: 'sp1', name: 'repo', machine: null, tabs: [{ id: 'tb1', terminals: [{ terminal: 't7' }] }] },
+  ];
+  if (await Bun.file(state).exists()) {
+    const started = JSON.parse(await Bun.file(state).text());
+    if (process.env.FAKE_FRONTEND_LS_FAIL) {
+      await Bun.stderr.write('herdr-frontend: no Herdr window at sock\\n');
+      process.exit(2);
+    }
+    if (started.listings > 0 && !process.env.FAKE_FRONTEND_NEVER_SHOWS) {
+      spaces.find((space) => space.id === started.space).tabs.push({ id: started.tab, terminals: [{ terminal: started.terminal }] });
+    }
+    await Bun.write(state, JSON.stringify({ ...started, listings: started.listings + 1 }));
+  }
+  await reply({ spaces, recent: [] });
+}
+if (args[0] === 'do' && process.env.FAKE_FRONTEND_FAIL === args[1]) {
+  await reply({ error: 'herdr-frontend is not connected to herdr-core' }, 1);
+}
+await reply({ ok: true });
+`
+    );
+    await chmod(frontend, 0o755);
+
+    const core = join(directory, 'hc');
+    await writeFile(
+      core,
+      `#!/usr/bin/env bun
+const record = process.env.FAKE_HERDR_RECORD;
+const args = process.argv.slice(2);
+await Bun.write(record, (await Bun.file(record).exists() ? await Bun.file(record).text() : '') + JSON.stringify(['hc', ...args]) + '\\n');
+if (args[0] === 'run') {
+  if (process.env.FAKE_HC_FAIL) {
+    await Bun.stderr.write('herdr-core is not running\\n');
+    process.exit(3);
+  }
+  const label = (key) => args.find((value, index) => args[index - 1] === '--label' && value.startsWith(key + '='))?.slice(key.length + 1);
+  await Bun.write(process.env.FAKE_FRONTEND_STATE, JSON.stringify({ space: label('herdr.space'), tab: label('herdr.tab'), terminal: 't9', listings: 0 }));
+  if (process.env.FAKE_HC_EXECUTE) {
+    // herdr-core starts the terminal with its own identity.
+    const argv = args.slice(args.indexOf('--') + 1);
+    const result = Bun.spawnSync(argv, { cwd: args[args.indexOf('--cwd') + 1], env: { ...process.env, HC_TERMINAL_ID: 't9' } });
+    await Bun.stderr.write(result.stderr);
+  }
+  await Bun.stdout.write(JSON.stringify({ address: 't9', labels: {} }) + '\\n');
+}
+if (args[0] === 'get') {
+  if (process.env.FAKE_HC_REMOVED) {
+    await Bun.stderr.write(JSON.stringify({ error: { kind: 'not_found', message: 'no terminal "t9"' } }) + '\\n');
+    process.exit(3);
+  }
+  await Bun.stdout.write(JSON.stringify({ address: 't9', state: process.env.FAKE_HC_FINISHED ? 'finished' : 'live' }) + '\\n');
+}
+`
+    );
+    await chmod(core, 0o755);
+  });
+
+  test('drives the Herdr app when the frontend selection file is missing', async () => {
+    const herdr = createAppAdapter({});
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const [list, create] = await calls();
+    expect(list).toEqual(['ls']);
+    expect(create.slice(0, 2)).toEqual(['do', 'tab.new']);
+  });
+
+  test('drives the Herdr app when the frontend selection file names it', async () => {
+    await selectFrontend('herdr-app\n');
+    const herdr = createAppAdapter({});
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const [list, create] = await calls();
+    expect(list).toEqual(['ls']);
+    expect(create.slice(0, 2)).toEqual(['do', 'tab.new']);
+  });
+
+  test('drives the Herdr app when the frontend selection names neither app', async () => {
+    await selectFrontend('herdr\n');
+    const herdr = createAppAdapter({});
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    expect((await calls())[0]).toEqual(['ls']);
+  });
+
+  test('opens the Review Command in a herdr-frontend tab started by herdr-core when the selection file names it', async () => {
+    await selectFrontend('  herdr-frontend\n');
+    const herdr = createAppAdapter({
+      KEEP: 'yes',
+      HC_TERMINAL_ID: 't7',
+    });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const recorded = await calls();
+    const run = recorded[1] ?? [];
+    const tab = String(run[11]).replace('herdr.tab=', '');
+    expect(tab).toMatch(/^tb[0-9a-f]{32}$/);
+    expect(recorded).toEqual([
+      ['herdr-frontend', 'ls'],
+      [
+        'hc',
+        'run',
+        '--bg',
+        '--keep',
+        '--no-parent',
+        '--json',
+        '--cwd',
+        directory,
+        '--label',
+        'herdr.space=sp1',
+        '--label',
+        `herdr.tab=${tab}`,
+        '--',
+        '/usr/bin/env',
+        'KEEP=yes',
+        `REVIEW_PR_URL=${pullRequest.url}`,
+        `REVIEW_PR_REPOSITORY=${pullRequest.repository}`,
+        'REVIEW_PR_NUMBER=42',
+        `REVIEW_PR_TITLE=${pullRequest.title}`,
+        `REVIEW_PR_AUTHOR=${pullRequest.author}`,
+        'REVIEW_PR_IS_DRAFT=false',
+        `REVIEW_PR_STATE=${pullRequest.state}`,
+        `REVIEW_PR_CREATED_AT=${pullRequest.createdAt}`,
+        `REVIEW_PR_UPDATED_AT=${pullRequest.updatedAt}`,
+        '/bin/sh',
+        '-c',
+        `/bin/sh -c 'pi --prompt "Review $REVIEW_PR_URL"'; herdr-frontend do agent.focus '{"terminal":"t7"}'`,
+      ],
+      // The window places the terminal on a later listing.
+      ['herdr-frontend', 'ls'],
+      ['hc', 'get', '--json', 't9'],
+      ['herdr-frontend', 'ls'],
+      [
+        'herdr-frontend',
+        'do',
+        'tab.rename',
+        JSON.stringify({ id: tab, name: 'Review #42@widgets' }),
+      ],
+      ['herdr-frontend', 'do', 'agent.focus', '{"terminal":"t9"}'],
+    ]);
+  });
+
+  test('runs Lumen in a herdr-frontend tab, saves its comments, and refocuses the Review Queue', async () => {
+    await selectFrontend('herdr-frontend');
+    const destination = join(
+      '/tmp/review/lumen',
+      testOwner,
+      'frontend',
+      '78.txt'
+    );
+    const herdr = createAppAdapter(
+      {},
+      { FAKE_HC_EXECUTE: '1', FAKE_LUMEN_STDOUT: 'frontend comments' }
+    );
+
+    expect(
+      await herdr.openDiff({
+        ...pullRequest,
+        repository: `${testOwner}/frontend`,
+        number: 78,
+      })
+    ).toEqual({ ok: true });
+
+    expect(await readFile(destination, 'utf8')).toBe('frontend comments');
+    // The tab's terminal ends with its program, so nothing kills it.
+    expect((await calls()).slice(2, 3)).toEqual([
+      ['herdr-frontend', 'do', 'agent.focus', '{"terminal":"t7"}'],
+    ]);
+  });
+
+  test('reads the frontend selection under HOME when XDG_CONFIG_HOME is empty', async () => {
+    const home = join(directory, 'home');
+    await mkdir(join(home, '.config', 'herdr'), { recursive: true });
+    await writeFile(
+      join(home, '.config', 'herdr', 'frontend'),
+      'herdr-frontend\n'
+    );
+    const herdr = createAppAdapter({}, { XDG_CONFIG_HOME: '', HOME: home });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    expect((await calls())[0]).toEqual(['herdr-frontend', 'ls']);
+  });
+
+  test('reads the frontend selection for each action', async () => {
+    const herdr = createAppAdapter({});
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+    await selectFrontend('herdr-frontend\n');
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const recorded = await calls();
+    expect(recorded[0]).toEqual(['ls']);
+    expect(recorded[2]).toEqual(['herdr-frontend', 'ls']);
+  });
+
+  test('refuses a terminal the herdr-frontend window shows only on another machine', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter({}, {}, 'vps/t8');
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({
+      ok: false,
+      failure: {
+        operation: 'createTab',
+        message:
+          'The herdr-frontend window does not show this terminal. Run review in a herdr-frontend tab on this computer.',
+        stderr: '',
+      },
+    });
+    expect(await calls()).toEqual([['herdr-frontend', 'ls']]);
+  });
+
+  test('falls back to Herdr when the herdr-frontend window does not show an inherited terminal', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter(
+      {},
+      {
+        HERDR_ENV: '1',
+        HERDR_WORKSPACE_ID: 'w1',
+        HERDR_TAB_ID: 'w1:t1',
+      },
+      't8'
+    );
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    const [list, create] = await calls();
+    expect(list).toEqual(['herdr-frontend', 'ls']);
+    expect(create.slice(0, 4)).toEqual(['tab', 'create', '--workspace', 'w1']);
+  });
+
+  test('returns the herdr-core error when the terminal cannot start', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter({}, { FAKE_HC_FAIL: '1' });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({
+      ok: false,
+      failure: {
+        operation: 'createTab',
+        message: 'herdr-core CLI failed while trying to create a Herdr tab.',
+        exitCode: 3,
+        stderr: 'herdr-core is not running\n',
+      },
+    });
+  });
+
+  test('succeeds when the command ends before herdr-frontend shows its tab', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter(
+      {},
+      { FAKE_FRONTEND_NEVER_SHOWS: '1', FAKE_HC_FINISHED: '1' }
+    );
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    expect((await calls()).slice(2)).toEqual([
+      ['herdr-frontend', 'ls'],
+      ['hc', 'get', '--json', 't9'],
+    ]);
+  });
+
+  test('succeeds when the command ends and its tab is gone before focus', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter(
+      {},
+      { FAKE_FRONTEND_FAIL: 'agent.focus', FAKE_HC_REMOVED: '1' }
+    );
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({ ok: true });
+
+    expect((await calls()).at(-1)).toEqual(['hc', 'get', '--json', 't9']);
+  });
+
+  test('ends the started terminal when herdr-frontend stops answering before it shows the tab', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter({}, { FAKE_FRONTEND_LS_FAIL: '1' });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({
+      ok: false,
+      failure: {
+        operation: 'createTab',
+        message:
+          'herdr-frontend CLI failed while trying to create a Herdr tab.',
+        exitCode: 2,
+        stderr: 'herdr-frontend: no Herdr window at sock\n',
+      },
+    });
+    expect((await calls()).slice(2)).toEqual([
+      ['herdr-frontend', 'ls'],
+      ['hc', 'kill', 't9'],
+    ]);
+  });
+
+  test('returns the herdr-frontend error when the new tab cannot be focused', async () => {
+    await selectFrontend('herdr-frontend\n');
+    const herdr = createAppAdapter({}, { FAKE_FRONTEND_FAIL: 'agent.focus' });
+
+    expect(await herdr.openReviewCommand(pullRequest)).toEqual({
+      ok: false,
+      failure: {
+        operation: 'focusTab',
+        message:
+          'herdr-frontend CLI failed while trying to focus the Herdr tab.',
+        exitCode: 1,
+        stderr: `${JSON.stringify({ error: 'herdr-frontend is not connected to herdr-core' }, null, 2)}\n`,
+      },
+    });
   });
 
   test('opens the Review Command in a new tab of the Review Queue space with the pull request environment', async () => {
@@ -628,8 +953,15 @@ function createAppAdapter(
     herdrEnvironment: {
       PATH: `${directory}:${process.env.PATH ?? ''}`,
       HC_TERMINAL_ID: terminal,
+      XDG_CONFIG_HOME: join(directory, 'config'),
       FAKE_HERDR_RECORD: join(directory, 'calls.jsonl'),
+      FAKE_FRONTEND_STATE: join(directory, 'frontend.json'),
       ...extraHerdrEnvironment,
     },
   });
+}
+
+async function selectFrontend(contents: string): Promise<void> {
+  await mkdir(join(directory, 'config', 'herdr'), { recursive: true });
+  await writeFile(join(directory, 'config', 'herdr', 'frontend'), contents);
 }

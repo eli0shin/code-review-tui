@@ -10,7 +10,7 @@
 
 Require `HERDR_ENV=1` and nonblank `HERDR_WORKSPACE_ID` and `HERDR_TAB_ID` values injected by Herdr. The workspace ID identifies where new Herdr tabs are created. The tab ID is the saved Review Queue Tab for best-effort return focus.
 
-A nonblank `HC_TERMINAL_ID` selects the [Herdr app](#herdr-app) instead, even when `HERDR_ENV=1` is set, because the app's terminals inherit Herdr's context when Herdr launched herdr-core. Herdr panes started from an app terminal inherit `HC_TERMINAL_ID` too, so when Herdr context is also present and `herdr-app ls` fails or the window does not show the terminal, the action uses Herdr instead. Missing context for both stops TUI startup with an actionable instruction to run `review` inside Herdr or the Herdr app. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
+A nonblank `HC_TERMINAL_ID` selects the [Herdr app](#herdr-app) instead, even when `HERDR_ENV=1` is set, because the app's terminals inherit Herdr's context when Herdr launched herdr-core. Herdr panes started from an app terminal inherit `HC_TERMINAL_ID` too, so when Herdr context is also present and `herdr-app ls` fails or the window does not show the terminal, the action uses Herdr instead. Missing context for both stops TUI startup with an actionable instruction to run `review` inside Herdr or the Herdr app. The same `HC_TERMINAL_ID` rules apply when the [frontend selection](#frontend-selection) names herdr-frontend instead of the Herdr app. There is no Herdr connection to start, validate, monitor, reconnect, or shut down.
 
 ## Herdr CLI sequence
 
@@ -81,6 +81,22 @@ The Herdr app is a separate product: herdr-core runs its terminals, and the `her
 2. `herdr-app do tab.new` with one JSON object creates the Herdr tab in that space, named like the Herdr tab label, in the startup working directory. Its `argv` is `/usr/bin/env`, the child environment as `KEY=VALUE` arguments without `HC_*` variables (herdr-core gives each terminal its own), then `/bin/sh -c SCRIPT`. The app shows the new tab.
 
 `SCRIPT` is the same POSIX script as for Herdr: the Lumen script, or `/bin/sh -c CONFIGURED_COMMAND` for a Diff Command or Review Command. Its cleanup makes a best-effort `herdr-app do pane.focus` for the Review Queue terminal, then `herdr-app do terminal.kill` for the tab's own `$HC_TERMINAL_ID`, which closes the tab. The app's own `herdr-app do` errors, reported as JSON on stdout, are the failure output.
+
+### Frontend selection
+
+herdr-frontend is another window over herdr-core. Its `herdr-frontend ls | do` CLI takes the same arguments and returns the same JSON and exit codes as `herdr-app`, but it serves only some commands: not `tab.new`, `pane.focus`, or `terminal.kill`. The file `${XDG_CONFIG_HOME:-$HOME/.config}/herdr/frontend` names the app to drive (an empty `XDG_CONFIG_HOME` counts as unset). Whitespace around its contents is ignored. `herdr-frontend` selects herdr-frontend. A missing or unreadable file, or any other contents, selects the Herdr app. `review` reads the file for each action, so a switch applies to the next action without restarting `review`.
+
+With herdr-frontend selected, each action executes these commands directly from `PATH` without a shell around the CLI process:
+
+1. `herdr-frontend ls` finds the Review Queue space, as `herdr-app ls` does above, with herdr-frontend in the error message.
+2. `hc run --bg --keep --no-parent --json --cwd … --label herdr.space=SPACE --label herdr.tab=TAB -- ARGV` has herdr-core start the tab's terminal. `TAB` is a fresh `tb` ID followed by 32 hexadecimal digits. `ARGV` is the same `/usr/bin/env … /bin/sh -c SCRIPT` as for the Herdr app. Only `.address` (or `.terminal.address`) is parsed from the reply. `--no-parent` keeps herdr-core from typing notes about the terminal into the Review Queue or ending it when `review` exits.
+3. `herdr-frontend ls` repeats every 50 milliseconds until the window shows the terminal in tab `TAB` of a space on this computer. herdr-frontend places only live terminals, so after each listing that does not show it, `hc get --json` checks the terminal. When herdr-core reports it `finished` or no longer has it, the command already ran, and the action succeeds without the next steps. If `ls` fails, or the window does not show the terminal within 5 seconds, `hc kill` ends the terminal so that nothing runs out of sight, and the action fails.
+4. `herdr-frontend do tab.rename` names the tab like the Herdr tab label.
+5. `herdr-frontend do agent.focus` focuses the new terminal.
+
+If either `do` fails, the action still succeeds when `hc get` shows the terminal ended.
+
+The tab's cleanup makes a best-effort `herdr-frontend do agent.focus` for the Review Queue terminal. The terminal `hc run` starts ends with `SCRIPT`, and herdr-frontend then removes its pane and tab, so nothing kills it. `hc` errors on stderr and `herdr-frontend do` errors, reported as JSON on stdout, are the failure output.
 
 ## Exit
 

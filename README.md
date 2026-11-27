@@ -9,7 +9,7 @@ Run `review` inside a Herdr pane or a Herdr app tab. The application loads the c
 - x64 or arm64 macOS, or glibc Linux. musl Linux is not supported.
 - [GitHub CLI](https://cli.github.com/) installed and authenticated with `gh auth login`.
 - [ghp](https://github.com/eli0shin/gh-proxy) 0.2.0 or newer installed and available on `PATH`. Review reads GitHub through ghp's cache, which every process on the machine shares, so many Review instances and agent sessions don't exhaust the GitHub rate limit. Install it with `curl -fsSL https://raw.githubusercontent.com/eli0shin/gh-proxy/main/install.sh | bash`.
-- [Herdr](https://herdr.dev/) installed and available on `PATH`, or the Herdr app with `herdr-app` on `PATH`.
+- [Herdr](https://herdr.dev/) installed and available on `PATH`, or the Herdr app with `herdr-app` on `PATH`. To drive herdr-frontend instead of the Herdr app, put `herdr-frontend` in `${XDG_CONFIG_HOME:-$HOME/.config}/herdr/frontend` and have `herdr-frontend` and `hc` on `PATH`.
 - [Lumen](https://github.com/jnsahaj/lumen) installed and available on `PATH` if you do not configure a Diff Command.
 
 Run `review` inside a Herdr pane, or in a Herdr app tab on the same computer as the app's window. Start it in a Git or Jujutsu repository if you want to open Lumen.
